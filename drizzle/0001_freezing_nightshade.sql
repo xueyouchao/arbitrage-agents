@@ -1,0 +1,2 @@
+DROP INDEX "llm_evaluations_cache_unique";--> statement-breakpoint
+CREATE UNIQUE INDEX "llm_evaluations_cache_unique" ON "llm_evaluations" USING btree ("task_type","input_hash","prompt_version","model");

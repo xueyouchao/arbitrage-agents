@@ -7,3 +7,5 @@ signal/params.json
 signal/regime.json
 .DS_Store
 coverage/
+
+.claude/worktrees/

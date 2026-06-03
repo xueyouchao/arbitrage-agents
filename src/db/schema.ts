@@ -1,0 +1,125 @@
+import { sql } from "drizzle-orm";
+import { boolean, check, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+
+export const scanRuns = pgTable("scan_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  status: text("status").notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  metrics: jsonb("metrics").notNull().default({})
+});
+
+export const venueMarketSnapshots = pgTable("venue_market_snapshots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  scanRunId: uuid("scan_run_id").references(() => scanRuns.id),
+  venue: text("venue").notNull(),
+  venueMarketId: text("venue_market_id").notNull(),
+  rawPayload: jsonb("raw_payload").notNull(),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow()
+});
+
+export const normalizedMarkets = pgTable(
+  "normalized_markets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    venue: text("venue").notNull(),
+    venueMarketId: text("venue_market_id").notNull(),
+    title: text("title").notNull(),
+    rawResolutionText: text("raw_resolution_text").notNull(),
+    topic: text("topic").notNull(),
+    eventType: text("event_type").notNull(),
+    asset: text("asset"),
+    threshold: numeric("threshold"),
+    operator: text("operator"),
+    deadline: timestamp("deadline", { withTimezone: true }),
+    timezone: text("timezone"),
+    resolutionSource: text("resolution_source"),
+    payoffType: text("payoff_type").notNull(),
+    ambiguityFlags: jsonb("ambiguity_flags").notNull().default([]),
+    confidence: numeric("confidence").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [uniqueIndex("normalized_markets_venue_market_unique").on(table.venue, table.venueMarketId)]
+);
+
+export const candidatePairs = pgTable(
+  "candidate_pairs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kalshiMarketId: uuid("kalshi_market_id").references(() => normalizedMarkets.id).notNull(),
+    polymarketMarketId: uuid("polymarket_market_id").references(() => normalizedMarkets.id).notNull(),
+    equivalenceClass: text("equivalence_class"),
+    decision: text("decision"),
+    reasons: jsonb("reasons").notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [uniqueIndex("candidate_pairs_market_unique").on(table.kalshiMarketId, table.polymarketMarketId)]
+);
+
+export const llmEvaluations = pgTable(
+  "llm_evaluations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    taskType: text("task_type").notNull(),
+    promptVersion: text("prompt_version").notNull(),
+    inputHash: text("input_hash").notNull(),
+    model: text("model").notNull(),
+    input: jsonb("input").notNull(),
+    output: jsonb("output"),
+    parsedOutput: jsonb("parsed_output"),
+    status: text("status").notNull(),
+    promptTokens: integer("prompt_tokens"),
+    completionTokens: integer("completion_tokens"),
+    estimatedCostUsd: numeric("estimated_cost_usd"),
+    latencyMs: integer("latency_ms"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [uniqueIndex("llm_evaluations_cache_unique").on(table.taskType, table.inputHash, table.promptVersion, table.model)]
+);
+
+export const orderbookSnapshots = pgTable(
+  "orderbook_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    normalizedMarketId: uuid("normalized_market_id").references(() => normalizedMarkets.id).notNull(),
+    yesAsk: numeric("yes_ask").notNull(),
+    noAsk: numeric("no_ask").notNull(),
+    yesAvailableUsd: numeric("yes_available_usd").notNull(),
+    noAvailableUsd: numeric("no_available_usd").notNull(),
+    rawPayload: jsonb("raw_payload").notNull(),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+    stale: boolean("stale").notNull().default(false)
+  },
+  (table) => [
+    check("orderbook_yes_ask_range", sql`${table.yesAsk} > 0 and ${table.yesAsk} < 1`),
+    check("orderbook_no_ask_range", sql`${table.noAsk} > 0 and ${table.noAsk} < 1`),
+    check("orderbook_yes_available_nonnegative", sql`${table.yesAvailableUsd} >= 0`),
+    check("orderbook_no_available_nonnegative", sql`${table.noAvailableUsd} >= 0`)
+  ]
+);
+
+export const opportunities = pgTable("opportunities", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  candidatePairId: uuid("candidate_pair_id").references(() => candidatePairs.id).notNull(),
+  longLeg: jsonb("long_leg").notNull(),
+  hedgeLeg: jsonb("hedge_leg").notNull(),
+  combinedCost: numeric("combined_cost").notNull(),
+  grossEdge: numeric("gross_edge").notNull(),
+  estimatedFees: numeric("estimated_fees").notNull(),
+  estimatedSlippage: numeric("estimated_slippage").notNull(),
+  netEdge: numeric("net_edge").notNull(),
+  maxTradableUsd: numeric("max_tradable_usd").notNull(),
+  equivalenceClass: text("equivalence_class").notNull(),
+  resolutionRisk: text("resolution_risk").notNull(),
+  fillRisk: text("fill_risk").notNull(),
+  detectedAt: timestamp("detected_at", { withTimezone: true }).notNull(),
+  lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }).notNull()
+});
+
+export const alerts = pgTable("alerts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  opportunityId: uuid("opportunity_id").references(() => opportunities.id).notNull(),
+  channel: text("channel").notNull(),
+  payload: jsonb("payload").notNull(),
+  emittedAt: timestamp("emitted_at", { withTimezone: true }).notNull().defaultNow()
+});

@@ -1,0 +1,596 @@
+{
+  "name": "arbitrage-agents",
+  "description": "Cross-venue prediction market arbitrage intelligence scanner",
+  "languages": [
+    "config",
+    "json",
+    "markdown",
+    "sql",
+    "typescript",
+    "unknown"
+  ],
+  "frameworks": [
+    "NestJS",
+    "Vitest"
+  ],
+  "files": [
+    {
+      "path": ".claude/skills/gitnexus/gitnexus-cli/SKILL.md",
+      "language": "markdown",
+      "sizeLines": 83,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".claude/skills/gitnexus/gitnexus-debugging/SKILL.md",
+      "language": "markdown",
+      "sizeLines": 89,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".claude/skills/gitnexus/gitnexus-exploring/SKILL.md",
+      "language": "markdown",
+      "sizeLines": 78,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".claude/skills/gitnexus/gitnexus-guide/SKILL.md",
+      "language": "markdown",
+      "sizeLines": 64,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md",
+      "language": "markdown",
+      "sizeLines": 97,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".claude/skills/gitnexus/gitnexus-refactoring/SKILL.md",
+      "language": "markdown",
+      "sizeLines": 121,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".env.example",
+      "language": "config",
+      "sizeLines": 7,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/.understandignore",
+      "language": "unknown",
+      "sizeLines": 26,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/preflight.env",
+      "language": "config",
+      "sizeLines": 5,
+      "fileCategory": "config"
+    },
+    {
+      "path": "docs/ADR.md",
+      "language": "markdown",
+      "sizeLines": 323,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/PRD.md",
+      "language": "markdown",
+      "sizeLines": 360,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/PROJECT-SCOPE.md",
+      "language": "markdown",
+      "sizeLines": 161,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "drizzle.config.ts",
+      "language": "typescript",
+      "sizeLines": 10,
+      "fileCategory": "code"
+    },
+    {
+      "path": "drizzle/0000_aromatic_trauma.sql",
+      "language": "sql",
+      "sizeLines": 114,
+      "fileCategory": "data"
+    },
+    {
+      "path": "drizzle/0001_freezing_nightshade.sql",
+      "language": "sql",
+      "sizeLines": 1,
+      "fileCategory": "data"
+    },
+    {
+      "path": "drizzle/meta/_journal.json",
+      "language": "json",
+      "sizeLines": 19,
+      "fileCategory": "config"
+    },
+    {
+      "path": "drizzle/meta/0000_snapshot.json",
+      "language": "json",
+      "sizeLines": 781,
+      "fileCategory": "config"
+    },
+    {
+      "path": "drizzle/meta/0001_snapshot.json",
+      "language": "json",
+      "sizeLines": 787,
+      "fileCategory": "config"
+    },
+    {
+      "path": "nest-cli.json",
+      "language": "json",
+      "sizeLines": 9,
+      "fileCategory": "config"
+    },
+    {
+      "path": "package.json",
+      "language": "json",
+      "sizeLines": 39,
+      "fileCategory": "config"
+    },
+    {
+      "path": "src/api-app.module.ts",
+      "language": "typescript",
+      "sizeLines": 8,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/app.module.ts",
+      "language": "typescript",
+      "sizeLines": 9,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/config/app-config.ts",
+      "language": "typescript",
+      "sizeLines": 41,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/config/config.module.ts",
+      "language": "typescript",
+      "sizeLines": 16,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/config/redaction.ts",
+      "language": "typescript",
+      "sizeLines": 32,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/api/api.module.ts",
+      "language": "typescript",
+      "sizeLines": 29,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/api/health.controller.ts",
+      "language": "typescript",
+      "sizeLines": 9,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/api/markets.controller.ts",
+      "language": "typescript",
+      "sizeLines": 12,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/api/opportunities.controller.ts",
+      "language": "typescript",
+      "sizeLines": 30,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/api/postgres-read-repositories.ts",
+      "language": "typescript",
+      "sizeLines": 235,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/api/read-models.ts",
+      "language": "typescript",
+      "sizeLines": 69,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/api/scan-runs.controller.ts",
+      "language": "typescript",
+      "sizeLines": 12,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/arbitrage/domain/opportunity-calculator.ts",
+      "language": "typescript",
+      "sizeLines": 128,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/arbitrage/domain/opportunity.ts",
+      "language": "typescript",
+      "sizeLines": 42,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/llm/application/in-memory-llm-evaluation-repository.ts",
+      "language": "typescript",
+      "sizeLines": 23,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/llm/application/llm-evaluation.ts",
+      "language": "typescript",
+      "sizeLines": 33,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/llm/application/persisted-llm-gateway.ts",
+      "language": "typescript",
+      "sizeLines": 123,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/matching/domain/candidate-pair-generator.ts",
+      "language": "typescript",
+      "sizeLines": 77,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/matching/domain/candidate-pair.ts",
+      "language": "typescript",
+      "sizeLines": 18,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/matching/domain/crypto-market-normalizer.ts",
+      "language": "typescript",
+      "sizeLines": 116,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/matching/domain/equivalence-policy.ts",
+      "language": "typescript",
+      "sizeLines": 70,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/matching/domain/normalized-market.ts",
+      "language": "typescript",
+      "sizeLines": 25,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/observability/observability.service.ts",
+      "language": "typescript",
+      "sizeLines": 31,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/scanner/in-memory-scanner-repository.ts",
+      "language": "typescript",
+      "sizeLines": 48,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/scanner/postgres-scanner-repository.ts",
+      "language": "typescript",
+      "sizeLines": 153,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/scanner/read-only-scanner.ts",
+      "language": "typescript",
+      "sizeLines": 103,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/scanner/scanner-result.ts",
+      "language": "typescript",
+      "sizeLines": 15,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/scanner/scanner.module.ts",
+      "language": "typescript",
+      "sizeLines": 8,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/scanner/worker-scan-runner.ts",
+      "language": "typescript",
+      "sizeLines": 30,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/venues/application/http-venue-clients.ts",
+      "language": "typescript",
+      "sizeLines": 52,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/venues/application/static-venue-client.ts",
+      "language": "typescript",
+      "sizeLines": 19,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/contexts/venues/domain/venue-market.ts",
+      "language": "typescript",
+      "sizeLines": 16,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/db/schema.ts",
+      "language": "typescript",
+      "sizeLines": 125,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/main-api.ts",
+      "language": "typescript",
+      "sizeLines": 13,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/main-worker.ts",
+      "language": "typescript",
+      "sizeLines": 15,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/worker-app.module.ts",
+      "language": "typescript",
+      "sizeLines": 8,
+      "fileCategory": "code"
+    },
+    {
+      "path": "test/arbitrage.test.ts",
+      "language": "typescript",
+      "sizeLines": 89,
+      "fileCategory": "code"
+    },
+    {
+      "path": "test/config.test.ts",
+      "language": "typescript",
+      "sizeLines": 50,
+      "fileCategory": "code"
+    },
+    {
+      "path": "test/llm-observability.test.ts",
+      "language": "typescript",
+      "sizeLines": 46,
+      "fileCategory": "code"
+    },
+    {
+      "path": "test/matching.test.ts",
+      "language": "typescript",
+      "sizeLines": 110,
+      "fileCategory": "code"
+    },
+    {
+      "path": "test/normalizer.test.ts",
+      "language": "typescript",
+      "sizeLines": 53,
+      "fileCategory": "code"
+    },
+    {
+      "path": "test/scanner.test.ts",
+      "language": "typescript",
+      "sizeLines": 50,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tsconfig.json",
+      "language": "json",
+      "sizeLines": 22,
+      "fileCategory": "config"
+    },
+    {
+      "path": "vitest.config.ts",
+      "language": "typescript",
+      "sizeLines": 8,
+      "fileCategory": "code"
+    }
+  ],
+  "totalFiles": 64,
+  "filteredByIgnore": 0,
+  "estimatedComplexity": "moderate",
+  "importMap": {
+    ".claude/skills/gitnexus/gitnexus-cli/SKILL.md": [],
+    ".claude/skills/gitnexus/gitnexus-debugging/SKILL.md": [],
+    ".claude/skills/gitnexus/gitnexus-exploring/SKILL.md": [],
+    ".claude/skills/gitnexus/gitnexus-guide/SKILL.md": [],
+    ".claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md": [],
+    ".claude/skills/gitnexus/gitnexus-refactoring/SKILL.md": [],
+    ".env.example": [],
+    ".understand-anything/.understandignore": [],
+    ".understand-anything/tmp/preflight.env": [],
+    "docs/ADR.md": [],
+    "docs/PRD.md": [],
+    "docs/PROJECT-SCOPE.md": [],
+    "drizzle.config.ts": [],
+    "drizzle/0000_aromatic_trauma.sql": [],
+    "drizzle/0001_freezing_nightshade.sql": [],
+    "drizzle/meta/_journal.json": [],
+    "drizzle/meta/0000_snapshot.json": [],
+    "drizzle/meta/0001_snapshot.json": [],
+    "nest-cli.json": [],
+    "package.json": [],
+    "src/api-app.module.ts": [
+      "src/config/config.module.ts",
+      "src/contexts/api/api.module.ts"
+    ],
+    "src/app.module.ts": [
+      "src/config/config.module.ts",
+      "src/contexts/api/api.module.ts",
+      "src/contexts/scanner/scanner.module.ts"
+    ],
+    "src/config/app-config.ts": [],
+    "src/config/config.module.ts": [
+      "src/config/app-config.ts"
+    ],
+    "src/config/redaction.ts": [],
+    "src/contexts/api/api.module.ts": [
+      "src/contexts/api/health.controller.ts",
+      "src/contexts/api/markets.controller.ts",
+      "src/contexts/api/opportunities.controller.ts",
+      "src/contexts/api/postgres-read-repositories.ts",
+      "src/contexts/api/read-models.ts",
+      "src/contexts/api/scan-runs.controller.ts"
+    ],
+    "src/contexts/api/health.controller.ts": [],
+    "src/contexts/api/markets.controller.ts": [
+      "src/contexts/api/read-models.ts"
+    ],
+    "src/contexts/api/opportunities.controller.ts": [
+      "src/contexts/api/read-models.ts"
+    ],
+    "src/contexts/api/postgres-read-repositories.ts": [
+      "src/config/app-config.ts",
+      "src/config/config.module.ts",
+      "src/contexts/api/read-models.ts",
+      "src/contexts/arbitrage/domain/opportunity.ts",
+      "src/contexts/matching/domain/normalized-market.ts"
+    ],
+    "src/contexts/api/read-models.ts": [
+      "src/contexts/arbitrage/domain/opportunity.ts",
+      "src/contexts/matching/domain/normalized-market.ts"
+    ],
+    "src/contexts/api/scan-runs.controller.ts": [
+      "src/contexts/api/read-models.ts"
+    ],
+    "src/contexts/arbitrage/domain/opportunity-calculator.ts": [
+      "src/contexts/arbitrage/domain/opportunity.ts",
+      "src/contexts/matching/domain/candidate-pair.ts"
+    ],
+    "src/contexts/arbitrage/domain/opportunity.ts": [
+      "src/contexts/matching/domain/candidate-pair.ts",
+      "src/contexts/matching/domain/normalized-market.ts"
+    ],
+    "src/contexts/llm/application/in-memory-llm-evaluation-repository.ts": [
+      "src/contexts/llm/application/llm-evaluation.ts"
+    ],
+    "src/contexts/llm/application/llm-evaluation.ts": [],
+    "src/contexts/llm/application/persisted-llm-gateway.ts": [
+      "src/contexts/llm/application/llm-evaluation.ts"
+    ],
+    "src/contexts/matching/domain/candidate-pair-generator.ts": [
+      "src/contexts/matching/domain/candidate-pair.ts",
+      "src/contexts/matching/domain/normalized-market.ts"
+    ],
+    "src/contexts/matching/domain/candidate-pair.ts": [
+      "src/contexts/matching/domain/normalized-market.ts"
+    ],
+    "src/contexts/matching/domain/crypto-market-normalizer.ts": [
+      "src/contexts/matching/domain/normalized-market.ts",
+      "src/contexts/venues/domain/venue-market.ts"
+    ],
+    "src/contexts/matching/domain/equivalence-policy.ts": [
+      "src/contexts/matching/domain/candidate-pair.ts"
+    ],
+    "src/contexts/matching/domain/normalized-market.ts": [],
+    "src/contexts/observability/observability.service.ts": [
+      "src/config/redaction.ts"
+    ],
+    "src/contexts/scanner/in-memory-scanner-repository.ts": [
+      "src/contexts/arbitrage/domain/opportunity.ts",
+      "src/contexts/matching/domain/candidate-pair.ts",
+      "src/contexts/matching/domain/normalized-market.ts",
+      "src/contexts/scanner/scanner-result.ts",
+      "src/contexts/venues/domain/venue-market.ts"
+    ],
+    "src/contexts/scanner/postgres-scanner-repository.ts": [
+      "src/contexts/arbitrage/domain/opportunity.ts",
+      "src/contexts/matching/domain/candidate-pair.ts",
+      "src/contexts/matching/domain/normalized-market.ts",
+      "src/contexts/scanner/in-memory-scanner-repository.ts",
+      "src/contexts/scanner/scanner-result.ts",
+      "src/contexts/venues/domain/venue-market.ts"
+    ],
+    "src/contexts/scanner/read-only-scanner.ts": [
+      "src/contexts/arbitrage/domain/opportunity-calculator.ts",
+      "src/contexts/arbitrage/domain/opportunity.ts",
+      "src/contexts/matching/domain/candidate-pair-generator.ts",
+      "src/contexts/matching/domain/crypto-market-normalizer.ts",
+      "src/contexts/matching/domain/equivalence-policy.ts",
+      "src/contexts/scanner/in-memory-scanner-repository.ts",
+      "src/contexts/scanner/scanner-result.ts",
+      "src/contexts/venues/domain/venue-market.ts"
+    ],
+    "src/contexts/scanner/scanner-result.ts": [],
+    "src/contexts/scanner/scanner.module.ts": [
+      "src/contexts/scanner/worker-scan-runner.ts"
+    ],
+    "src/contexts/scanner/worker-scan-runner.ts": [
+      "src/config/app-config.ts",
+      "src/config/config.module.ts",
+      "src/contexts/scanner/postgres-scanner-repository.ts",
+      "src/contexts/scanner/read-only-scanner.ts",
+      "src/contexts/venues/application/http-venue-clients.ts"
+    ],
+    "src/contexts/venues/application/http-venue-clients.ts": [
+      "src/contexts/arbitrage/domain/opportunity.ts",
+      "src/contexts/venues/domain/venue-market.ts"
+    ],
+    "src/contexts/venues/application/static-venue-client.ts": [
+      "src/contexts/arbitrage/domain/opportunity.ts",
+      "src/contexts/venues/domain/venue-market.ts"
+    ],
+    "src/contexts/venues/domain/venue-market.ts": [
+      "src/contexts/arbitrage/domain/opportunity.ts",
+      "src/contexts/matching/domain/normalized-market.ts"
+    ],
+    "src/db/schema.ts": [],
+    "src/main-api.ts": [
+      "src/api-app.module.ts",
+      "src/config/app-config.ts",
+      "src/config/config.module.ts"
+    ],
+    "src/main-worker.ts": [
+      "src/contexts/scanner/worker-scan-runner.ts",
+      "src/worker-app.module.ts"
+    ],
+    "src/worker-app.module.ts": [
+      "src/config/config.module.ts",
+      "src/contexts/scanner/scanner.module.ts"
+    ],
+    "test/arbitrage.test.ts": [
+      "src/contexts/arbitrage/domain/opportunity-calculator.ts",
+      "src/contexts/matching/domain/candidate-pair.ts",
+      "src/contexts/matching/domain/normalized-market.ts"
+    ],
+    "test/config.test.ts": [
+      "src/config/app-config.ts",
+      "src/config/redaction.ts"
+    ],
+    "test/llm-observability.test.ts": [
+      "src/contexts/llm/application/in-memory-llm-evaluation-repository.ts",
+      "src/contexts/llm/application/persisted-llm-gateway.ts",
+      "src/contexts/observability/observability.service.ts"
+    ],
+    "test/matching.test.ts": [
+      "src/contexts/matching/domain/candidate-pair-generator.ts",
+      "src/contexts/matching/domain/equivalence-policy.ts",
+      "src/contexts/matching/domain/normalized-market.ts"
+    ],
+    "test/normalizer.test.ts": [
+      "src/contexts/matching/domain/crypto-market-normalizer.ts",
+      "src/contexts/venues/domain/venue-market.ts"
+    ],
+    "test/scanner.test.ts": [
+      "src/contexts/scanner/in-memory-scanner-repository.ts",
+      "src/contexts/scanner/read-only-scanner.ts",
+      "src/contexts/venues/application/static-venue-client.ts",
+      "src/contexts/venues/domain/venue-market.ts"
+    ],
+    "tsconfig.json": [],
+    "vitest.config.ts": []
+  }
+}

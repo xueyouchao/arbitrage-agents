@@ -1,0 +1,4406 @@
+{
+  "version": "1.0.0",
+  "project": {
+    "name": "arbitrage-agents",
+    "languages": [
+      "config",
+      "json",
+      "markdown",
+      "sql",
+      "typescript",
+      "unknown"
+    ],
+    "frameworks": [
+      "NestJS",
+      "Vitest"
+    ],
+    "description": "Cross-venue prediction market arbitrage intelligence scanner",
+    "analyzedAt": "2026-06-03T17:54:15.850715Z",
+    "gitCommitHash": "f4440c064d4ebc2c59036cab3249ab861a6438a7"
+  },
+  "nodes": [
+    {
+      "id": "file:src/contexts/arbitrage/domain/opportunity.ts",
+      "type": "file",
+      "name": "opportunity.ts",
+      "filePath": "src/contexts/arbitrage/domain/opportunity.ts",
+      "summary": "Defines the core arbitrage opportunity contracts, market book shape, and risk levels shared by matching, scanning, venue, and read-model code.",
+      "tags": [
+        "data-model",
+        "type-definition",
+        "arbitrage-domain"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/contexts/matching/domain/crypto-market-normalizer.ts",
+      "type": "file",
+      "name": "crypto-market-normalizer.ts",
+      "filePath": "src/contexts/matching/domain/crypto-market-normalizer.ts",
+      "summary": "Normalizes raw venue market snapshots into structured crypto market descriptors by parsing assets, price thresholds, operators, deadlines, resolution sources, and ambiguity flags.",
+      "tags": [
+        "normalization",
+        "domain-service",
+        "parsing",
+        "validation",
+        "tested"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "Uses regex-driven TypeScript parsing helpers to convert heterogeneous prediction-market text into deterministic domain fields."
+    },
+    {
+      "id": "file:src/contexts/scanner/in-memory-scanner-repository.ts",
+      "type": "file",
+      "name": "in-memory-scanner-repository.ts",
+      "filePath": "src/contexts/scanner/in-memory-scanner-repository.ts",
+      "summary": "Provides the scanner persistence port plus an in-memory implementation that records scan runs, snapshots, normalized markets, candidate pairs, and opportunities for tests or local runs.",
+      "tags": [
+        "repository",
+        "persistence",
+        "test-support",
+        "scanner",
+        "tested"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/contexts/scanner/postgres-scanner-repository.ts",
+      "type": "file",
+      "name": "postgres-scanner-repository.ts",
+      "filePath": "src/contexts/scanner/postgres-scanner-repository.ts",
+      "summary": "Implements scanner persistence against PostgreSQL tables, upserting scan runs, normalized markets, candidate pairs, and opportunities with stable UUIDs derived from domain keys.",
+      "tags": [
+        "repository",
+        "persistence",
+        "postgres",
+        "database"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "SQL statements are embedded directly in repository methods and use JSONB payloads for flexible domain data."
+    },
+    {
+      "id": "file:src/contexts/scanner/read-only-scanner.ts",
+      "type": "file",
+      "name": "read-only-scanner.ts",
+      "filePath": "src/contexts/scanner/read-only-scanner.ts",
+      "summary": "Coordinates a non-trading scan cycle across venue clients, normalization, pair generation, equivalence classification, opportunity calculation, and repository persistence.",
+      "tags": [
+        "orchestration",
+        "scanner",
+        "domain-service",
+        "read-only",
+        "tested"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/contexts/scanner/scanner-result.ts",
+      "type": "file",
+      "name": "scanner-result.ts",
+      "filePath": "src/contexts/scanner/scanner-result.ts",
+      "summary": "Defines scan result and metrics interfaces used to track scanner lifecycle status and counts for markets, pairs, opportunities, and LLM evaluations.",
+      "tags": [
+        "data-model",
+        "type-definition",
+        "scanner",
+        "metrics"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/contexts/venues/application/http-venue-clients.ts",
+      "type": "file",
+      "name": "http-venue-clients.ts",
+      "filePath": "src/contexts/venues/application/http-venue-clients.ts",
+      "summary": "Provides public HTTP clients for Kalshi and Polymarket that fetch open market listings and adapt API payloads into venue market snapshots.",
+      "tags": [
+        "venue-client",
+        "http-integration",
+        "api-client",
+        "adapter"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/contexts/venues/application/static-venue-client.ts",
+      "type": "file",
+      "name": "static-venue-client.ts",
+      "filePath": "src/contexts/venues/application/static-venue-client.ts",
+      "summary": "Implements a deterministic venue client backed by supplied market and orderbook arrays for tests and offline scanner execution.",
+      "tags": [
+        "venue-client",
+        "test-support",
+        "fixture",
+        "adapter",
+        "tested"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/contexts/venues/domain/venue-market.ts",
+      "type": "file",
+      "name": "venue-market.ts",
+      "filePath": "src/contexts/venues/domain/venue-market.ts",
+      "summary": "Defines venue snapshot and venue client contracts that decouple scanner logic from concrete market data providers.",
+      "tags": [
+        "data-model",
+        "type-definition",
+        "venue-domain",
+        "port",
+        "tested"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:test/normalizer.test.ts",
+      "type": "file",
+      "name": "normalizer.test.ts",
+      "filePath": "test/normalizer.test.ts",
+      "summary": "Tests crypto market normalization for clear BTC markets, ambiguous ETH touch markets, and dollar-threshold precedence over date numbers.",
+      "tags": [
+        "test",
+        "normalization",
+        "parsing",
+        "regression"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:test/scanner.test.ts",
+      "type": "file",
+      "name": "scanner.test.ts",
+      "filePath": "test/scanner.test.ts",
+      "summary": "Tests that the read-only scanner persists scan runs, snapshots, normalized markets, candidate pairs, and opportunities when driven by static venue clients.",
+      "tags": [
+        "test",
+        "scanner",
+        "integration",
+        "persistence"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/contexts/matching/domain/crypto-market-normalizer.ts:CryptoMarketNormalizer",
+      "type": "class",
+      "name": "CryptoMarketNormalizer",
+      "filePath": "src/contexts/matching/domain/crypto-market-normalizer.ts",
+      "lineRange": [
+        4,
+        34
+      ],
+      "summary": "Transforms a venue market snapshot into a normalized crypto market by delegating extraction of semantic fields to focused parsing helpers.",
+      "tags": [
+        "normalization",
+        "domain-service",
+        "parser"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/contexts/matching/domain/crypto-market-normalizer.ts:parseThreshold",
+      "type": "function",
+      "name": "parseThreshold",
+      "filePath": "src/contexts/matching/domain/crypto-market-normalizer.ts",
+      "lineRange": [
+        42,
+        55
+      ],
+      "summary": "Extracts a numeric price threshold from explicit dollar patterns or comparative phrases while avoiding unrelated text when possible.",
+      "tags": [
+        "parsing",
+        "validation",
+        "threshold"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/contexts/matching/domain/crypto-market-normalizer.ts:parseDeadline",
+      "type": "function",
+      "name": "parseDeadline",
+      "filePath": "src/contexts/matching/domain/crypto-market-normalizer.ts",
+      "lineRange": [
+        88,
+        100
+      ],
+      "summary": "Parses either ISO timestamps or January date phrases into UTC ISO deadline strings for normalized markets.",
+      "tags": [
+        "parsing",
+        "date",
+        "deadline"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/contexts/matching/domain/crypto-market-normalizer.ts:ambiguityFlagsFor",
+      "type": "function",
+      "name": "ambiguityFlagsFor",
+      "filePath": "src/contexts/matching/domain/crypto-market-normalizer.ts",
+      "lineRange": [
+        102,
+        116
+      ],
+      "summary": "Builds normalization ambiguity flags for missing asset, threshold, operator, resolution source, or deadline fields.",
+      "tags": [
+        "validation",
+        "ambiguity",
+        "quality-signal"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/contexts/scanner/in-memory-scanner-repository.ts:InMemoryScannerRepository",
+      "type": "class",
+      "name": "InMemoryScannerRepository",
+      "filePath": "src/contexts/scanner/in-memory-scanner-repository.ts",
+      "lineRange": [
+        15,
+        48
+      ],
+      "summary": "Stores scanner artifacts in arrays while implementing the shared scanner repository contract for tests and lightweight local execution.",
+      "tags": [
+        "repository",
+        "in-memory",
+        "test-support"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/contexts/scanner/postgres-scanner-repository.ts:PostgresScannerRepository",
+      "type": "class",
+      "name": "PostgresScannerRepository",
+      "filePath": "src/contexts/scanner/postgres-scanner-repository.ts",
+      "lineRange": [
+        9,
+        140
+      ],
+      "summary": "Persists scanner outputs into PostgreSQL using upserts for scan runs, normalized markets, candidate pairs, and opportunities.",
+      "tags": [
+        "repository",
+        "postgres",
+        "persistence"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/contexts/scanner/postgres-scanner-repository.ts:uuidFromStableKey",
+      "type": "function",
+      "name": "uuidFromStableKey",
+      "filePath": "src/contexts/scanner/postgres-scanner-repository.ts",
+      "lineRange": [
+        143,
+        153
+      ],
+      "summary": "Derives deterministic UUID-shaped identifiers from stable domain keys for database rows that originate outside PostgreSQL.",
+      "tags": [
+        "utility",
+        "hashing",
+        "identifier"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/contexts/scanner/read-only-scanner.ts:ReadOnlyScanner",
+      "type": "class",
+      "name": "ReadOnlyScanner",
+      "filePath": "src/contexts/scanner/read-only-scanner.ts",
+      "lineRange": [
+        18,
+        98
+      ],
+      "summary": "Runs the scanner pipeline without placing trades, handling venue failures and persistence failures by recording failed scan results.",
+      "tags": [
+        "orchestration",
+        "scanner",
+        "pipeline"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/contexts/venues/application/http-venue-clients.ts:KalshiPublicVenueClient",
+      "type": "class",
+      "name": "KalshiPublicVenueClient",
+      "filePath": "src/contexts/venues/application/http-venue-clients.ts",
+      "lineRange": [
+        4,
+        27
+      ],
+      "summary": "Fetches open Kalshi markets from the public API and maps each response item into a venue market snapshot.",
+      "tags": [
+        "api-client",
+        "venue-client",
+        "kalshi"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/contexts/venues/application/http-venue-clients.ts:PolymarketPublicVenueClient",
+      "type": "class",
+      "name": "PolymarketPublicVenueClient",
+      "filePath": "src/contexts/venues/application/http-venue-clients.ts",
+      "lineRange": [
+        29,
+        52
+      ],
+      "summary": "Fetches open Polymarket markets from the public Gamma API and maps each response item into a venue market snapshot.",
+      "tags": [
+        "api-client",
+        "venue-client",
+        "polymarket"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/contexts/venues/application/static-venue-client.ts:StaticVenueClient",
+      "type": "class",
+      "name": "StaticVenueClient",
+      "filePath": "src/contexts/venues/application/static-venue-client.ts",
+      "lineRange": [
+        9,
+        19
+      ],
+      "summary": "Returns preloaded markets and orderbooks through the venue client interface for deterministic tests and offline runs.",
+      "tags": [
+        "test-support",
+        "venue-client",
+        "fixture"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:test/normalizer.test.ts:snapshot",
+      "type": "function",
+      "name": "snapshot",
+      "filePath": "test/normalizer.test.ts",
+      "lineRange": [
+        5,
+        15
+      ],
+      "summary": "Creates venue market snapshot fixtures with sensible defaults and targeted overrides for normalizer tests.",
+      "tags": [
+        "test",
+        "fixture",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:test/scanner.test.ts:market",
+      "type": "function",
+      "name": "market",
+      "filePath": "test/scanner.test.ts",
+      "lineRange": [
+        9,
+        18
+      ],
+      "summary": "Creates venue market snapshot fixtures for scanner integration tests across Kalshi and Polymarket venues.",
+      "tags": [
+        "test",
+        "fixture",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/api-app.module.ts",
+      "type": "file",
+      "name": "api-app.module.ts",
+      "filePath": "src/api-app.module.ts",
+      "summary": "Defines the NestJS API application composition root by wiring shared configuration with the HTTP API module. It provides the focused module used by the API bootstrap path.",
+      "tags": [
+        "nestjs-module",
+        "api-entry-point",
+        "composition-root"
+      ],
+      "complexity": "simple",
+      "languageNotes": "NestJS module metadata is expressed through decorators while the exported class remains intentionally empty."
+    },
+    {
+      "id": "class:src/api-app.module.ts:ApiAppModule",
+      "type": "class",
+      "name": "ApiAppModule",
+      "filePath": "src/api-app.module.ts",
+      "lineRange": [
+        8,
+        8
+      ],
+      "summary": "Exports the API-only NestJS application module that combines configuration and API routes for HTTP serving.",
+      "tags": [
+        "nestjs-module",
+        "api-handler",
+        "composition-root"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/app.module.ts",
+      "type": "file",
+      "name": "app.module.ts",
+      "filePath": "src/app.module.ts",
+      "summary": "Defines the full NestJS application module that combines configuration, API, and scanner contexts. It serves as a broader composition root for running the complete application stack.",
+      "tags": [
+        "nestjs-module",
+        "composition-root",
+        "entry-point"
+      ],
+      "complexity": "simple",
+      "languageNotes": "The file uses NestJS decorators to declare module imports rather than imperative bootstrapping logic."
+    },
+    {
+      "id": "class:src/app.module.ts:AppModule",
+      "type": "class",
+      "name": "AppModule",
+      "filePath": "src/app.module.ts",
+      "lineRange": [
+        9,
+        9
+      ],
+      "summary": "Exports the aggregate application module that imports the API and scanner modules alongside shared configuration.",
+      "tags": [
+        "nestjs-module",
+        "composition-root",
+        "application-shell"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/config/app-config.ts",
+      "type": "file",
+      "name": "app-config.ts",
+      "filePath": "src/config/app-config.ts",
+      "summary": "Defines environment-driven application configuration validation and normalization for ports, database access, and venue API URLs. The exported loader centralizes runtime defaults and zod-based parsing.",
+      "tags": [
+        "configuration",
+        "validation",
+        "runtime-settings",
+        "zod",
+        "tested"
+      ],
+      "complexity": "simple",
+      "languageNotes": "Zod infers the AppConfig type directly from the schema, keeping runtime validation and TypeScript typing aligned."
+    },
+    {
+      "id": "function:src/config/app-config.ts:loadAppConfig",
+      "type": "function",
+      "name": "loadAppConfig",
+      "filePath": "src/config/app-config.ts",
+      "lineRange": [
+        27,
+        37
+      ],
+      "summary": "Builds the typed application configuration from environment variables, applying numeric defaults and trimming empty optional URL values before schema validation.",
+      "tags": [
+        "configuration",
+        "validation",
+        "environment",
+        "factory"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/config/config.module.ts",
+      "type": "file",
+      "name": "config.module.ts",
+      "filePath": "src/config/config.module.ts",
+      "summary": "Provides the NestJS configuration module and injection token for the validated application configuration. It exposes the AppConfig provider globally to downstream API and worker services.",
+      "tags": [
+        "configuration",
+        "dependency-injection",
+        "nestjs-module",
+        "provider"
+      ],
+      "complexity": "simple",
+      "languageNotes": "The module uses a custom injection token instead of relying on stringly typed environment access throughout the app."
+    },
+    {
+      "id": "class:src/config/config.module.ts:AppConfigModule",
+      "type": "class",
+      "name": "AppConfigModule",
+      "filePath": "src/config/config.module.ts",
+      "lineRange": [
+        16,
+        16
+      ],
+      "summary": "Exports the NestJS global configuration module that binds APP_CONFIG to the validated environment-derived settings object.",
+      "tags": [
+        "configuration",
+        "nestjs-module",
+        "dependency-injection"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/contexts/scanner/scanner.module.ts",
+      "type": "file",
+      "name": "scanner.module.ts",
+      "filePath": "src/contexts/scanner/scanner.module.ts",
+      "summary": "Defines the NestJS scanner context module and registers the worker scan runner as its provider. It packages scanner orchestration for worker application startup.",
+      "tags": [
+        "scanner",
+        "nestjs-module",
+        "provider",
+        "orchestration"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/contexts/scanner/scanner.module.ts:ScannerModule",
+      "type": "class",
+      "name": "ScannerModule",
+      "filePath": "src/contexts/scanner/scanner.module.ts",
+      "lineRange": [
+        8,
+        8
+      ],
+      "summary": "Exports the scanner module that makes WorkerScanRunner available through NestJS dependency injection.",
+      "tags": [
+        "scanner",
+        "nestjs-module",
+        "provider"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/contexts/scanner/worker-scan-runner.ts",
+      "type": "file",
+      "name": "worker-scan-runner.ts",
+      "filePath": "src/contexts/scanner/worker-scan-runner.ts",
+      "summary": "Implements the worker-side scan runner that creates database-backed repositories, public venue clients, and a read-only scanner for one scan cycle. It also owns PostgreSQL pool cleanup when the NestJS context shuts down.",
+      "tags": [
+        "worker",
+        "scanner",
+        "orchestration",
+        "database"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "The runner mixes NestJS lifecycle hooks with explicit construction of domain services and repository adapters."
+    },
+    {
+      "id": "class:src/contexts/scanner/worker-scan-runner.ts:WorkerScanRunner",
+      "type": "class",
+      "name": "WorkerScanRunner",
+      "filePath": "src/contexts/scanner/worker-scan-runner.ts",
+      "lineRange": [
+        10,
+        30
+      ],
+      "summary": "Coordinates one scanner execution by wiring the PostgreSQL repository, Kalshi and Polymarket clients, and ReadOnlyScanner, then releases the database pool on module destruction.",
+      "tags": [
+        "worker",
+        "scanner",
+        "orchestration",
+        "lifecycle"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/main-api.ts",
+      "type": "file",
+      "name": "main-api.ts",
+      "filePath": "src/main-api.ts",
+      "summary": "Bootstraps the HTTP API process by creating the API NestJS app, reading the configured port, and starting the listener. It is the runtime entry point for serving the arbitrage scanner API.",
+      "tags": [
+        "entry-point",
+        "api-server",
+        "bootstrap",
+        "nestjs"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/main-worker.ts",
+      "type": "file",
+      "name": "main-worker.ts",
+      "filePath": "src/main-worker.ts",
+      "summary": "Bootstraps a NestJS application context for the worker process, runs one scanner pass, and closes the context afterward. It is the command entry point for scheduled or one-shot scan execution.",
+      "tags": [
+        "entry-point",
+        "worker",
+        "bootstrap",
+        "scanner"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/worker-app.module.ts",
+      "type": "file",
+      "name": "worker-app.module.ts",
+      "filePath": "src/worker-app.module.ts",
+      "summary": "Defines the NestJS worker application module by composing configuration with the scanner module. It provides the minimal module graph used by the worker bootstrap path.",
+      "tags": [
+        "worker",
+        "nestjs-module",
+        "composition-root"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/worker-app.module.ts:WorkerAppModule",
+      "type": "class",
+      "name": "WorkerAppModule",
+      "filePath": "src/worker-app.module.ts",
+      "lineRange": [
+        8,
+        8
+      ],
+      "summary": "Exports the worker-only application module that imports configuration and scanner providers for background scan execution.",
+      "tags": [
+        "worker",
+        "nestjs-module",
+        "composition-root"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/config/redaction.ts",
+      "type": "file",
+      "name": "redaction.ts",
+      "filePath": "src/config/redaction.ts",
+      "summary": "Provides recursive redaction helpers for removing secrets from configuration objects, free-form metadata, and text before logging or observability capture.",
+      "tags": [
+        "utility",
+        "security",
+        "redaction",
+        "configuration",
+        "tested"
+      ],
+      "complexity": "simple",
+      "languageNotes": "TypeScript utility module uses a recursive unknown-value walker plus regular-expression key matching to keep redaction centralized."
+    },
+    {
+      "id": "function:src/config/redaction.ts:redactSensitiveData",
+      "type": "function",
+      "name": "redactSensitiveData",
+      "filePath": "src/config/redaction.ts",
+      "lineRange": [
+        5,
+        7
+      ],
+      "summary": "Exports the object-oriented redaction entry point that delegates arbitrary values to the recursive redaction walker.",
+      "tags": [
+        "utility",
+        "security",
+        "redaction",
+        "serialization"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/config/redaction.ts:redactSensitiveText",
+      "type": "function",
+      "name": "redactSensitiveText",
+      "filePath": "src/config/redaction.ts",
+      "lineRange": [
+        9,
+        11
+      ],
+      "summary": "Exports the string redaction helper that replaces obvious bearer-style secret fragments in text payloads.",
+      "tags": [
+        "utility",
+        "security",
+        "redaction",
+        "text-processing"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/config/redaction.ts:redactValue",
+      "type": "function",
+      "name": "redactValue",
+      "filePath": "src/config/redaction.ts",
+      "lineRange": [
+        13,
+        32
+      ],
+      "summary": "Recursively traverses arrays and plain objects, replacing values whose keys look sensitive while preserving safe nested fields.",
+      "tags": [
+        "utility",
+        "security",
+        "recursive",
+        "redaction"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/contexts/llm/application/in-memory-llm-evaluation-repository.ts",
+      "type": "file",
+      "name": "in-memory-llm-evaluation-repository.ts",
+      "filePath": "src/contexts/llm/application/in-memory-llm-evaluation-repository.ts",
+      "summary": "Implements an in-memory LLM evaluation repository for tests and lightweight runtime scenarios, supporting cache lookup by prompt metadata and input hash.",
+      "tags": [
+        "repository",
+        "in-memory",
+        "llm",
+        "caching",
+        "tested"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/contexts/llm/application/in-memory-llm-evaluation-repository.ts:InMemoryLlmEvaluationRepository",
+      "type": "class",
+      "name": "InMemoryLlmEvaluationRepository",
+      "filePath": "src/contexts/llm/application/in-memory-llm-evaluation-repository.ts",
+      "lineRange": [
+        3,
+        23
+      ],
+      "summary": "Stores LLM evaluation records in process memory and finds cached successful records matching task, prompt version, model, and input hash.",
+      "tags": [
+        "repository",
+        "in-memory",
+        "llm",
+        "caching"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/contexts/llm/application/llm-evaluation.ts",
+      "type": "file",
+      "name": "llm-evaluation.ts",
+      "filePath": "src/contexts/llm/application/llm-evaluation.ts",
+      "summary": "Defines the request, provider result, persisted record, and repository contracts used by the LLM evaluation gateway and storage implementations.",
+      "tags": [
+        "type-definition",
+        "llm",
+        "repository",
+        "contract"
+      ],
+      "complexity": "simple",
+      "languageNotes": "This module is a TypeScript interface contract surface with no runtime exports extracted by the structural parser."
+    },
+    {
+      "id": "file:src/contexts/llm/application/persisted-llm-gateway.ts",
+      "type": "file",
+      "name": "persisted-llm-gateway.ts",
+      "filePath": "src/contexts/llm/application/persisted-llm-gateway.ts",
+      "summary": "Wraps an LLM provider with deterministic input hashing, cache persistence, task-specific Zod validation, token accounting, and failed-output recording.",
+      "tags": [
+        "service",
+        "llm",
+        "caching",
+        "validation",
+        "observability",
+        "tested"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "The gateway combines stable JSON serialization with Zod schemas to make LLM calls repeatable and auditable."
+    },
+    {
+      "id": "class:src/contexts/llm/application/persisted-llm-gateway.ts:PersistedLlmGateway",
+      "type": "class",
+      "name": "PersistedLlmGateway",
+      "filePath": "src/contexts/llm/application/persisted-llm-gateway.ts",
+      "lineRange": [
+        12,
+        59
+      ],
+      "summary": "Evaluates LLM requests through a provider, reuses cached successful records, validates outputs, and saves success or failure records with timing and cost metadata.",
+      "tags": [
+        "service",
+        "llm",
+        "caching",
+        "validation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/contexts/llm/application/persisted-llm-gateway.ts:stableStringify",
+      "type": "function",
+      "name": "stableStringify",
+      "filePath": "src/contexts/llm/application/persisted-llm-gateway.ts",
+      "lineRange": [
+        65,
+        74
+      ],
+      "summary": "Serializes nested values with deterministic object-key ordering so semantically identical LLM inputs hash to the same cache key.",
+      "tags": [
+        "utility",
+        "serialization",
+        "hashing",
+        "caching"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/contexts/llm/application/persisted-llm-gateway.ts:schemaForTask",
+      "type": "function",
+      "name": "schemaForTask",
+      "filePath": "src/contexts/llm/application/persisted-llm-gateway.ts",
+      "lineRange": [
+        86,
+        117
+      ],
+      "summary": "Selects strict Zod output schemas for each supported LLM task type, including market equivalence, normalization, critique, and explanation responses.",
+      "tags": [
+        "validation",
+        "schema",
+        "llm",
+        "zod"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/contexts/observability/observability.service.ts",
+      "type": "file",
+      "name": "observability.service.ts",
+      "filePath": "src/contexts/observability/observability.service.ts",
+      "summary": "Provides an observability capture service that records error and info events while redacting sensitive messages and metadata before storage or sink forwarding.",
+      "tags": [
+        "service",
+        "observability",
+        "security",
+        "redaction",
+        "tested"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/contexts/observability/observability.service.ts:ObservabilityService",
+      "type": "class",
+      "name": "ObservabilityService",
+      "filePath": "src/contexts/observability/observability.service.ts",
+      "lineRange": [
+        13,
+        31
+      ],
+      "summary": "Captures observability events, stores redacted copies in memory, and optionally forwards them to an injected sink without exposing secrets.",
+      "tags": [
+        "service",
+        "observability",
+        "redaction",
+        "event-handler"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:test/config.test.ts",
+      "type": "file",
+      "name": "config.test.ts",
+      "filePath": "test/config.test.ts",
+      "summary": "Tests environment configuration parsing and sensitive-data redaction, including invalid port rejection and recursive secret-key masking.",
+      "tags": [
+        "test",
+        "configuration",
+        "validation",
+        "redaction"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:test/llm-observability.test.ts",
+      "type": "file",
+      "name": "llm-observability.test.ts",
+      "filePath": "test/llm-observability.test.ts",
+      "summary": "Tests the persisted LLM gateway cache and validation behavior alongside observability metadata redaction for captured errors.",
+      "tags": [
+        "test",
+        "llm",
+        "observability",
+        "caching",
+        "redaction"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/contexts/api/api.module.ts",
+      "type": "file",
+      "name": "api.module.ts",
+      "filePath": "src/contexts/api/api.module.ts",
+      "summary": "Defines the NestJS API module that wires health, market, opportunity, and scan-run controllers to PostgreSQL-backed read repositories and read services.",
+      "tags": [
+        "api-module",
+        "dependency-injection",
+        "nestjs",
+        "composition"
+      ],
+      "complexity": "simple",
+      "languageNotes": "Uses a NestJS module class with provider tokens to connect controller-facing read services to repository implementations."
+    },
+    {
+      "id": "file:src/contexts/api/health.controller.ts",
+      "type": "file",
+      "name": "health.controller.ts",
+      "filePath": "src/contexts/api/health.controller.ts",
+      "summary": "Exposes a minimal health-check controller for API liveness reporting.",
+      "tags": [
+        "api-handler",
+        "health-check",
+        "nestjs",
+        "controller"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/contexts/api/markets.controller.ts",
+      "type": "file",
+      "name": "markets.controller.ts",
+      "filePath": "src/contexts/api/markets.controller.ts",
+      "summary": "Provides a market listing API controller that delegates read operations to the market read service.",
+      "tags": [
+        "api-handler",
+        "read-model",
+        "markets",
+        "controller"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/contexts/api/opportunities.controller.ts",
+      "type": "file",
+      "name": "opportunities.controller.ts",
+      "filePath": "src/contexts/api/opportunities.controller.ts",
+      "summary": "Provides opportunity listing and lookup endpoints, including UUID validation before fetching a single arbitrage opportunity.",
+      "tags": [
+        "api-handler",
+        "read-model",
+        "validation",
+        "opportunities"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/contexts/api/postgres-read-repositories.ts",
+      "type": "file",
+      "name": "postgres-read-repositories.ts",
+      "filePath": "src/contexts/api/postgres-read-repositories.ts",
+      "summary": "Implements PostgreSQL read repositories for opportunities, normalized markets, and latest scan-run state, translating database rows into API read models.",
+      "tags": [
+        "data-access",
+        "postgres",
+        "read-model",
+        "repository"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Combines NestJS lifecycle cleanup with explicit row-mapping helpers for numeric and timestamp coercion from PostgreSQL query results."
+    },
+    {
+      "id": "file:src/contexts/api/read-models.ts",
+      "type": "file",
+      "name": "read-models.ts",
+      "filePath": "src/contexts/api/read-models.ts",
+      "summary": "Defines repository contracts, injection tokens, and thin NestJS read services used by API controllers to access opportunities, markets, and scan runs.",
+      "tags": [
+        "read-model",
+        "dependency-injection",
+        "service",
+        "type-definition"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "Uses Symbol-based provider tokens to decouple controller services from concrete repository implementations."
+    },
+    {
+      "id": "file:src/contexts/api/scan-runs.controller.ts",
+      "type": "file",
+      "name": "scan-runs.controller.ts",
+      "filePath": "src/contexts/api/scan-runs.controller.ts",
+      "summary": "Exposes an API controller for retrieving the latest scanner run status through the scan-run read service.",
+      "tags": [
+        "api-handler",
+        "read-model",
+        "scan-runs",
+        "controller"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/contexts/api/api.module.ts:ApiModule",
+      "type": "class",
+      "name": "ApiModule",
+      "filePath": "src/contexts/api/api.module.ts",
+      "lineRange": [
+        29,
+        29
+      ],
+      "summary": "NestJS module class exported as the API composition root for controllers and read-model providers.",
+      "tags": [
+        "api-module",
+        "nestjs",
+        "composition",
+        "dependency-injection"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/contexts/api/health.controller.ts:HealthController",
+      "type": "class",
+      "name": "HealthController",
+      "filePath": "src/contexts/api/health.controller.ts",
+      "lineRange": [
+        4,
+        9
+      ],
+      "summary": "Controller exposing the API health response used for liveness checks.",
+      "tags": [
+        "api-handler",
+        "health-check",
+        "controller"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/contexts/api/markets.controller.ts:MarketsController",
+      "type": "class",
+      "name": "MarketsController",
+      "filePath": "src/contexts/api/markets.controller.ts",
+      "lineRange": [
+        5,
+        12
+      ],
+      "summary": "Controller that lists normalized markets by delegating to MarketReadService.",
+      "tags": [
+        "api-handler",
+        "markets",
+        "read-model",
+        "controller"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/contexts/api/opportunities.controller.ts:OpportunitiesController",
+      "type": "class",
+      "name": "OpportunitiesController",
+      "filePath": "src/contexts/api/opportunities.controller.ts",
+      "lineRange": [
+        5,
+        26
+      ],
+      "summary": "Controller that lists arbitrage opportunities and fetches individual opportunities after validating request identifiers.",
+      "tags": [
+        "api-handler",
+        "opportunities",
+        "validation",
+        "read-model"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/contexts/api/postgres-read-repositories.ts:PostgresReadRepositories",
+      "type": "class",
+      "name": "PostgresReadRepositories",
+      "filePath": "src/contexts/api/postgres-read-repositories.ts",
+      "lineRange": [
+        15,
+        137
+      ],
+      "summary": "PostgreSQL-backed repository implementation that queries opportunity, market, and scan-run tables and manages the database pool lifecycle.",
+      "tags": [
+        "data-access",
+        "postgres",
+        "repository",
+        "read-model"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/contexts/api/postgres-read-repositories.ts:toOpportunity",
+      "type": "function",
+      "name": "toOpportunity",
+      "filePath": "src/contexts/api/postgres-read-repositories.ts",
+      "lineRange": [
+        184,
+        202
+      ],
+      "summary": "Maps a PostgreSQL opportunity row into the API opportunity read model with numeric and timestamp normalization.",
+      "tags": [
+        "serialization",
+        "row-mapping",
+        "opportunities",
+        "postgres"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/contexts/api/postgres-read-repositories.ts:toMarket",
+      "type": "function",
+      "name": "toMarket",
+      "filePath": "src/contexts/api/postgres-read-repositories.ts",
+      "lineRange": [
+        204,
+        223
+      ],
+      "summary": "Maps a PostgreSQL market row into the API market read model, including nested best-bid and best-ask values.",
+      "tags": [
+        "serialization",
+        "row-mapping",
+        "markets",
+        "postgres"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/contexts/api/read-models.ts:OpportunityReadService",
+      "type": "class",
+      "name": "OpportunityReadService",
+      "filePath": "src/contexts/api/read-models.ts",
+      "lineRange": [
+        32,
+        45
+      ],
+      "summary": "Thin read service that delegates opportunity listing and lookup to the injected opportunity repository contract.",
+      "tags": [
+        "service",
+        "read-model",
+        "opportunities",
+        "dependency-injection"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/contexts/api/read-models.ts:MarketReadService",
+      "type": "class",
+      "name": "MarketReadService",
+      "filePath": "src/contexts/api/read-models.ts",
+      "lineRange": [
+        48,
+        57
+      ],
+      "summary": "Thin read service that delegates market listing to the injected market repository contract.",
+      "tags": [
+        "service",
+        "read-model",
+        "markets",
+        "dependency-injection"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/contexts/api/read-models.ts:ScanRunReadService",
+      "type": "class",
+      "name": "ScanRunReadService",
+      "filePath": "src/contexts/api/read-models.ts",
+      "lineRange": [
+        60,
+        69
+      ],
+      "summary": "Thin read service that retrieves latest scanner-run status from the injected scan-run repository contract.",
+      "tags": [
+        "service",
+        "read-model",
+        "scan-runs",
+        "dependency-injection"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/contexts/api/scan-runs.controller.ts:ScanRunsController",
+      "type": "class",
+      "name": "ScanRunsController",
+      "filePath": "src/contexts/api/scan-runs.controller.ts",
+      "lineRange": [
+        5,
+        12
+      ],
+      "summary": "Controller that exposes the latest scanner-run status through ScanRunReadService.",
+      "tags": [
+        "api-handler",
+        "scan-runs",
+        "read-model",
+        "controller"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/contexts/arbitrage/domain/opportunity-calculator.ts",
+      "type": "file",
+      "name": "opportunity-calculator.ts",
+      "filePath": "src/contexts/arbitrage/domain/opportunity-calculator.ts",
+      "summary": "Calculates executable arbitrage opportunities from matched market pairs by validating order books, building legs, and computing net edge after fees and slippage. It is the core domain service that turns candidate pairs into structured opportunity records.",
+      "tags": [
+        "service",
+        "arbitrage",
+        "domain-logic",
+        "calculation",
+        "tested"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/contexts/arbitrage/domain/opportunity-calculator.ts:OpportunityCalculator",
+      "type": "class",
+      "name": "OpportunityCalculator",
+      "filePath": "src/contexts/arbitrage/domain/opportunity-calculator.ts",
+      "lineRange": [
+        18,
+        124
+      ],
+      "summary": "Domain service that evaluates both trade directions for a candidate pair, filters unusable books and invalid legs, and returns normalized arbitrage opportunities.",
+      "tags": [
+        "service",
+        "arbitrage",
+        "domain-logic",
+        "calculation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/contexts/matching/domain/candidate-pair-generator.ts",
+      "type": "file",
+      "name": "candidate-pair-generator.ts",
+      "filePath": "src/contexts/matching/domain/candidate-pair-generator.ts",
+      "summary": "Generates cross-venue candidate pairs by bucketing Polymarket markets and matching them against Kalshi markets with compatible topics, assets, thresholds, and deadlines. It provides the first-stage matching filter before equivalence classification and arbitrage evaluation.",
+      "tags": [
+        "service",
+        "matching",
+        "domain-logic",
+        "candidate-generation",
+        "tested"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/contexts/matching/domain/candidate-pair-generator.ts:CandidatePairGenerator",
+      "type": "class",
+      "name": "CandidatePairGenerator",
+      "filePath": "src/contexts/matching/domain/candidate-pair-generator.ts",
+      "lineRange": [
+        6,
+        51
+      ],
+      "summary": "Builds possible Kalshi-to-Polymarket market pairs by grouping Polymarket markets and applying candidate compatibility checks.",
+      "tags": [
+        "service",
+        "matching",
+        "candidate-generation",
+        "domain-logic"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/contexts/matching/domain/candidate-pair-generator.ts:deadlinesMatch",
+      "type": "function",
+      "name": "deadlinesMatch",
+      "filePath": "src/contexts/matching/domain/candidate-pair-generator.ts",
+      "lineRange": [
+        65,
+        77
+      ],
+      "summary": "Compares optional market deadlines by treating missing deadlines as compatible and allowing finite timestamps within a fixed tolerance window.",
+      "tags": [
+        "utility",
+        "matching",
+        "date-comparison",
+        "validation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/contexts/matching/domain/candidate-pair.ts",
+      "type": "file",
+      "name": "candidate-pair.ts",
+      "filePath": "src/contexts/matching/domain/candidate-pair.ts",
+      "summary": "Defines the candidate pair domain shape that links normalized markets before deeper equivalence and arbitrage analysis. It acts as a shared type contract between matching, scanner persistence, and opportunity calculation.",
+      "tags": [
+        "type-definition",
+        "matching",
+        "domain-model",
+        "contract",
+        "tested"
+      ],
+      "complexity": "simple",
+      "languageNotes": "This TypeScript file is primarily a domain contract with no runtime functions or classes extracted."
+    },
+    {
+      "id": "file:src/contexts/matching/domain/equivalence-policy.ts",
+      "type": "file",
+      "name": "equivalence-policy.ts",
+      "filePath": "src/contexts/matching/domain/equivalence-policy.ts",
+      "summary": "Classifies candidate pairs with deterministic equivalence rules, recording material mismatches and resolution-source differences. It separates exact matches from candidates that require review before trading decisions.",
+      "tags": [
+        "service",
+        "matching",
+        "classification",
+        "validation",
+        "tested"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/contexts/matching/domain/equivalence-policy.ts:DeterministicEquivalencePolicy",
+      "type": "class",
+      "name": "DeterministicEquivalencePolicy",
+      "filePath": "src/contexts/matching/domain/equivalence-policy.ts",
+      "lineRange": [
+        3,
+        36
+      ],
+      "summary": "Applies deterministic rules to a candidate pair and returns an equivalence classification with mismatch reasons and review requirements.",
+      "tags": [
+        "service",
+        "matching",
+        "classification",
+        "validation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/contexts/matching/domain/equivalence-policy.ts:materialMismatchReasonsFor",
+      "type": "function",
+      "name": "materialMismatchReasonsFor",
+      "filePath": "src/contexts/matching/domain/equivalence-policy.ts",
+      "lineRange": [
+        44,
+        58
+      ],
+      "summary": "Builds the list of material mismatch reasons for a candidate pair by comparing topic, asset, event type, payoff type, thresholds, and deadlines.",
+      "tags": [
+        "utility",
+        "matching",
+        "validation",
+        "classification"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/contexts/matching/domain/normalized-market.ts",
+      "type": "file",
+      "name": "normalized-market.ts",
+      "filePath": "src/contexts/matching/domain/normalized-market.ts",
+      "summary": "Defines the normalized prediction-market representation used to compare venues consistently across matching, scanning, API reads, and persistence. It centralizes shared market identity, payoff, deadline, and order-book fields.",
+      "tags": [
+        "type-definition",
+        "domain-model",
+        "matching",
+        "market-data",
+        "tested"
+      ],
+      "complexity": "simple",
+      "languageNotes": "This TypeScript file contains shared structural types rather than executable logic."
+    },
+    {
+      "id": "file:test/arbitrage.test.ts",
+      "type": "file",
+      "name": "arbitrage.test.ts",
+      "filePath": "test/arbitrage.test.ts",
+      "summary": "Tests arbitrage opportunity calculation against normalized market pairs, candidate-pair inputs, and expected opportunity outputs. It verifies the core trading edge computation behavior for the arbitrage domain.",
+      "tags": [
+        "test",
+        "arbitrage",
+        "domain-logic",
+        "vitest"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:test/matching.test.ts",
+      "type": "file",
+      "name": "matching.test.ts",
+      "filePath": "test/matching.test.ts",
+      "summary": "Tests candidate-pair generation and deterministic equivalence classification across normalized-market fixtures. It covers matching rules for compatible markets, mismatches, and classification outcomes.",
+      "tags": [
+        "test",
+        "matching",
+        "classification",
+        "vitest"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "config:.env.example",
+      "type": "config",
+      "name": ".env.example",
+      "filePath": ".env.example",
+      "summary": "Template runtime environment for the arbitrage scanner, covering Node mode, API port, PostgreSQL connectivity, log level, Sentry telemetry, and LLM prompt sampling controls.",
+      "tags": [
+        "configuration",
+        "runtime-env",
+        "database",
+        "observability"
+      ],
+      "complexity": "simple",
+      "languageNotes": "The variables separate runtime behavior, database access, and telemetry sampling so deployments can tune observability without code changes."
+    },
+    {
+      "id": "config:nest-cli.json",
+      "type": "config",
+      "name": "nest-cli.json",
+      "filePath": "nest-cli.json",
+      "summary": "NestJS CLI configuration that points the framework tooling at the src tree and selects main-api as the build entry file while cleaning the output directory.",
+      "tags": [
+        "configuration",
+        "nestjs",
+        "build-system",
+        "entry-point"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:package.json",
+      "type": "config",
+      "name": "package.json",
+      "filePath": "package.json",
+      "summary": "Node package manifest for the cross-venue prediction market arbitrage scanner, defining NestJS API and worker start scripts, Vitest checks, TypeScript typechecking, and Drizzle database generation and migration commands.",
+      "tags": [
+        "configuration",
+        "package-manifest",
+        "build-system",
+        "nestjs",
+        "database"
+      ],
+      "complexity": "simple",
+      "languageNotes": "The manifest separates API and worker runtime entry points while sharing one NestJS and Drizzle dependency set."
+    },
+    {
+      "id": "config:tsconfig.json",
+      "type": "config",
+      "name": "tsconfig.json",
+      "filePath": "tsconfig.json",
+      "summary": "Strict TypeScript compiler configuration for the NestJS codebase and tests, emitting CommonJS ES2022 output with decorators, declarations, source maps, and incremental builds into dist.",
+      "tags": [
+        "configuration",
+        "typescript",
+        "build-system",
+        "strict-mode"
+      ],
+      "complexity": "simple",
+      "languageNotes": "Decorator metadata and experimental decorators are enabled for NestJS dependency injection, while strict mode is retained with property initialization relaxed for framework-managed classes."
+    },
+    {
+      "id": "document:docs/ADR.md",
+      "type": "document",
+      "name": "ADR.md",
+      "filePath": "docs/ADR.md",
+      "summary": "Architecture decision record for the MVP, accepting a DDD-inspired NestJS modular monolith with Postgres, Drizzle migrations, separate API and worker runtimes, stateless persisted LLM calls, and Sentry-backed observability. It also records major rejected alternatives such as early microservices, Temporal on day one, SQLite, and autonomous live trading.",
+      "tags": [
+        "documentation",
+        "architecture",
+        "decision-record",
+        "nestjs",
+        "ddd"
+      ],
+      "complexity": "complex",
+      "languageNotes": "The ADR is structured as a formal accepted decision record with explicit context, rationale, consequences, rejected alternatives, module boundaries, initial tables, and follow-up decision topics."
+    },
+    {
+      "id": "document:docs/PRD.md",
+      "type": "document",
+      "name": "PRD.md",
+      "filePath": "docs/PRD.md",
+      "summary": "Product requirements document defining a read-only cross-venue prediction-market arbitrage intelligence scanner for Kalshi and Polymarket. It specifies MVP goals, non-goals, functional requirements, API endpoints, domain models, data persistence, LLM policy, observability, deployment assumptions, success metrics, and phased delivery.",
+      "tags": [
+        "documentation",
+        "product-requirements",
+        "api",
+        "domain-model",
+        "roadmap"
+      ],
+      "complexity": "complex",
+      "languageNotes": "The PRD combines product scope with implementation-facing requirements, including concrete TypeScript interface sketches and named HTTP endpoints."
+    },
+    {
+      "id": "document:docs/PROJECT-SCOPE.md",
+      "type": "document",
+      "name": "PROJECT-SCOPE.md",
+      "filePath": "docs/PROJECT-SCOPE.md",
+      "summary": "Scope note motivating cross-venue arbitrage as the preferred prediction-market strategy and narrowing the project to crypto price-level binaries plus macroeconomic event markets. It records the practical venue scope: Kalshi and Polymarket first, with IBKR deferred because of API and instrument mismatch complexity.",
+      "tags": [
+        "documentation",
+        "project-scope",
+        "strategy",
+        "prediction-markets",
+        "venues"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "This document is an informal strategy brief rather than a structured Markdown outline, so it captures rationale and constraints more than implementation architecture."
+    },
+    {
+      "id": "config:drizzle/meta/0000_snapshot.json",
+      "type": "config",
+      "name": "0000_snapshot.json",
+      "filePath": "drizzle/meta/0000_snapshot.json",
+      "summary": "Drizzle Kit PostgreSQL schema snapshot for the initial migration, capturing eight public tables, indexes, foreign keys, and internal metadata used to diff future migrations.",
+      "tags": [
+        "configuration",
+        "drizzle",
+        "database-schema",
+        "migration-metadata"
+      ],
+      "complexity": "complex",
+      "languageNotes": "This Drizzle snapshot stores a deterministic JSON model of the PostgreSQL schema, including table columns, unique indexes, and foreign-key constraints."
+    },
+    {
+      "id": "config:drizzle/meta/0001_snapshot.json",
+      "type": "config",
+      "name": "0001_snapshot.json",
+      "filePath": "drizzle/meta/0001_snapshot.json",
+      "summary": "Drizzle Kit PostgreSQL schema snapshot for the second migration, preserving the evolved database model and linking back to the previous snapshot id for migration history.",
+      "tags": [
+        "configuration",
+        "drizzle",
+        "database-schema",
+        "migration-metadata"
+      ],
+      "complexity": "complex",
+      "languageNotes": "The snapshot keeps the same eight public tables while recording a new snapshot id and previous snapshot reference for Drizzle's migration chain."
+    },
+    {
+      "id": "config:drizzle/meta/_journal.json",
+      "type": "config",
+      "name": "_journal.json",
+      "filePath": "drizzle/meta/_journal.json",
+      "summary": "Drizzle migration journal tracking the ordered PostgreSQL migration entries and breakpoint flags for the generated SQL migration sequence.",
+      "tags": [
+        "configuration",
+        "drizzle",
+        "migration-journal",
+        "database"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "table:drizzle/meta/0000_snapshot.json:alerts",
+      "type": "table",
+      "name": "alerts",
+      "filePath": "drizzle/meta/0000_snapshot.json",
+      "summary": "Initial snapshot definition for alert records that reference arbitrage opportunities and store alert delivery state.",
+      "tags": [
+        "database",
+        "table",
+        "alerts",
+        "foreign-key"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "table:drizzle/meta/0000_snapshot.json:candidate_pairs",
+      "type": "table",
+      "name": "candidate_pairs",
+      "filePath": "drizzle/meta/0000_snapshot.json",
+      "summary": "Initial snapshot definition for matched Kalshi and Polymarket normalized market pairs with uniqueness constraints across venue market ids.",
+      "tags": [
+        "database",
+        "table",
+        "matching",
+        "unique-index"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "table:drizzle/meta/0000_snapshot.json:llm_evaluations",
+      "type": "table",
+      "name": "llm_evaluations",
+      "filePath": "drizzle/meta/0000_snapshot.json",
+      "summary": "Initial snapshot definition for cached LLM evaluation records, including prompt metadata, model output, token usage, and latency fields.",
+      "tags": [
+        "database",
+        "table",
+        "llm",
+        "observability"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "table:drizzle/meta/0000_snapshot.json:normalized_markets",
+      "type": "table",
+      "name": "normalized_markets",
+      "filePath": "drizzle/meta/0000_snapshot.json",
+      "summary": "Initial snapshot definition for normalized venue market records with canonical matching fields and a unique index per source venue market.",
+      "tags": [
+        "database",
+        "table",
+        "market-data",
+        "normalization"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "table:drizzle/meta/0000_snapshot.json:opportunities",
+      "type": "table",
+      "name": "opportunities",
+      "filePath": "drizzle/meta/0000_snapshot.json",
+      "summary": "Initial snapshot definition for arbitrage opportunity records tied to candidate pairs and storing edge, cost, liquidity, and status fields.",
+      "tags": [
+        "database",
+        "table",
+        "arbitrage",
+        "foreign-key"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "table:drizzle/meta/0000_snapshot.json:orderbook_snapshots",
+      "type": "table",
+      "name": "orderbook_snapshots",
+      "filePath": "drizzle/meta/0000_snapshot.json",
+      "summary": "Initial snapshot definition for order book snapshots linked to normalized markets and storing bid/ask arrays with capture timestamps.",
+      "tags": [
+        "database",
+        "table",
+        "orderbook",
+        "market-data"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "table:drizzle/meta/0000_snapshot.json:scan_runs",
+      "type": "table",
+      "name": "scan_runs",
+      "filePath": "drizzle/meta/0000_snapshot.json",
+      "summary": "Initial snapshot definition for scanner run lifecycle records with status, timing, and summary metadata.",
+      "tags": [
+        "database",
+        "table",
+        "scanner",
+        "run-state"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "table:drizzle/meta/0000_snapshot.json:venue_market_snapshots",
+      "type": "table",
+      "name": "venue_market_snapshots",
+      "filePath": "drizzle/meta/0000_snapshot.json",
+      "summary": "Initial snapshot definition for raw venue market payload snapshots associated with scanner runs.",
+      "tags": [
+        "database",
+        "table",
+        "venue-data",
+        "foreign-key"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "table:drizzle/meta/0001_snapshot.json:alerts",
+      "type": "table",
+      "name": "alerts",
+      "filePath": "drizzle/meta/0001_snapshot.json",
+      "summary": "Second snapshot definition for alert records that reference arbitrage opportunities and store alert delivery state.",
+      "tags": [
+        "database",
+        "table",
+        "alerts",
+        "foreign-key"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "table:drizzle/meta/0001_snapshot.json:candidate_pairs",
+      "type": "table",
+      "name": "candidate_pairs",
+      "filePath": "drizzle/meta/0001_snapshot.json",
+      "summary": "Second snapshot definition for matched Kalshi and Polymarket normalized market pairs with uniqueness constraints across venue market ids.",
+      "tags": [
+        "database",
+        "table",
+        "matching",
+        "unique-index"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "table:drizzle/meta/0001_snapshot.json:llm_evaluations",
+      "type": "table",
+      "name": "llm_evaluations",
+      "filePath": "drizzle/meta/0001_snapshot.json",
+      "summary": "Second snapshot definition for cached LLM evaluation records, including prompt metadata, model output, token usage, and latency fields.",
+      "tags": [
+        "database",
+        "table",
+        "llm",
+        "observability"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "table:drizzle/meta/0001_snapshot.json:normalized_markets",
+      "type": "table",
+      "name": "normalized_markets",
+      "filePath": "drizzle/meta/0001_snapshot.json",
+      "summary": "Second snapshot definition for normalized venue market records with canonical matching fields and a unique index per source venue market.",
+      "tags": [
+        "database",
+        "table",
+        "market-data",
+        "normalization"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "table:drizzle/meta/0001_snapshot.json:opportunities",
+      "type": "table",
+      "name": "opportunities",
+      "filePath": "drizzle/meta/0001_snapshot.json",
+      "summary": "Second snapshot definition for arbitrage opportunity records tied to candidate pairs and storing edge, cost, liquidity, and status fields.",
+      "tags": [
+        "database",
+        "table",
+        "arbitrage",
+        "foreign-key"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "table:drizzle/meta/0001_snapshot.json:orderbook_snapshots",
+      "type": "table",
+      "name": "orderbook_snapshots",
+      "filePath": "drizzle/meta/0001_snapshot.json",
+      "summary": "Second snapshot definition for order book snapshots linked to normalized markets and storing bid/ask arrays with capture timestamps.",
+      "tags": [
+        "database",
+        "table",
+        "orderbook",
+        "market-data"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "table:drizzle/meta/0001_snapshot.json:scan_runs",
+      "type": "table",
+      "name": "scan_runs",
+      "filePath": "drizzle/meta/0001_snapshot.json",
+      "summary": "Second snapshot definition for scanner run lifecycle records with status, timing, and summary metadata.",
+      "tags": [
+        "database",
+        "table",
+        "scanner",
+        "run-state"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "table:drizzle/meta/0001_snapshot.json:venue_market_snapshots",
+      "type": "table",
+      "name": "venue_market_snapshots",
+      "filePath": "drizzle/meta/0001_snapshot.json",
+      "summary": "Second snapshot definition for raw venue market payload snapshots associated with scanner runs.",
+      "tags": [
+        "database",
+        "table",
+        "venue-data",
+        "foreign-key"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:.claude/skills/gitnexus/gitnexus-cli/SKILL.md",
+      "type": "document",
+      "name": "SKILL.md",
+      "filePath": ".claude/skills/gitnexus/gitnexus-cli/SKILL.md",
+      "summary": "Reference documentation for GitNexus CLI commands, covering index analysis, status checks, cleanup, wiki generation, repository listing, and troubleshooting after indexing.",
+      "tags": [
+        "documentation",
+        "cli-reference",
+        "gitnexus",
+        "workflow"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "Markdown skill documentation organized around command-oriented sections and usage examples."
+    },
+    {
+      "id": "document:.claude/skills/gitnexus/gitnexus-debugging/SKILL.md",
+      "type": "document",
+      "name": "SKILL.md",
+      "filePath": ".claude/skills/gitnexus/gitnexus-debugging/SKILL.md",
+      "summary": "GitNexus debugging workflow guide that explains when to use graph-backed investigation, the diagnostic checklist, common debugging patterns, tools, and an intermittent endpoint failure example.",
+      "tags": [
+        "documentation",
+        "debugging",
+        "gitnexus",
+        "workflow"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "document:.claude/skills/gitnexus/gitnexus-exploring/SKILL.md",
+      "type": "document",
+      "name": "SKILL.md",
+      "filePath": ".claude/skills/gitnexus/gitnexus-exploring/SKILL.md",
+      "summary": "GitNexus codebase exploration guide with workflow steps, checklists, resources, tools, and an example for understanding payment-processing flows.",
+      "tags": [
+        "documentation",
+        "codebase-exploration",
+        "gitnexus",
+        "workflow"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "document:.claude/skills/gitnexus/gitnexus-guide/SKILL.md",
+      "type": "document",
+      "name": "SKILL.md",
+      "filePath": ".claude/skills/gitnexus/gitnexus-guide/SKILL.md",
+      "summary": "Top-level GitNexus guide that directs users to start with the graph overview and summarizes available skills, tools, resources, and schema concepts.",
+      "tags": [
+        "documentation",
+        "entry-point",
+        "gitnexus",
+        "reference"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md",
+      "type": "document",
+      "name": "SKILL.md",
+      "filePath": ".claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md",
+      "summary": "GitNexus impact-analysis workflow guide for evaluating change blast radius, interpreting output, assessing risk, and using graph tools to predict affected code paths.",
+      "tags": [
+        "documentation",
+        "impact-analysis",
+        "gitnexus",
+        "risk-assessment"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "document:.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md",
+      "type": "document",
+      "name": "SKILL.md",
+      "filePath": ".claude/skills/gitnexus/gitnexus-refactoring/SKILL.md",
+      "summary": "GitNexus refactoring guide with workflows and checklists for rename, module extraction, service splitting, tool usage, risk rules, and a symbol rename example.",
+      "tags": [
+        "documentation",
+        "refactoring",
+        "gitnexus",
+        "workflow"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:.understand-anything/.understandignore",
+      "type": "file",
+      "name": ".understandignore",
+      "filePath": ".understand-anything/.understandignore",
+      "summary": "Ignore rules for Understand Anything analysis that exclude generated, temporary, dependency, and other non-source artifacts from indexing.",
+      "tags": [
+        "configuration",
+        "ignore-rules",
+        "indexing",
+        "analysis"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:.understand-anything/tmp/preflight.env",
+      "type": "config",
+      "name": "preflight.env",
+      "filePath": ".understand-anything/tmp/preflight.env",
+      "summary": "Preflight environment snapshot for Understand Anything containing project root, skill and plugin paths, the analyzed git commit, and output language setting.",
+      "tags": [
+        "configuration",
+        "preflight",
+        "environment",
+        "analysis"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:drizzle.config.ts",
+      "type": "file",
+      "name": "drizzle.config.ts",
+      "filePath": "drizzle.config.ts",
+      "summary": "Drizzle ORM configuration entry that defines how database migrations and schema metadata are generated for the project.",
+      "tags": [
+        "configuration",
+        "database",
+        "drizzle",
+        "migration"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "table:drizzle/0000_aromatic_trauma.sql:migration",
+      "type": "table",
+      "name": "0000_aromatic_trauma.sql",
+      "filePath": "drizzle/0000_aromatic_trauma.sql",
+      "summary": "Initial Drizzle SQL migration defining the core arbitrage scanner database tables, relationships, and uniqueness indexes for markets, pairs, scans, evaluations, opportunities, orderbooks, and alerts.",
+      "tags": [
+        "database",
+        "migration",
+        "schema-definition",
+        "drizzle"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "table:drizzle/0000_aromatic_trauma.sql:alerts",
+      "type": "table",
+      "name": "alerts",
+      "filePath": "drizzle/0000_aromatic_trauma.sql",
+      "lineRange": [
+        1,
+        7
+      ],
+      "summary": "Database table for emitted opportunity alerts, including channel, JSON payload, emission time, and a foreign key to opportunities.",
+      "tags": [
+        "database",
+        "alerting",
+        "schema-definition",
+        "drizzle"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "table:drizzle/0000_aromatic_trauma.sql:candidate_pairs",
+      "type": "table",
+      "name": "candidate_pairs",
+      "filePath": "drizzle/0000_aromatic_trauma.sql",
+      "lineRange": [
+        9,
+        17
+      ],
+      "summary": "Database table storing paired Kalshi and Polymarket markets with equivalence-class, decision, rationale, and creation metadata.",
+      "tags": [
+        "database",
+        "matching",
+        "schema-definition",
+        "drizzle"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "table:drizzle/0000_aromatic_trauma.sql:llm_evaluations",
+      "type": "table",
+      "name": "llm_evaluations",
+      "filePath": "drizzle/0000_aromatic_trauma.sql",
+      "lineRange": [
+        19,
+        34
+      ],
+      "summary": "Database table for cached LLM evaluation inputs, outputs, parse status, token usage, estimated cost, latency, and creation time.",
+      "tags": [
+        "database",
+        "llm-observability",
+        "schema-definition",
+        "drizzle"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "table:drizzle/0000_aromatic_trauma.sql:normalized_markets",
+      "type": "table",
+      "name": "normalized_markets",
+      "filePath": "drizzle/0000_aromatic_trauma.sql",
+      "lineRange": [
+        36,
+        54
+      ],
+      "summary": "Database table for normalized venue markets with topic, event, asset, threshold, resolution, ambiguity, confidence, and venue identity fields.",
+      "tags": [
+        "database",
+        "market-normalization",
+        "schema-definition",
+        "drizzle"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "table:drizzle/0000_aromatic_trauma.sql:opportunities",
+      "type": "table",
+      "name": "opportunities",
+      "filePath": "drizzle/0000_aromatic_trauma.sql",
+      "lineRange": [
+        56,
+        72
+      ],
+      "summary": "Database table for detected arbitrage opportunities, including trade legs, combined cost, edge metrics, capacity, risk labels, and verification timestamps.",
+      "tags": [
+        "database",
+        "arbitrage",
+        "schema-definition",
+        "drizzle"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "table:drizzle/0000_aromatic_trauma.sql:orderbook_snapshots",
+      "type": "table",
+      "name": "orderbook_snapshots",
+      "filePath": "drizzle/0000_aromatic_trauma.sql",
+      "lineRange": [
+        74,
+        88
+      ],
+      "summary": "Database table for per-market orderbook snapshots capturing prices, available depth, raw payload, capture time, and staleness state.",
+      "tags": [
+        "database",
+        "orderbook",
+        "schema-definition",
+        "drizzle"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "table:drizzle/0000_aromatic_trauma.sql:scan_runs",
+      "type": "table",
+      "name": "scan_runs",
+      "filePath": "drizzle/0000_aromatic_trauma.sql",
+      "lineRange": [
+        90,
+        96
+      ],
+      "summary": "Database table tracking scanner run lifecycle status, start and completion timestamps, and JSON metrics.",
+      "tags": [
+        "database",
+        "scanner",
+        "schema-definition",
+        "drizzle"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "table:drizzle/0000_aromatic_trauma.sql:venue_market_snapshots",
+      "type": "table",
+      "name": "venue_market_snapshots",
+      "filePath": "drizzle/0000_aromatic_trauma.sql",
+      "lineRange": [
+        98,
+        105
+      ],
+      "summary": "Database table recording raw venue market snapshots per scan run with venue identifiers, raw payloads, and capture timestamps.",
+      "tags": [
+        "database",
+        "venue-data",
+        "schema-definition",
+        "drizzle"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "table:drizzle/0001_freezing_nightshade.sql:migration",
+      "type": "table",
+      "name": "0001_freezing_nightshade.sql",
+      "filePath": "drizzle/0001_freezing_nightshade.sql",
+      "summary": "Follow-up Drizzle SQL migration that adjusts or recreates the cache uniqueness index for LLM evaluations.",
+      "tags": [
+        "database",
+        "migration",
+        "index",
+        "drizzle"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/db/schema.ts",
+      "type": "file",
+      "name": "schema.ts",
+      "filePath": "src/db/schema.ts",
+      "summary": "Drizzle TypeScript schema defining exported table objects for scan runs, venue snapshots, normalized markets, candidate pairs, LLM evaluations, orderbooks, opportunities, and alerts.",
+      "tags": [
+        "database",
+        "schema-definition",
+        "drizzle",
+        "data-model"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "TypeScript Drizzle table exports mirror the SQL migrations and serve as the typed database model surface."
+    },
+    {
+      "id": "file:vitest.config.ts",
+      "type": "file",
+      "name": "vitest.config.ts",
+      "filePath": "vitest.config.ts",
+      "summary": "Vitest configuration for the project test runner, controlling how TypeScript tests are discovered and executed.",
+      "tags": [
+        "configuration",
+        "test",
+        "vitest",
+        "build-system"
+      ],
+      "complexity": "simple"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/contexts/arbitrage/domain/opportunity.ts",
+      "target": "file:src/contexts/matching/domain/candidate-pair.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/arbitrage/domain/opportunity.ts",
+      "target": "file:src/contexts/matching/domain/normalized-market.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/matching/domain/crypto-market-normalizer.ts",
+      "target": "file:src/contexts/matching/domain/normalized-market.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/matching/domain/crypto-market-normalizer.ts",
+      "target": "file:src/contexts/venues/domain/venue-market.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/in-memory-scanner-repository.ts",
+      "target": "file:src/contexts/arbitrage/domain/opportunity.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/in-memory-scanner-repository.ts",
+      "target": "file:src/contexts/matching/domain/candidate-pair.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/in-memory-scanner-repository.ts",
+      "target": "file:src/contexts/matching/domain/normalized-market.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/in-memory-scanner-repository.ts",
+      "target": "file:src/contexts/scanner/scanner-result.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/in-memory-scanner-repository.ts",
+      "target": "file:src/contexts/venues/domain/venue-market.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/postgres-scanner-repository.ts",
+      "target": "file:src/contexts/arbitrage/domain/opportunity.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/postgres-scanner-repository.ts",
+      "target": "file:src/contexts/matching/domain/candidate-pair.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/postgres-scanner-repository.ts",
+      "target": "file:src/contexts/matching/domain/normalized-market.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/postgres-scanner-repository.ts",
+      "target": "file:src/contexts/scanner/in-memory-scanner-repository.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/postgres-scanner-repository.ts",
+      "target": "file:src/contexts/scanner/scanner-result.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/postgres-scanner-repository.ts",
+      "target": "file:src/contexts/venues/domain/venue-market.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/read-only-scanner.ts",
+      "target": "file:src/contexts/arbitrage/domain/opportunity-calculator.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/read-only-scanner.ts",
+      "target": "file:src/contexts/arbitrage/domain/opportunity.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/read-only-scanner.ts",
+      "target": "file:src/contexts/matching/domain/candidate-pair-generator.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/read-only-scanner.ts",
+      "target": "file:src/contexts/matching/domain/crypto-market-normalizer.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/read-only-scanner.ts",
+      "target": "file:src/contexts/matching/domain/equivalence-policy.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/read-only-scanner.ts",
+      "target": "file:src/contexts/scanner/in-memory-scanner-repository.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/read-only-scanner.ts",
+      "target": "file:src/contexts/scanner/scanner-result.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/read-only-scanner.ts",
+      "target": "file:src/contexts/venues/domain/venue-market.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/venues/application/http-venue-clients.ts",
+      "target": "file:src/contexts/arbitrage/domain/opportunity.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/venues/application/http-venue-clients.ts",
+      "target": "file:src/contexts/venues/domain/venue-market.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/venues/application/static-venue-client.ts",
+      "target": "file:src/contexts/arbitrage/domain/opportunity.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/venues/application/static-venue-client.ts",
+      "target": "file:src/contexts/venues/domain/venue-market.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/venues/domain/venue-market.ts",
+      "target": "file:src/contexts/arbitrage/domain/opportunity.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/venues/domain/venue-market.ts",
+      "target": "file:src/contexts/matching/domain/normalized-market.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:test/normalizer.test.ts",
+      "target": "file:src/contexts/matching/domain/crypto-market-normalizer.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:test/normalizer.test.ts",
+      "target": "file:src/contexts/venues/domain/venue-market.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:test/scanner.test.ts",
+      "target": "file:src/contexts/scanner/in-memory-scanner-repository.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:test/scanner.test.ts",
+      "target": "file:src/contexts/scanner/read-only-scanner.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:test/scanner.test.ts",
+      "target": "file:src/contexts/venues/application/static-venue-client.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:test/scanner.test.ts",
+      "target": "file:src/contexts/venues/domain/venue-market.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/matching/domain/crypto-market-normalizer.ts",
+      "target": "class:src/contexts/matching/domain/crypto-market-normalizer.ts:CryptoMarketNormalizer",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/matching/domain/crypto-market-normalizer.ts",
+      "target": "function:src/contexts/matching/domain/crypto-market-normalizer.ts:parseThreshold",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/matching/domain/crypto-market-normalizer.ts",
+      "target": "function:src/contexts/matching/domain/crypto-market-normalizer.ts:parseDeadline",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/matching/domain/crypto-market-normalizer.ts",
+      "target": "function:src/contexts/matching/domain/crypto-market-normalizer.ts:ambiguityFlagsFor",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/scanner/in-memory-scanner-repository.ts",
+      "target": "class:src/contexts/scanner/in-memory-scanner-repository.ts:InMemoryScannerRepository",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/scanner/postgres-scanner-repository.ts",
+      "target": "class:src/contexts/scanner/postgres-scanner-repository.ts:PostgresScannerRepository",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/scanner/postgres-scanner-repository.ts",
+      "target": "function:src/contexts/scanner/postgres-scanner-repository.ts:uuidFromStableKey",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/scanner/read-only-scanner.ts",
+      "target": "class:src/contexts/scanner/read-only-scanner.ts:ReadOnlyScanner",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/venues/application/http-venue-clients.ts",
+      "target": "class:src/contexts/venues/application/http-venue-clients.ts:KalshiPublicVenueClient",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/venues/application/http-venue-clients.ts",
+      "target": "class:src/contexts/venues/application/http-venue-clients.ts:PolymarketPublicVenueClient",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/venues/application/static-venue-client.ts",
+      "target": "class:src/contexts/venues/application/static-venue-client.ts:StaticVenueClient",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:test/normalizer.test.ts",
+      "target": "function:test/normalizer.test.ts:snapshot",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:test/scanner.test.ts",
+      "target": "function:test/scanner.test.ts:market",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/matching/domain/crypto-market-normalizer.ts",
+      "target": "class:src/contexts/matching/domain/crypto-market-normalizer.ts:CryptoMarketNormalizer",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/contexts/scanner/in-memory-scanner-repository.ts",
+      "target": "class:src/contexts/scanner/in-memory-scanner-repository.ts:InMemoryScannerRepository",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/contexts/scanner/postgres-scanner-repository.ts",
+      "target": "class:src/contexts/scanner/postgres-scanner-repository.ts:PostgresScannerRepository",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/contexts/scanner/read-only-scanner.ts",
+      "target": "class:src/contexts/scanner/read-only-scanner.ts:ReadOnlyScanner",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/contexts/venues/application/http-venue-clients.ts",
+      "target": "class:src/contexts/venues/application/http-venue-clients.ts:KalshiPublicVenueClient",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/contexts/venues/application/http-venue-clients.ts",
+      "target": "class:src/contexts/venues/application/http-venue-clients.ts:PolymarketPublicVenueClient",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/contexts/venues/application/static-venue-client.ts",
+      "target": "class:src/contexts/venues/application/static-venue-client.ts:StaticVenueClient",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/contexts/scanner/read-only-scanner.ts:ReadOnlyScanner",
+      "target": "class:src/contexts/matching/domain/crypto-market-normalizer.ts:CryptoMarketNormalizer",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/contexts/scanner/read-only-scanner.ts:ReadOnlyScanner",
+      "target": "class:src/contexts/arbitrage/domain/opportunity-calculator.ts:OpportunityCalculator",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/contexts/scanner/read-only-scanner.ts:ReadOnlyScanner",
+      "target": "class:src/contexts/matching/domain/candidate-pair-generator.ts:CandidatePairGenerator",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/contexts/scanner/read-only-scanner.ts:ReadOnlyScanner",
+      "target": "class:src/contexts/matching/domain/equivalence-policy.ts:DeterministicEquivalencePolicy",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/contexts/scanner/read-only-scanner.ts:ReadOnlyScanner",
+      "target": "class:src/contexts/scanner/in-memory-scanner-repository.ts:InMemoryScannerRepository",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:src/contexts/matching/domain/crypto-market-normalizer.ts",
+      "target": "file:test/normalizer.test.ts",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/contexts/venues/domain/venue-market.ts",
+      "target": "file:test/normalizer.test.ts",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/contexts/scanner/read-only-scanner.ts",
+      "target": "file:test/scanner.test.ts",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/contexts/scanner/in-memory-scanner-repository.ts",
+      "target": "file:test/scanner.test.ts",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/contexts/venues/application/static-venue-client.ts",
+      "target": "file:test/scanner.test.ts",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/contexts/venues/domain/venue-market.ts",
+      "target": "file:test/scanner.test.ts",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/api-app.module.ts",
+      "target": "file:src/config/config.module.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/api-app.module.ts",
+      "target": "file:src/contexts/api/api.module.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/app.module.ts",
+      "target": "file:src/config/config.module.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/app.module.ts",
+      "target": "file:src/contexts/api/api.module.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/app.module.ts",
+      "target": "file:src/contexts/scanner/scanner.module.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/config/config.module.ts",
+      "target": "file:src/config/app-config.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/scanner.module.ts",
+      "target": "file:src/contexts/scanner/worker-scan-runner.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/worker-scan-runner.ts",
+      "target": "file:src/config/app-config.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/worker-scan-runner.ts",
+      "target": "file:src/config/config.module.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/worker-scan-runner.ts",
+      "target": "file:src/contexts/scanner/postgres-scanner-repository.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/worker-scan-runner.ts",
+      "target": "file:src/contexts/scanner/read-only-scanner.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/scanner/worker-scan-runner.ts",
+      "target": "file:src/contexts/venues/application/http-venue-clients.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/main-api.ts",
+      "target": "file:src/api-app.module.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/main-api.ts",
+      "target": "file:src/config/app-config.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/main-api.ts",
+      "target": "file:src/config/config.module.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/main-worker.ts",
+      "target": "file:src/contexts/scanner/worker-scan-runner.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/main-worker.ts",
+      "target": "file:src/worker-app.module.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/worker-app.module.ts",
+      "target": "file:src/config/config.module.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/worker-app.module.ts",
+      "target": "file:src/contexts/scanner/scanner.module.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/api-app.module.ts",
+      "target": "class:src/api-app.module.ts:ApiAppModule",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/api-app.module.ts",
+      "target": "class:src/api-app.module.ts:ApiAppModule",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/app.module.ts",
+      "target": "class:src/app.module.ts:AppModule",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/app.module.ts",
+      "target": "class:src/app.module.ts:AppModule",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/config/app-config.ts",
+      "target": "function:src/config/app-config.ts:loadAppConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/config/app-config.ts",
+      "target": "function:src/config/app-config.ts:loadAppConfig",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/config/config.module.ts",
+      "target": "class:src/config/config.module.ts:AppConfigModule",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/config/config.module.ts",
+      "target": "class:src/config/config.module.ts:AppConfigModule",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/contexts/scanner/scanner.module.ts",
+      "target": "class:src/contexts/scanner/scanner.module.ts:ScannerModule",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/scanner/scanner.module.ts",
+      "target": "class:src/contexts/scanner/scanner.module.ts:ScannerModule",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/contexts/scanner/worker-scan-runner.ts",
+      "target": "class:src/contexts/scanner/worker-scan-runner.ts:WorkerScanRunner",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/scanner/worker-scan-runner.ts",
+      "target": "class:src/contexts/scanner/worker-scan-runner.ts:WorkerScanRunner",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/worker-app.module.ts",
+      "target": "class:src/worker-app.module.ts:WorkerAppModule",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/worker-app.module.ts",
+      "target": "class:src/worker-app.module.ts:WorkerAppModule",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/contexts/scanner/worker-scan-runner.ts:WorkerScanRunner",
+      "target": "class:src/contexts/scanner/read-only-scanner.ts:ReadOnlyScanner",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "class:src/contexts/scanner/worker-scan-runner.ts:WorkerScanRunner",
+      "target": "class:src/contexts/scanner/postgres-scanner-repository.ts:PostgresScannerRepository",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "class:src/contexts/scanner/worker-scan-runner.ts:WorkerScanRunner",
+      "target": "class:src/contexts/venues/application/http-venue-clients.ts:KalshiPublicVenueClient",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "class:src/contexts/scanner/worker-scan-runner.ts:WorkerScanRunner",
+      "target": "class:src/contexts/venues/application/http-venue-clients.ts:PolymarketPublicVenueClient",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:src/config/app-config.ts",
+      "target": "file:test/config.test.ts",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/config/redaction.ts",
+      "target": "function:src/config/redaction.ts:redactSensitiveData",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/config/redaction.ts",
+      "target": "function:src/config/redaction.ts:redactSensitiveText",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/config/redaction.ts",
+      "target": "function:src/config/redaction.ts:redactValue",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/llm/application/in-memory-llm-evaluation-repository.ts",
+      "target": "class:src/contexts/llm/application/in-memory-llm-evaluation-repository.ts:InMemoryLlmEvaluationRepository",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/llm/application/persisted-llm-gateway.ts",
+      "target": "class:src/contexts/llm/application/persisted-llm-gateway.ts:PersistedLlmGateway",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/llm/application/persisted-llm-gateway.ts",
+      "target": "function:src/contexts/llm/application/persisted-llm-gateway.ts:stableStringify",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/llm/application/persisted-llm-gateway.ts",
+      "target": "function:src/contexts/llm/application/persisted-llm-gateway.ts:schemaForTask",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/observability/observability.service.ts",
+      "target": "class:src/contexts/observability/observability.service.ts:ObservabilityService",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/config/redaction.ts",
+      "target": "function:src/config/redaction.ts:redactSensitiveData",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/config/redaction.ts",
+      "target": "function:src/config/redaction.ts:redactSensitiveText",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/contexts/llm/application/in-memory-llm-evaluation-repository.ts",
+      "target": "class:src/contexts/llm/application/in-memory-llm-evaluation-repository.ts:InMemoryLlmEvaluationRepository",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/contexts/llm/application/persisted-llm-gateway.ts",
+      "target": "class:src/contexts/llm/application/persisted-llm-gateway.ts:PersistedLlmGateway",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/contexts/observability/observability.service.ts",
+      "target": "class:src/contexts/observability/observability.service.ts:ObservabilityService",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/contexts/llm/application/in-memory-llm-evaluation-repository.ts",
+      "target": "file:src/contexts/llm/application/llm-evaluation.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/llm/application/persisted-llm-gateway.ts",
+      "target": "file:src/contexts/llm/application/llm-evaluation.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/observability/observability.service.ts",
+      "target": "file:src/config/redaction.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:test/config.test.ts",
+      "target": "file:src/config/app-config.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:test/config.test.ts",
+      "target": "file:src/config/redaction.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:test/llm-observability.test.ts",
+      "target": "file:src/contexts/llm/application/in-memory-llm-evaluation-repository.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:test/llm-observability.test.ts",
+      "target": "file:src/contexts/llm/application/persisted-llm-gateway.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:test/llm-observability.test.ts",
+      "target": "file:src/contexts/observability/observability.service.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "class:src/contexts/observability/observability.service.ts:ObservabilityService",
+      "target": "function:src/config/redaction.ts:redactSensitiveText",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/contexts/observability/observability.service.ts:ObservabilityService",
+      "target": "function:src/config/redaction.ts:redactSensitiveData",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/contexts/llm/application/persisted-llm-gateway.ts:PersistedLlmGateway",
+      "target": "function:src/contexts/llm/application/persisted-llm-gateway.ts:stableStringify",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/contexts/llm/application/persisted-llm-gateway.ts:PersistedLlmGateway",
+      "target": "function:src/contexts/llm/application/persisted-llm-gateway.ts:schemaForTask",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/config/redaction.ts",
+      "target": "file:test/config.test.ts",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/contexts/llm/application/in-memory-llm-evaluation-repository.ts",
+      "target": "file:test/llm-observability.test.ts",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/contexts/llm/application/persisted-llm-gateway.ts",
+      "target": "file:test/llm-observability.test.ts",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/contexts/observability/observability.service.ts",
+      "target": "file:test/llm-observability.test.ts",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/contexts/api/api.module.ts",
+      "target": "file:src/contexts/api/health.controller.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/api/api.module.ts",
+      "target": "file:src/contexts/api/markets.controller.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/api/api.module.ts",
+      "target": "file:src/contexts/api/opportunities.controller.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/api/api.module.ts",
+      "target": "file:src/contexts/api/postgres-read-repositories.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/api/api.module.ts",
+      "target": "file:src/contexts/api/read-models.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/api/api.module.ts",
+      "target": "file:src/contexts/api/scan-runs.controller.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/api/markets.controller.ts",
+      "target": "file:src/contexts/api/read-models.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/api/opportunities.controller.ts",
+      "target": "file:src/contexts/api/read-models.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/api/postgres-read-repositories.ts",
+      "target": "file:src/config/app-config.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/api/postgres-read-repositories.ts",
+      "target": "file:src/config/config.module.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/api/postgres-read-repositories.ts",
+      "target": "file:src/contexts/api/read-models.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/api/postgres-read-repositories.ts",
+      "target": "file:src/contexts/arbitrage/domain/opportunity.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/api/postgres-read-repositories.ts",
+      "target": "file:src/contexts/matching/domain/normalized-market.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/api/read-models.ts",
+      "target": "file:src/contexts/arbitrage/domain/opportunity.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/api/read-models.ts",
+      "target": "file:src/contexts/matching/domain/normalized-market.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/api/scan-runs.controller.ts",
+      "target": "file:src/contexts/api/read-models.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/api/api.module.ts",
+      "target": "class:src/contexts/api/api.module.ts:ApiModule",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/api/health.controller.ts",
+      "target": "class:src/contexts/api/health.controller.ts:HealthController",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/api/markets.controller.ts",
+      "target": "class:src/contexts/api/markets.controller.ts:MarketsController",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/api/opportunities.controller.ts",
+      "target": "class:src/contexts/api/opportunities.controller.ts:OpportunitiesController",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/api/postgres-read-repositories.ts",
+      "target": "class:src/contexts/api/postgres-read-repositories.ts:PostgresReadRepositories",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/api/postgres-read-repositories.ts",
+      "target": "function:src/contexts/api/postgres-read-repositories.ts:toOpportunity",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/api/postgres-read-repositories.ts",
+      "target": "function:src/contexts/api/postgres-read-repositories.ts:toMarket",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/api/read-models.ts",
+      "target": "class:src/contexts/api/read-models.ts:OpportunityReadService",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/api/read-models.ts",
+      "target": "class:src/contexts/api/read-models.ts:MarketReadService",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/api/read-models.ts",
+      "target": "class:src/contexts/api/read-models.ts:ScanRunReadService",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/api/scan-runs.controller.ts",
+      "target": "class:src/contexts/api/scan-runs.controller.ts:ScanRunsController",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/contexts/api/api.module.ts",
+      "target": "class:src/contexts/api/api.module.ts:ApiModule",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/contexts/api/health.controller.ts",
+      "target": "class:src/contexts/api/health.controller.ts:HealthController",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/contexts/api/markets.controller.ts",
+      "target": "class:src/contexts/api/markets.controller.ts:MarketsController",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/contexts/api/opportunities.controller.ts",
+      "target": "class:src/contexts/api/opportunities.controller.ts:OpportunitiesController",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/contexts/api/postgres-read-repositories.ts",
+      "target": "class:src/contexts/api/postgres-read-repositories.ts:PostgresReadRepositories",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/contexts/api/read-models.ts",
+      "target": "class:src/contexts/api/read-models.ts:OpportunityReadService",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/contexts/api/read-models.ts",
+      "target": "class:src/contexts/api/read-models.ts:MarketReadService",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/contexts/api/read-models.ts",
+      "target": "class:src/contexts/api/read-models.ts:ScanRunReadService",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/contexts/api/scan-runs.controller.ts",
+      "target": "class:src/contexts/api/scan-runs.controller.ts:ScanRunsController",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/contexts/api/markets.controller.ts:MarketsController",
+      "target": "class:src/contexts/api/read-models.ts:MarketReadService",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "class:src/contexts/api/opportunities.controller.ts:OpportunitiesController",
+      "target": "class:src/contexts/api/read-models.ts:OpportunityReadService",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "class:src/contexts/api/scan-runs.controller.ts:ScanRunsController",
+      "target": "class:src/contexts/api/read-models.ts:ScanRunReadService",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "class:src/contexts/api/postgres-read-repositories.ts:PostgresReadRepositories",
+      "target": "function:src/contexts/api/postgres-read-repositories.ts:toOpportunity",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/contexts/api/postgres-read-repositories.ts:PostgresReadRepositories",
+      "target": "function:src/contexts/api/postgres-read-repositories.ts:toMarket",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/contexts/api/read-models.ts:OpportunityReadService",
+      "target": "class:src/contexts/api/postgres-read-repositories.ts:PostgresReadRepositories",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "class:src/contexts/api/read-models.ts:MarketReadService",
+      "target": "class:src/contexts/api/postgres-read-repositories.ts:PostgresReadRepositories",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "class:src/contexts/api/read-models.ts:ScanRunReadService",
+      "target": "class:src/contexts/api/postgres-read-repositories.ts:PostgresReadRepositories",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:src/contexts/arbitrage/domain/opportunity-calculator.ts",
+      "target": "file:src/contexts/arbitrage/domain/opportunity.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/arbitrage/domain/opportunity-calculator.ts",
+      "target": "file:src/contexts/matching/domain/candidate-pair.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/matching/domain/candidate-pair-generator.ts",
+      "target": "file:src/contexts/matching/domain/candidate-pair.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/matching/domain/candidate-pair-generator.ts",
+      "target": "file:src/contexts/matching/domain/normalized-market.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/matching/domain/candidate-pair.ts",
+      "target": "file:src/contexts/matching/domain/normalized-market.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/matching/domain/equivalence-policy.ts",
+      "target": "file:src/contexts/matching/domain/candidate-pair.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:test/arbitrage.test.ts",
+      "target": "file:src/contexts/arbitrage/domain/opportunity-calculator.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:test/arbitrage.test.ts",
+      "target": "file:src/contexts/matching/domain/candidate-pair.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:test/arbitrage.test.ts",
+      "target": "file:src/contexts/matching/domain/normalized-market.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:test/matching.test.ts",
+      "target": "file:src/contexts/matching/domain/candidate-pair-generator.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:test/matching.test.ts",
+      "target": "file:src/contexts/matching/domain/equivalence-policy.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:test/matching.test.ts",
+      "target": "file:src/contexts/matching/domain/normalized-market.ts",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/contexts/arbitrage/domain/opportunity-calculator.ts",
+      "target": "class:src/contexts/arbitrage/domain/opportunity-calculator.ts:OpportunityCalculator",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/contexts/matching/domain/candidate-pair-generator.ts",
+      "target": "class:src/contexts/matching/domain/candidate-pair-generator.ts:CandidatePairGenerator",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/contexts/matching/domain/candidate-pair-generator.ts",
+      "target": "function:src/contexts/matching/domain/candidate-pair-generator.ts:deadlinesMatch",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/contexts/matching/domain/equivalence-policy.ts",
+      "target": "class:src/contexts/matching/domain/equivalence-policy.ts:DeterministicEquivalencePolicy",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/contexts/matching/domain/equivalence-policy.ts",
+      "target": "function:src/contexts/matching/domain/equivalence-policy.ts:materialMismatchReasonsFor",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/contexts/arbitrage/domain/opportunity-calculator.ts",
+      "target": "class:src/contexts/arbitrage/domain/opportunity-calculator.ts:OpportunityCalculator",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/contexts/matching/domain/candidate-pair-generator.ts",
+      "target": "class:src/contexts/matching/domain/candidate-pair-generator.ts:CandidatePairGenerator",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/contexts/matching/domain/equivalence-policy.ts",
+      "target": "class:src/contexts/matching/domain/equivalence-policy.ts:DeterministicEquivalencePolicy",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/contexts/arbitrage/domain/opportunity-calculator.ts",
+      "target": "file:test/arbitrage.test.ts",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/contexts/matching/domain/candidate-pair.ts",
+      "target": "file:test/arbitrage.test.ts",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/contexts/matching/domain/candidate-pair-generator.ts",
+      "target": "file:test/matching.test.ts",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/contexts/matching/domain/equivalence-policy.ts",
+      "target": "file:test/matching.test.ts",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/contexts/matching/domain/normalized-market.ts",
+      "target": "file:test/matching.test.ts",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "config:package.json",
+      "target": "config:nest-cli.json",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "config:package.json",
+      "target": "config:tsconfig.json",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "config:nest-cli.json",
+      "target": "config:tsconfig.json",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "config:.env.example",
+      "target": "config:package.json",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "document:docs/ADR.md",
+      "target": "file:src/app.module.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/ADR.md",
+      "target": "file:src/main-api.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/ADR.md",
+      "target": "file:src/main-worker.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/ADR.md",
+      "target": "file:src/db/schema.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/ADR.md",
+      "target": "file:src/contexts/scanner/worker-scan-runner.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/ADR.md",
+      "target": "file:src/contexts/llm/application/persisted-llm-gateway.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/ADR.md",
+      "target": "file:src/contexts/observability/observability.service.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/ADR.md",
+      "target": "document:docs/PRD.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/PRD.md",
+      "target": "file:src/contexts/venues/application/http-venue-clients.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/PRD.md",
+      "target": "file:src/contexts/matching/domain/crypto-market-normalizer.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/PRD.md",
+      "target": "file:src/contexts/matching/domain/candidate-pair-generator.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/PRD.md",
+      "target": "file:src/contexts/matching/domain/equivalence-policy.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/PRD.md",
+      "target": "file:src/contexts/arbitrage/domain/opportunity-calculator.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/PRD.md",
+      "target": "file:src/contexts/api/health.controller.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/PRD.md",
+      "target": "file:src/contexts/api/opportunities.controller.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/PRD.md",
+      "target": "file:src/contexts/api/markets.controller.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/PRD.md",
+      "target": "file:src/contexts/api/scan-runs.controller.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/PRD.md",
+      "target": "file:src/contexts/llm/application/persisted-llm-gateway.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/PRD.md",
+      "target": "file:src/db/schema.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/PRD.md",
+      "target": "document:docs/ADR.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/PROJECT-SCOPE.md",
+      "target": "document:docs/PRD.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/PROJECT-SCOPE.md",
+      "target": "document:docs/ADR.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/PROJECT-SCOPE.md",
+      "target": "file:src/contexts/venues/application/http-venue-clients.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/PROJECT-SCOPE.md",
+      "target": "file:src/contexts/matching/domain/crypto-market-normalizer.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/PROJECT-SCOPE.md",
+      "target": "file:src/contexts/arbitrage/domain/opportunity-calculator.ts",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "config:drizzle/meta/0000_snapshot.json",
+      "target": "table:drizzle/meta/0000_snapshot.json:alerts",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "config:drizzle/meta/0000_snapshot.json",
+      "target": "table:drizzle/meta/0000_snapshot.json:candidate_pairs",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "config:drizzle/meta/0000_snapshot.json",
+      "target": "table:drizzle/meta/0000_snapshot.json:llm_evaluations",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "config:drizzle/meta/0000_snapshot.json",
+      "target": "table:drizzle/meta/0000_snapshot.json:normalized_markets",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "config:drizzle/meta/0000_snapshot.json",
+      "target": "table:drizzle/meta/0000_snapshot.json:opportunities",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "config:drizzle/meta/0000_snapshot.json",
+      "target": "table:drizzle/meta/0000_snapshot.json:orderbook_snapshots",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "config:drizzle/meta/0000_snapshot.json",
+      "target": "table:drizzle/meta/0000_snapshot.json:scan_runs",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "config:drizzle/meta/0000_snapshot.json",
+      "target": "table:drizzle/meta/0000_snapshot.json:venue_market_snapshots",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "config:drizzle/meta/0001_snapshot.json",
+      "target": "table:drizzle/meta/0001_snapshot.json:alerts",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "config:drizzle/meta/0001_snapshot.json",
+      "target": "table:drizzle/meta/0001_snapshot.json:candidate_pairs",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "config:drizzle/meta/0001_snapshot.json",
+      "target": "table:drizzle/meta/0001_snapshot.json:llm_evaluations",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "config:drizzle/meta/0001_snapshot.json",
+      "target": "table:drizzle/meta/0001_snapshot.json:normalized_markets",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "config:drizzle/meta/0001_snapshot.json",
+      "target": "table:drizzle/meta/0001_snapshot.json:opportunities",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "config:drizzle/meta/0001_snapshot.json",
+      "target": "table:drizzle/meta/0001_snapshot.json:orderbook_snapshots",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "config:drizzle/meta/0001_snapshot.json",
+      "target": "table:drizzle/meta/0001_snapshot.json:scan_runs",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "config:drizzle/meta/0001_snapshot.json",
+      "target": "table:drizzle/meta/0001_snapshot.json:venue_market_snapshots",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "config:drizzle/meta/_journal.json",
+      "target": "config:drizzle/meta/0000_snapshot.json",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "config:drizzle/meta/_journal.json",
+      "target": "config:drizzle/meta/0001_snapshot.json",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "config:drizzle/meta/0001_snapshot.json",
+      "target": "config:drizzle/meta/0000_snapshot.json",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "table:drizzle/meta/0000_snapshot.json:alerts",
+      "target": "table:drizzle/meta/0000_snapshot.json:opportunities",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "table:drizzle/meta/0000_snapshot.json:candidate_pairs",
+      "target": "table:drizzle/meta/0000_snapshot.json:normalized_markets",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "table:drizzle/meta/0000_snapshot.json:opportunities",
+      "target": "table:drizzle/meta/0000_snapshot.json:candidate_pairs",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "table:drizzle/meta/0000_snapshot.json:orderbook_snapshots",
+      "target": "table:drizzle/meta/0000_snapshot.json:normalized_markets",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "table:drizzle/meta/0000_snapshot.json:venue_market_snapshots",
+      "target": "table:drizzle/meta/0000_snapshot.json:scan_runs",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "table:drizzle/meta/0001_snapshot.json:alerts",
+      "target": "table:drizzle/meta/0001_snapshot.json:opportunities",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "table:drizzle/meta/0001_snapshot.json:candidate_pairs",
+      "target": "table:drizzle/meta/0001_snapshot.json:normalized_markets",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "table:drizzle/meta/0001_snapshot.json:opportunities",
+      "target": "table:drizzle/meta/0001_snapshot.json:candidate_pairs",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "table:drizzle/meta/0001_snapshot.json:orderbook_snapshots",
+      "target": "table:drizzle/meta/0001_snapshot.json:normalized_markets",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "table:drizzle/meta/0001_snapshot.json:venue_market_snapshots",
+      "target": "table:drizzle/meta/0001_snapshot.json:scan_runs",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "document:.claude/skills/gitnexus/gitnexus-cli/SKILL.md",
+      "target": "document:.claude/skills/gitnexus/gitnexus-guide/SKILL.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:.claude/skills/gitnexus/gitnexus-debugging/SKILL.md",
+      "target": "document:.claude/skills/gitnexus/gitnexus-guide/SKILL.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:.claude/skills/gitnexus/gitnexus-exploring/SKILL.md",
+      "target": "document:.claude/skills/gitnexus/gitnexus-guide/SKILL.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md",
+      "target": "document:.claude/skills/gitnexus/gitnexus-guide/SKILL.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md",
+      "target": "document:.claude/skills/gitnexus/gitnexus-guide/SKILL.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:.claude/skills/gitnexus/gitnexus-debugging/SKILL.md",
+      "target": "document:.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md",
+      "target": "document:.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "config:.understand-anything/tmp/preflight.env",
+      "target": "file:.understand-anything/.understandignore",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:drizzle.config.ts",
+      "target": "file:src/db/schema.ts",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:drizzle.config.ts",
+      "target": "table:drizzle/0000_aromatic_trauma.sql:migration",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "table:drizzle/0000_aromatic_trauma.sql:migration",
+      "target": "table:drizzle/0000_aromatic_trauma.sql:alerts",
+      "type": "migrates",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "table:drizzle/0000_aromatic_trauma.sql:migration",
+      "target": "table:drizzle/0000_aromatic_trauma.sql:candidate_pairs",
+      "type": "migrates",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "table:drizzle/0000_aromatic_trauma.sql:migration",
+      "target": "table:drizzle/0000_aromatic_trauma.sql:llm_evaluations",
+      "type": "migrates",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "table:drizzle/0000_aromatic_trauma.sql:migration",
+      "target": "table:drizzle/0000_aromatic_trauma.sql:normalized_markets",
+      "type": "migrates",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "table:drizzle/0000_aromatic_trauma.sql:migration",
+      "target": "table:drizzle/0000_aromatic_trauma.sql:opportunities",
+      "type": "migrates",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "table:drizzle/0000_aromatic_trauma.sql:migration",
+      "target": "table:drizzle/0000_aromatic_trauma.sql:orderbook_snapshots",
+      "type": "migrates",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "table:drizzle/0000_aromatic_trauma.sql:migration",
+      "target": "table:drizzle/0000_aromatic_trauma.sql:scan_runs",
+      "type": "migrates",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "table:drizzle/0000_aromatic_trauma.sql:migration",
+      "target": "table:drizzle/0000_aromatic_trauma.sql:venue_market_snapshots",
+      "type": "migrates",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "table:drizzle/0001_freezing_nightshade.sql:migration",
+      "target": "table:drizzle/0000_aromatic_trauma.sql:llm_evaluations",
+      "type": "migrates",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/db/schema.ts",
+      "target": "table:drizzle/0000_aromatic_trauma.sql:scan_runs",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/db/schema.ts",
+      "target": "table:drizzle/0000_aromatic_trauma.sql:venue_market_snapshots",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/db/schema.ts",
+      "target": "table:drizzle/0000_aromatic_trauma.sql:normalized_markets",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/db/schema.ts",
+      "target": "table:drizzle/0000_aromatic_trauma.sql:candidate_pairs",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/db/schema.ts",
+      "target": "table:drizzle/0000_aromatic_trauma.sql:llm_evaluations",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/db/schema.ts",
+      "target": "table:drizzle/0000_aromatic_trauma.sql:orderbook_snapshots",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/db/schema.ts",
+      "target": "table:drizzle/0000_aromatic_trauma.sql:opportunities",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/db/schema.ts",
+      "target": "table:drizzle/0000_aromatic_trauma.sql:alerts",
+      "type": "defines_schema",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:vitest.config.ts",
+      "target": "file:src/db/schema.ts",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    }
+  ],
+  "layers": [
+    {
+      "id": "layer:application-bootstrap",
+      "name": "Application Bootstrap Layer",
+      "description": "NestJS composition roots, API and worker process entry points, and validated runtime configuration that assemble the scanner application.",
+      "nodeIds": [
+        "file:src/api-app.module.ts",
+        "file:src/app.module.ts",
+        "file:src/main-api.ts",
+        "file:src/main-worker.ts",
+        "file:src/worker-app.module.ts",
+        "file:src/config/app-config.ts",
+        "file:src/config/config.module.ts"
+      ]
+    },
+    {
+      "id": "layer:api-read-model",
+      "name": "API Read Model Layer",
+      "description": "HTTP controllers, API module wiring, read services, and PostgreSQL-backed query adapters that expose scanner state to clients.",
+      "nodeIds": [
+        "file:src/contexts/api/api.module.ts",
+        "file:src/contexts/api/health.controller.ts",
+        "file:src/contexts/api/markets.controller.ts",
+        "file:src/contexts/api/opportunities.controller.ts",
+        "file:src/contexts/api/postgres-read-repositories.ts",
+        "file:src/contexts/api/read-models.ts",
+        "file:src/contexts/api/scan-runs.controller.ts"
+      ]
+    },
+    {
+      "id": "layer:scanner-worker",
+      "name": "Scanner Worker Layer",
+      "description": "Read-only scan orchestration, scanner lifecycle types, worker runner, and scanner repositories that persist scan artifacts.",
+      "nodeIds": [
+        "file:src/contexts/scanner/in-memory-scanner-repository.ts",
+        "file:src/contexts/scanner/postgres-scanner-repository.ts",
+        "file:src/contexts/scanner/read-only-scanner.ts",
+        "file:src/contexts/scanner/scanner-result.ts",
+        "file:src/contexts/scanner/scanner.module.ts",
+        "file:src/contexts/scanner/worker-scan-runner.ts"
+      ]
+    },
+    {
+      "id": "layer:domain-intelligence",
+      "name": "Domain Intelligence Layer",
+      "description": "Core arbitrage and market-matching domain models, normalizers, pair generation, equivalence policy, and opportunity calculation logic.",
+      "nodeIds": [
+        "file:src/contexts/arbitrage/domain/opportunity.ts",
+        "file:src/contexts/arbitrage/domain/opportunity-calculator.ts",
+        "file:src/contexts/matching/domain/crypto-market-normalizer.ts",
+        "file:src/contexts/matching/domain/candidate-pair-generator.ts",
+        "file:src/contexts/matching/domain/candidate-pair.ts",
+        "file:src/contexts/matching/domain/equivalence-policy.ts",
+        "file:src/contexts/matching/domain/normalized-market.ts"
+      ]
+    },
+    {
+      "id": "layer:venue-integrations",
+      "name": "Venue Integrations Layer",
+      "description": "Venue market contracts plus HTTP and static adapters for obtaining Kalshi and Polymarket market snapshots.",
+      "nodeIds": [
+        "file:src/contexts/venues/application/http-venue-clients.ts",
+        "file:src/contexts/venues/application/static-venue-client.ts",
+        "file:src/contexts/venues/domain/venue-market.ts"
+      ]
+    },
+    {
+      "id": "layer:llm-observability",
+      "name": "LLM and Observability Layer",
+      "description": "Persisted LLM evaluation gateway, cache contracts, in-memory evaluation storage, observability capture, and secret redaction support.",
+      "nodeIds": [
+        "file:src/contexts/llm/application/in-memory-llm-evaluation-repository.ts",
+        "file:src/contexts/llm/application/llm-evaluation.ts",
+        "file:src/contexts/llm/application/persisted-llm-gateway.ts",
+        "file:src/contexts/observability/observability.service.ts",
+        "file:src/config/redaction.ts"
+      ]
+    },
+    {
+      "id": "layer:data-persistence",
+      "name": "Data Persistence Layer",
+      "description": "Drizzle schema configuration, generated PostgreSQL migration snapshots, SQL table definitions, and ORM schema declarations for scanner storage.",
+      "nodeIds": [
+        "file:drizzle.config.ts",
+        "file:src/db/schema.ts",
+        "config:drizzle/meta/0000_snapshot.json",
+        "config:drizzle/meta/0001_snapshot.json",
+        "config:drizzle/meta/_journal.json",
+        "table:drizzle/meta/0000_snapshot.json:alerts",
+        "table:drizzle/meta/0000_snapshot.json:candidate_pairs",
+        "table:drizzle/meta/0000_snapshot.json:llm_evaluations",
+        "table:drizzle/meta/0000_snapshot.json:normalized_markets",
+        "table:drizzle/meta/0000_snapshot.json:opportunities",
+        "table:drizzle/meta/0000_snapshot.json:orderbook_snapshots",
+        "table:drizzle/meta/0000_snapshot.json:scan_runs",
+        "table:drizzle/meta/0000_snapshot.json:venue_market_snapshots",
+        "table:drizzle/meta/0001_snapshot.json:alerts",
+        "table:drizzle/meta/0001_snapshot.json:candidate_pairs",
+        "table:drizzle/meta/0001_snapshot.json:llm_evaluations",
+        "table:drizzle/meta/0001_snapshot.json:normalized_markets",
+        "table:drizzle/meta/0001_snapshot.json:opportunities",
+        "table:drizzle/meta/0001_snapshot.json:orderbook_snapshots",
+        "table:drizzle/meta/0001_snapshot.json:scan_runs",
+        "table:drizzle/meta/0001_snapshot.json:venue_market_snapshots",
+        "table:drizzle/0000_aromatic_trauma.sql:migration",
+        "table:drizzle/0000_aromatic_trauma.sql:alerts",
+        "table:drizzle/0000_aromatic_trauma.sql:candidate_pairs",
+        "table:drizzle/0000_aromatic_trauma.sql:llm_evaluations",
+        "table:drizzle/0000_aromatic_trauma.sql:normalized_markets",
+        "table:drizzle/0000_aromatic_trauma.sql:opportunities",
+        "table:drizzle/0000_aromatic_trauma.sql:orderbook_snapshots",
+        "table:drizzle/0000_aromatic_trauma.sql:scan_runs",
+        "table:drizzle/0000_aromatic_trauma.sql:venue_market_snapshots",
+        "table:drizzle/0001_freezing_nightshade.sql:migration"
+      ]
+    },
+    {
+      "id": "layer:test-suite",
+      "name": "Test Suite Layer",
+      "description": "Vitest specifications that verify configuration, normalizing, matching, arbitrage, scanner, LLM, and observability behavior.",
+      "nodeIds": [
+        "file:test/normalizer.test.ts",
+        "file:test/scanner.test.ts",
+        "file:test/config.test.ts",
+        "file:test/llm-observability.test.ts",
+        "file:test/arbitrage.test.ts",
+        "file:test/matching.test.ts"
+      ]
+    },
+    {
+      "id": "layer:project-support",
+      "name": "Project Support Layer",
+      "description": "Repository-level configuration, product and architecture documentation, GitNexus skill guides, and Understand Anything analysis metadata.",
+      "nodeIds": [
+        "config:.env.example",
+        "config:nest-cli.json",
+        "config:package.json",
+        "config:tsconfig.json",
+        "file:vitest.config.ts",
+        "file:.understand-anything/.understandignore",
+        "config:.understand-anything/tmp/preflight.env",
+        "document:docs/ADR.md",
+        "document:docs/PRD.md",
+        "document:docs/PROJECT-SCOPE.md",
+        "document:.claude/skills/gitnexus/gitnexus-cli/SKILL.md",
+        "document:.claude/skills/gitnexus/gitnexus-debugging/SKILL.md",
+        "document:.claude/skills/gitnexus/gitnexus-exploring/SKILL.md",
+        "document:.claude/skills/gitnexus/gitnexus-guide/SKILL.md",
+        "document:.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md",
+        "document:.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md"
+      ]
+    }
+  ],
+  "tour": [
+    {
+      "order": 1,
+      "title": "Product Scope",
+      "description": "Start with the product requirements and scope documents to understand why this project exists before reading runtime code. Together they define the scanner as a read-only cross-venue prediction-market arbitrage intelligence system focused first on Kalshi and Polymarket, with explicit non-goals such as autonomous trading and deferred IBKR integration. This framing explains why the rest of the architecture emphasizes normalization, persistence, observability, and API read models rather than order execution.",
+      "nodeIds": [
+        "document:docs/PRD.md",
+        "document:docs/PROJECT-SCOPE.md"
+      ]
+    },
+    {
+      "order": 2,
+      "title": "Architecture Decisions",
+      "description": "The architecture decision record turns the product scope into implementation boundaries. It explains the choice of a DDD-inspired NestJS modular monolith with separate API and worker runtimes, PostgreSQL persistence, Drizzle migrations, and stateless persisted LLM calls. Read this after the PRD so the later module split feels intentional rather than accidental.",
+      "nodeIds": [
+        "document:docs/ADR.md"
+      ],
+      "languageLesson": "ADR documents capture architectural decisions with context and rejected alternatives, which helps newcomers distinguish deliberate constraints from incidental implementation details."
+    },
+    {
+      "order": 3,
+      "title": "Runtime Entry Points",
+      "description": "The project has two runtime paths: the API process serves read-only HTTP views, while the worker process performs one scanner pass and exits. The API and worker application modules keep each process focused by composing only the configuration and context modules it needs. This split is the backbone for understanding how scanner writes and API reads stay decoupled while sharing the same database model.",
+      "nodeIds": [
+        "file:src/main-api.ts",
+        "file:src/api-app.module.ts",
+        "file:src/main-worker.ts",
+        "file:src/worker-app.module.ts"
+      ],
+      "languageLesson": "NestJS modules are composition roots: they declare which providers and controllers are available for a particular application context."
+    },
+    {
+      "order": 4,
+      "title": "Configuration Backbone",
+      "description": "Configuration is loaded once from the environment, validated, normalized, and exposed through a global NestJS provider. This matters because both the API and worker need consistent database, port, venue, telemetry, and sampling settings without duplicating parsing logic. The package manifest and environment template show how those settings connect to the project scripts and deployment surface.",
+      "nodeIds": [
+        "file:src/config/app-config.ts",
+        "file:src/config/config.module.ts",
+        "config:.env.example",
+        "config:package.json"
+      ],
+      "languageLesson": "Zod-style configuration validation turns untyped environment variables into a typed runtime contract, catching invalid ports or malformed settings during startup instead of later in the request path."
+    },
+    {
+      "order": 5,
+      "title": "API Read Model",
+      "description": "After the API bootstrap, the read-model layer exposes scanner state through health, market, opportunity, and scan-run controllers. Controllers stay thin by delegating to read services and repository contracts, while the PostgreSQL adapter translates stored rows into response-oriented models. This is the consumer-facing side of the system: it never scans markets itself, it only reads the artifacts produced by the worker.",
+      "nodeIds": [
+        "file:src/contexts/api/api.module.ts",
+        "file:src/contexts/api/read-models.ts",
+        "file:src/contexts/api/postgres-read-repositories.ts",
+        "file:src/contexts/api/opportunities.controller.ts",
+        "file:src/contexts/api/markets.controller.ts"
+      ]
+    },
+    {
+      "order": 6,
+      "title": "Venue Contracts",
+      "description": "The scanner talks to venues through a shared domain contract rather than hard-coding Kalshi or Polymarket inside the pipeline. Public HTTP clients adapt each venue API into that common snapshot shape, while the static client supplies deterministic data for offline runs and tests. This adapter boundary is what lets the domain pipeline compare markets without caring where the raw payload came from.",
+      "nodeIds": [
+        "file:src/contexts/venues/domain/venue-market.ts",
+        "file:src/contexts/venues/application/http-venue-clients.ts",
+        "file:src/contexts/venues/application/static-venue-client.ts"
+      ],
+      "languageLesson": "The adapter pattern keeps external API differences at the edge: venue-specific payloads are converted once into internal contracts that the rest of the code can treat uniformly."
+    },
+    {
+      "order": 7,
+      "title": "Domain Vocabulary",
+      "description": "Before following the scanner pipeline, learn the shared market and opportunity types that have the highest fan-in in the graph. Normalized markets give every venue listing a comparable identity, candidate pairs connect possible cross-venue matches, and opportunities represent detected arbitrage with risk and book details. These types form the vocabulary used by matching, scanning, persistence, and API read models.",
+      "nodeIds": [
+        "file:src/contexts/matching/domain/normalized-market.ts",
+        "file:src/contexts/matching/domain/candidate-pair.ts",
+        "file:src/contexts/arbitrage/domain/opportunity.ts"
+      ]
+    },
+    {
+      "order": 8,
+      "title": "Matching Intelligence",
+      "description": "The matching layer converts messy venue text into structured comparable markets, generates plausible Kalshi-to-Polymarket pairs, and classifies whether those pairs are equivalent enough to evaluate. This is where the project encodes domain judgment: thresholds, deadlines, resolution sources, ambiguity flags, and material mismatch reasons all affect whether a pair should be trusted. It builds directly on the shared vocabulary from the previous step.",
+      "nodeIds": [
+        "file:src/contexts/matching/domain/crypto-market-normalizer.ts",
+        "file:src/contexts/matching/domain/candidate-pair-generator.ts",
+        "file:src/contexts/matching/domain/equivalence-policy.ts"
+      ],
+      "languageLesson": "Regex-driven normalization is useful at system edges, but the important design move is to immediately convert parsed text into explicit typed fields and ambiguity flags."
+    },
+    {
+      "order": 9,
+      "title": "Opportunity Calculation",
+      "description": "Once markets are normalized and paired, the arbitrage domain service turns candidate pairs into executable opportunity records. It validates order books, evaluates trade directions, builds legs, and computes net edge after costs such as fees and slippage. This is the core business calculation that makes the scanner more than a market-matching index.",
+      "nodeIds": [
+        "file:src/contexts/arbitrage/domain/opportunity-calculator.ts",
+        "file:src/contexts/arbitrage/domain/opportunity.ts"
+      ]
+    },
+    {
+      "order": 10,
+      "title": "Scanner Orchestration",
+      "description": "The worker runner assembles real infrastructure for one scan cycle, while the read-only scanner coordinates the full pipeline: fetch venues, normalize markets, generate pairs, classify equivalence, calculate opportunities, and persist each artifact. Scanner result types capture lifecycle status and metrics so failures can be reported without placing trades. This step connects the domain services from earlier steps into the worker execution path introduced at the beginning.",
+      "nodeIds": [
+        "file:src/contexts/scanner/worker-scan-runner.ts",
+        "file:src/contexts/scanner/read-only-scanner.ts",
+        "file:src/contexts/scanner/scanner-result.ts",
+        "file:src/contexts/scanner/scanner.module.ts"
+      ]
+    },
+    {
+      "order": 11,
+      "title": "Persistence Model",
+      "description": "Persistence is shared by the writer-side scanner repository and the reader-side API repositories. The Drizzle schema and SQL migration define scan runs, raw venue snapshots, normalized markets, candidate pairs, LLM evaluations, order books, opportunities, and alerts, giving every pipeline artifact a durable home. The PostgreSQL scanner repository then writes stable domain-derived records into those tables for the API to read later.",
+      "nodeIds": [
+        "file:src/db/schema.ts",
+        "table:drizzle/0000_aromatic_trauma.sql:migration",
+        "table:drizzle/0001_freezing_nightshade.sql:migration",
+        "file:src/contexts/scanner/postgres-scanner-repository.ts"
+      ],
+      "languageLesson": "Drizzle migrations are the ordered database history, while the TypeScript schema gives application code a typed representation of the same tables."
+    },
+    {
+      "order": 12,
+      "title": "LLM Observability Tests",
+      "description": "The LLM and observability layer adds optional judgment and safety around the deterministic scanner. Persisted LLM evaluation records use deterministic hashing and validation to cache successful responses, while redaction and observability services prevent secrets from leaking into captured events. The Vitest suite anchors the architecture by testing configuration, matching, arbitrage, scanner persistence, LLM caching, and observability behavior.",
+      "nodeIds": [
+        "file:src/contexts/llm/application/persisted-llm-gateway.ts",
+        "file:src/contexts/observability/observability.service.ts",
+        "file:test/scanner.test.ts",
+        "file:test/llm-observability.test.ts",
+        "file:vitest.config.ts"
+      ],
+      "languageLesson": "Vitest specs here work as executable architecture documentation: they show the intended behavior of domain services, adapters, repositories, and safety boundaries."
+    }
+  ]
+}

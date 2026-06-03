@@ -1,21 +1,22 @@
 {
   "compilerOptions": {
+    "module": "commonjs",
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
     "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "skipLibCheck": true,
-    "resolveJsonModule": true,
-    "outDir": "dist",
-    "rootDir": ".",
     "sourceMap": true,
-    "declaration": false,
-    "lib": ["ES2022"],
-    "types": ["node"]
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "incremental": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "strictPropertyInitialization": false,
+    "esModuleInterop": true,
+    "types": ["node", "vitest"]
   },
-  "include": ["src/**/*", "scripts/**/*", "test/**/*"],
+  "include": ["src/**/*.ts", "test/**/*.ts", "vitest.config.ts"],
   "exclude": ["node_modules", "dist"]
 }

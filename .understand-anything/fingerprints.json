@@ -1,0 +1,2267 @@
+{
+  "version": "1.0.0",
+  "gitCommitHash": "f4440c064d4ebc2c59036cab3249ab861a6438a7",
+  "generatedAt": "2026-06-03T17:54:31.913Z",
+  "files": {
+    ".claude/skills/gitnexus/gitnexus-cli/SKILL.md": {
+      "filePath": ".claude/skills/gitnexus/gitnexus-cli/SKILL.md",
+      "contentHash": "a699a9dd168a68e7357b1704be0ff5ceee30b2a348042789355cca171c060e02",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 84,
+      "hasStructuralAnalysis": true
+    },
+    ".claude/skills/gitnexus/gitnexus-debugging/SKILL.md": {
+      "filePath": ".claude/skills/gitnexus/gitnexus-debugging/SKILL.md",
+      "contentHash": "4a1e82aa835c52e38227d853c20ef05ea33be1dfb6aa6511474d15357f1d3f2e",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 90,
+      "hasStructuralAnalysis": true
+    },
+    ".claude/skills/gitnexus/gitnexus-exploring/SKILL.md": {
+      "filePath": ".claude/skills/gitnexus/gitnexus-exploring/SKILL.md",
+      "contentHash": "ffafeaa0ce52be079e4d4b3a48c0a166728c009380a243c394c4e08f728527bb",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 79,
+      "hasStructuralAnalysis": true
+    },
+    ".claude/skills/gitnexus/gitnexus-guide/SKILL.md": {
+      "filePath": ".claude/skills/gitnexus/gitnexus-guide/SKILL.md",
+      "contentHash": "40b047beeb9a7c5d47f17426b4061d2c2562c85c11288fa7f8da376d910e4f91",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 65,
+      "hasStructuralAnalysis": true
+    },
+    ".claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md": {
+      "filePath": ".claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md",
+      "contentHash": "a4d6e8003c4a822c380b0e81b2fa0d642612236c734a9d51834e362c4be52f33",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 98,
+      "hasStructuralAnalysis": true
+    },
+    ".claude/skills/gitnexus/gitnexus-refactoring/SKILL.md": {
+      "filePath": ".claude/skills/gitnexus/gitnexus-refactoring/SKILL.md",
+      "contentHash": "6aab994ee0266063245245483ee3280645aca66c0c5e56730ffad3f32ecbbc5c",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 122,
+      "hasStructuralAnalysis": true
+    },
+    ".env.example": {
+      "filePath": ".env.example",
+      "contentHash": "92d9b4da9f02af36fec829f973afc81f7393288aad5b2f10c1c098c1adfccfc4",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 8,
+      "hasStructuralAnalysis": true
+    },
+    ".understand-anything/.understandignore": {
+      "filePath": ".understand-anything/.understandignore",
+      "contentHash": "9a01f0798730c4e895a32448e5d7a0915f401d74108025ca266e99bc4a68b2df",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 27,
+      "hasStructuralAnalysis": false
+    },
+    ".understand-anything/tmp/preflight.env": {
+      "filePath": ".understand-anything/tmp/preflight.env",
+      "contentHash": "36e7dd56d6ebef66a1be116487dd21cf838cf55aa1a021be9915401ba1262263",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 6,
+      "hasStructuralAnalysis": true
+    },
+    "docs/ADR.md": {
+      "filePath": "docs/ADR.md",
+      "contentHash": "91ba0254236640819d935825a13e1ac787f20d8d1fdcf0d692713d2500c4a324",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 324,
+      "hasStructuralAnalysis": true
+    },
+    "docs/PRD.md": {
+      "filePath": "docs/PRD.md",
+      "contentHash": "bae79c642c324f0b5fd9a59dee188f1a6d9b6d4570704096770d722def8362c7",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 361,
+      "hasStructuralAnalysis": true
+    },
+    "docs/PROJECT-SCOPE.md": {
+      "filePath": "docs/PROJECT-SCOPE.md",
+      "contentHash": "4ab070454a3d23760c1b6b819a6c099a58647ff37f47389064846f2404acd927",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 162,
+      "hasStructuralAnalysis": true
+    },
+    "drizzle.config.ts": {
+      "filePath": "drizzle.config.ts",
+      "contentHash": "e2849fa3a256d1b2efdbc34c5cc2a2a22803681f29915bb0ca4a174c34b9efbb",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "drizzle-kit",
+          "specifiers": [
+            "defineConfig"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 11,
+      "hasStructuralAnalysis": true
+    },
+    "drizzle/0000_aromatic_trauma.sql": {
+      "filePath": "drizzle/0000_aromatic_trauma.sql",
+      "contentHash": "cd9a81a5a6545f394d63ddd6e3b59dc1999163e470f698ffd10af92244f85f69",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 115,
+      "hasStructuralAnalysis": true
+    },
+    "drizzle/0001_freezing_nightshade.sql": {
+      "filePath": "drizzle/0001_freezing_nightshade.sql",
+      "contentHash": "02324c8577294e36e2eeb3397f27b124a2e90324541b127136b482ecf0777365",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 2,
+      "hasStructuralAnalysis": true
+    },
+    "drizzle/meta/_journal.json": {
+      "filePath": "drizzle/meta/_journal.json",
+      "contentHash": "4ec04331d0e9639d29752a9f350b4d196706796ec132e665818ae6ded3f50654",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 20,
+      "hasStructuralAnalysis": true
+    },
+    "drizzle/meta/0000_snapshot.json": {
+      "filePath": "drizzle/meta/0000_snapshot.json",
+      "contentHash": "f1baa0969ea2ff1174702fcb4e205048cc0e0c253d8a03fef7a42419289d7e94",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 782,
+      "hasStructuralAnalysis": true
+    },
+    "drizzle/meta/0001_snapshot.json": {
+      "filePath": "drizzle/meta/0001_snapshot.json",
+      "contentHash": "cc4e608f07332d042e9456f6e72cb39d50edcb8eddd8594c4f04d34afaf9ca3f",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 788,
+      "hasStructuralAnalysis": true
+    },
+    "nest-cli.json": {
+      "filePath": "nest-cli.json",
+      "contentHash": "58f2798c239f2e011b47c28190ca6a257c532867b1b5449fc1aa56e48df3c6b8",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 10,
+      "hasStructuralAnalysis": true
+    },
+    "package.json": {
+      "filePath": "package.json",
+      "contentHash": "965101516ddc9a62fce32e8245da613370e629d19f53291b041a219d862127c2",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 40,
+      "hasStructuralAnalysis": true
+    },
+    "src/api-app.module.ts": {
+      "filePath": "src/api-app.module.ts",
+      "contentHash": "d15a1daddf32333dcba2ca5f6e6fbc2fecbf0f846cef0275cbf6729fed524e18",
+      "functions": [],
+      "classes": [
+        {
+          "name": "ApiAppModule",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 1
+        }
+      ],
+      "imports": [
+        {
+          "source": "@nestjs/common",
+          "specifiers": [
+            "Module"
+          ]
+        },
+        {
+          "source": "./contexts/api/api.module",
+          "specifiers": [
+            "ApiModule"
+          ]
+        },
+        {
+          "source": "./config/config.module",
+          "specifiers": [
+            "AppConfigModule"
+          ]
+        }
+      ],
+      "exports": [
+        "ApiAppModule"
+      ],
+      "totalLines": 9,
+      "hasStructuralAnalysis": true
+    },
+    "src/app.module.ts": {
+      "filePath": "src/app.module.ts",
+      "contentHash": "3c112e2ab5955c059f2549f41361038fdf944a748cbf993ce00900275f7ca194",
+      "functions": [],
+      "classes": [
+        {
+          "name": "AppModule",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 1
+        }
+      ],
+      "imports": [
+        {
+          "source": "@nestjs/common",
+          "specifiers": [
+            "Module"
+          ]
+        },
+        {
+          "source": "./contexts/api/api.module",
+          "specifiers": [
+            "ApiModule"
+          ]
+        },
+        {
+          "source": "./config/config.module",
+          "specifiers": [
+            "AppConfigModule"
+          ]
+        },
+        {
+          "source": "./contexts/scanner/scanner.module",
+          "specifiers": [
+            "ScannerModule"
+          ]
+        }
+      ],
+      "exports": [
+        "AppModule"
+      ],
+      "totalLines": 10,
+      "hasStructuralAnalysis": true
+    },
+    "src/config/app-config.ts": {
+      "filePath": "src/config/app-config.ts",
+      "contentHash": "fc6b3a79293ccfac1114546cbf39ac0fec18e098837eeb6fcbf659645b5dc0b4",
+      "functions": [
+        {
+          "name": "loadAppConfig",
+          "params": [
+            "env"
+          ],
+          "returnType": "AppConfig",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "emptyToUndefined",
+          "params": [
+            "value"
+          ],
+          "returnType": "string | undefined",
+          "exported": false,
+          "lineCount": 3
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "zod",
+          "specifiers": [
+            "z"
+          ]
+        }
+      ],
+      "exports": [
+        "loadAppConfig"
+      ],
+      "totalLines": 42,
+      "hasStructuralAnalysis": true
+    },
+    "src/config/config.module.ts": {
+      "filePath": "src/config/config.module.ts",
+      "contentHash": "14898116e844a7c1295ae37208c775d2920eba0cfd329b2b3a8704a7f5867597",
+      "functions": [],
+      "classes": [
+        {
+          "name": "AppConfigModule",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 1
+        }
+      ],
+      "imports": [
+        {
+          "source": "@nestjs/common",
+          "specifiers": [
+            "Global",
+            "Module"
+          ]
+        },
+        {
+          "source": "./app-config",
+          "specifiers": [
+            "loadAppConfig"
+          ]
+        }
+      ],
+      "exports": [
+        "APP_CONFIG",
+        "AppConfigModule"
+      ],
+      "totalLines": 17,
+      "hasStructuralAnalysis": true
+    },
+    "src/config/redaction.ts": {
+      "filePath": "src/config/redaction.ts",
+      "contentHash": "b92abbb2d6bde373d255b1d9179595bb62f5533f6dee03f93df3b0c8819383a2",
+      "functions": [
+        {
+          "name": "redactSensitiveData",
+          "params": [
+            "value"
+          ],
+          "returnType": "T",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "redactSensitiveText",
+          "params": [
+            "value"
+          ],
+          "returnType": "string",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "redactValue",
+          "params": [
+            "value"
+          ],
+          "returnType": "unknown",
+          "exported": false,
+          "lineCount": 20
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [
+        "redactSensitiveData",
+        "redactSensitiveText"
+      ],
+      "totalLines": 33,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/api/api.module.ts": {
+      "filePath": "src/contexts/api/api.module.ts",
+      "contentHash": "d58305976a1e9ba94133a1e1338c4c81a2e7daf65919175f3adc19f6f4c353c3",
+      "functions": [],
+      "classes": [
+        {
+          "name": "ApiModule",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 1
+        }
+      ],
+      "imports": [
+        {
+          "source": "@nestjs/common",
+          "specifiers": [
+            "Module"
+          ]
+        },
+        {
+          "source": "./health.controller",
+          "specifiers": [
+            "HealthController"
+          ]
+        },
+        {
+          "source": "./read-models",
+          "specifiers": [
+            "MARKET_READ_REPOSITORY",
+            "MarketReadService",
+            "OPPORTUNITY_READ_REPOSITORY",
+            "OpportunityReadService",
+            "SCAN_RUN_READ_REPOSITORY",
+            "ScanRunReadService"
+          ]
+        },
+        {
+          "source": "./markets.controller",
+          "specifiers": [
+            "MarketsController"
+          ]
+        },
+        {
+          "source": "./opportunities.controller",
+          "specifiers": [
+            "OpportunitiesController"
+          ]
+        },
+        {
+          "source": "./postgres-read-repositories",
+          "specifiers": [
+            "PostgresReadRepositories"
+          ]
+        },
+        {
+          "source": "./scan-runs.controller",
+          "specifiers": [
+            "ScanRunsController"
+          ]
+        }
+      ],
+      "exports": [
+        "ApiModule"
+      ],
+      "totalLines": 30,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/api/health.controller.ts": {
+      "filePath": "src/contexts/api/health.controller.ts",
+      "contentHash": "02123c7f9fcccae0fc48e688dd312e7aa456d7644c8497e67ce6d07c00d0d049",
+      "functions": [],
+      "classes": [
+        {
+          "name": "HealthController",
+          "methods": [
+            "getHealth"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 6
+        }
+      ],
+      "imports": [
+        {
+          "source": "@nestjs/common",
+          "specifiers": [
+            "Controller",
+            "Get"
+          ]
+        }
+      ],
+      "exports": [
+        "HealthController"
+      ],
+      "totalLines": 10,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/api/markets.controller.ts": {
+      "filePath": "src/contexts/api/markets.controller.ts",
+      "contentHash": "17098fd35b35e93deea47f32b90781ad2d1eb6d68d429051d17f36957ff70997",
+      "functions": [],
+      "classes": [
+        {
+          "name": "MarketsController",
+          "methods": [
+            "constructor",
+            "list"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 8
+        }
+      ],
+      "imports": [
+        {
+          "source": "@nestjs/common",
+          "specifiers": [
+            "Controller",
+            "Get"
+          ]
+        },
+        {
+          "source": "./read-models",
+          "specifiers": [
+            "MarketReadService"
+          ]
+        }
+      ],
+      "exports": [
+        "MarketsController"
+      ],
+      "totalLines": 13,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/api/opportunities.controller.ts": {
+      "filePath": "src/contexts/api/opportunities.controller.ts",
+      "contentHash": "572aef4dc3bf14957219547d1470c378cfdde7407d113f3ab2b858d61d6fbb61",
+      "functions": [
+        {
+          "name": "isUuid",
+          "params": [
+            "value"
+          ],
+          "returnType": "boolean",
+          "exported": false,
+          "lineCount": 3
+        }
+      ],
+      "classes": [
+        {
+          "name": "OpportunitiesController",
+          "methods": [
+            "constructor",
+            "list",
+            "getById"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 22
+        }
+      ],
+      "imports": [
+        {
+          "source": "@nestjs/common",
+          "specifiers": [
+            "BadRequestException",
+            "Controller",
+            "Get",
+            "NotFoundException",
+            "Param"
+          ]
+        },
+        {
+          "source": "./read-models",
+          "specifiers": [
+            "OpportunityReadService"
+          ]
+        }
+      ],
+      "exports": [
+        "OpportunitiesController"
+      ],
+      "totalLines": 31,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/api/postgres-read-repositories.ts": {
+      "filePath": "src/contexts/api/postgres-read-repositories.ts",
+      "contentHash": "2def6d0c132e0899e4f2990bf4c0897d19637bdadcc52dcef9994011af045800",
+      "functions": [
+        {
+          "name": "toOpportunity",
+          "params": [
+            "row"
+          ],
+          "returnType": "CrossVenueOpportunity",
+          "exported": false,
+          "lineCount": 19
+        },
+        {
+          "name": "toMarket",
+          "params": [
+            "row"
+          ],
+          "returnType": "NormalizedMarket",
+          "exported": false,
+          "lineCount": 20
+        },
+        {
+          "name": "toIso",
+          "params": [
+            "value"
+          ],
+          "returnType": "string",
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "toScanRunStatus",
+          "params": [
+            "value"
+          ],
+          "returnType": "ScanRunReadModel[\"status\"]",
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "numberFromUnknown",
+          "params": [
+            "value"
+          ],
+          "returnType": "number",
+          "exported": false,
+          "lineCount": 3
+        }
+      ],
+      "classes": [
+        {
+          "name": "PostgresReadRepositories",
+          "methods": [
+            "constructor",
+            "onModuleDestroy",
+            "listOpportunities",
+            "getOpportunity",
+            "listMarkets",
+            "getLatestScanRun"
+          ],
+          "properties": [
+            "pool"
+          ],
+          "exported": true,
+          "lineCount": 123
+        }
+      ],
+      "imports": [
+        {
+          "source": "@nestjs/common",
+          "specifiers": [
+            "Inject",
+            "Injectable",
+            "OnModuleDestroy"
+          ]
+        },
+        {
+          "source": "pg",
+          "specifiers": [
+            "Pool"
+          ]
+        },
+        {
+          "source": "../../config/config.module",
+          "specifiers": [
+            "APP_CONFIG"
+          ]
+        },
+        {
+          "source": "../../config/app-config",
+          "specifiers": [
+            "AppConfig"
+          ]
+        },
+        {
+          "source": "./read-models",
+          "specifiers": [
+            "MarketReadRepository",
+            "OpportunityReadRepository",
+            "ScanRunReadModel",
+            "ScanRunReadRepository"
+          ]
+        },
+        {
+          "source": "../arbitrage/domain/opportunity",
+          "specifiers": [
+            "CrossVenueOpportunity"
+          ]
+        },
+        {
+          "source": "../matching/domain/normalized-market",
+          "specifiers": [
+            "NormalizedMarket"
+          ]
+        }
+      ],
+      "exports": [
+        "PostgresReadRepositories"
+      ],
+      "totalLines": 236,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/api/read-models.ts": {
+      "filePath": "src/contexts/api/read-models.ts",
+      "contentHash": "b48939b85555ebe0fc992366ee0440f33b073769e9cc34e422437054543bdc28",
+      "functions": [],
+      "classes": [
+        {
+          "name": "OpportunityReadService",
+          "methods": [
+            "constructor",
+            "listOpportunities",
+            "getOpportunity"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "MarketReadService",
+          "methods": [
+            "constructor",
+            "listMarkets"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "ScanRunReadService",
+          "methods": [
+            "constructor",
+            "getLatestScanRun"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 10
+        }
+      ],
+      "imports": [
+        {
+          "source": "@nestjs/common",
+          "specifiers": [
+            "Inject",
+            "Injectable"
+          ]
+        },
+        {
+          "source": "../arbitrage/domain/opportunity",
+          "specifiers": [
+            "CrossVenueOpportunity"
+          ]
+        },
+        {
+          "source": "../matching/domain/normalized-market",
+          "specifiers": [
+            "NormalizedMarket"
+          ]
+        }
+      ],
+      "exports": [
+        "OPPORTUNITY_READ_REPOSITORY",
+        "MARKET_READ_REPOSITORY",
+        "SCAN_RUN_READ_REPOSITORY",
+        "OpportunityReadService",
+        "MarketReadService",
+        "ScanRunReadService"
+      ],
+      "totalLines": 70,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/api/scan-runs.controller.ts": {
+      "filePath": "src/contexts/api/scan-runs.controller.ts",
+      "contentHash": "221472e3cf67f5ee297c378fba5b6b1afa33d194fa02922bdffc7de5bf2cdd21",
+      "functions": [],
+      "classes": [
+        {
+          "name": "ScanRunsController",
+          "methods": [
+            "constructor",
+            "latest"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 8
+        }
+      ],
+      "imports": [
+        {
+          "source": "@nestjs/common",
+          "specifiers": [
+            "Controller",
+            "Get"
+          ]
+        },
+        {
+          "source": "./read-models",
+          "specifiers": [
+            "ScanRunReadService"
+          ]
+        }
+      ],
+      "exports": [
+        "ScanRunsController"
+      ],
+      "totalLines": 13,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/arbitrage/domain/opportunity-calculator.ts": {
+      "filePath": "src/contexts/arbitrage/domain/opportunity-calculator.ts",
+      "contentHash": "8532cffac4e90f7f5c8f330b60e14b94fa938bafbc09cc91d08a552b6f90df0c",
+      "functions": [
+        {
+          "name": "round",
+          "params": [
+            "value"
+          ],
+          "returnType": "number",
+          "exported": false,
+          "lineCount": 3
+        }
+      ],
+      "classes": [
+        {
+          "name": "OpportunityCalculator",
+          "methods": [
+            "calculate",
+            "isUsableBook",
+            "toLeg",
+            "isValidLeg",
+            "toOpportunity"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 107
+        }
+      ],
+      "imports": [
+        {
+          "source": "../../matching/domain/candidate-pair",
+          "specifiers": [
+            "CandidatePair",
+            "EquivalenceDecision"
+          ]
+        },
+        {
+          "source": "./opportunity",
+          "specifiers": [
+            "ContractLeg",
+            "CrossVenueOpportunity",
+            "MarketBook"
+          ]
+        }
+      ],
+      "exports": [
+        "OpportunityCalculator"
+      ],
+      "totalLines": 129,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/arbitrage/domain/opportunity.ts": {
+      "filePath": "src/contexts/arbitrage/domain/opportunity.ts",
+      "contentHash": "ac57045b11509e93f0c6ca400dc432e45be6d7cfe56506f57e6d202bfb9f423e",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "../../matching/domain/candidate-pair",
+          "specifiers": [
+            "EquivalenceClass"
+          ]
+        },
+        {
+          "source": "../../matching/domain/normalized-market",
+          "specifiers": [
+            "Venue"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 43,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/llm/application/in-memory-llm-evaluation-repository.ts": {
+      "filePath": "src/contexts/llm/application/in-memory-llm-evaluation-repository.ts",
+      "contentHash": "5a8812a4a400bf550ad4e0476fb4f1237a09cceb4e8405f32f94d9b7fd811788",
+      "functions": [],
+      "classes": [
+        {
+          "name": "InMemoryLlmEvaluationRepository",
+          "methods": [
+            "findCached",
+            "save"
+          ],
+          "properties": [
+            "records"
+          ],
+          "exported": true,
+          "lineCount": 21
+        }
+      ],
+      "imports": [
+        {
+          "source": "./llm-evaluation",
+          "specifiers": [
+            "LlmEvaluationRecord",
+            "LlmEvaluationRepository",
+            "LlmEvaluationRequest"
+          ]
+        }
+      ],
+      "exports": [
+        "InMemoryLlmEvaluationRepository"
+      ],
+      "totalLines": 24,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/llm/application/llm-evaluation.ts": {
+      "filePath": "src/contexts/llm/application/llm-evaluation.ts",
+      "contentHash": "8e7dccf498ff7d4927a9af8b6cae4e7e31ee78db9b085ecf42965ccb68303828",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 34,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/llm/application/persisted-llm-gateway.ts": {
+      "filePath": "src/contexts/llm/application/persisted-llm-gateway.ts",
+      "contentHash": "6c738825c0880c28bc1f786a969ffb1e82aad68d9cb8fc31b932add54983d7a2",
+      "functions": [
+        {
+          "name": "hashInput",
+          "params": [
+            "input"
+          ],
+          "returnType": "string",
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "stableStringify",
+          "params": [
+            "value"
+          ],
+          "returnType": "string",
+          "exported": false,
+          "lineCount": 10
+        },
+        {
+          "name": "validateOutput",
+          "params": [
+            "request",
+            "output"
+          ],
+          "returnType": "Record<string, unknown> | undefined",
+          "exported": false,
+          "lineCount": 8
+        },
+        {
+          "name": "schemaForTask",
+          "params": [
+            "taskType"
+          ],
+          "returnType": "z.ZodType<Record<string, unknown>>",
+          "exported": false,
+          "lineCount": 32
+        },
+        {
+          "name": "uuidFromStableKey",
+          "params": [
+            "key"
+          ],
+          "returnType": "string",
+          "exported": false,
+          "lineCount": 4
+        }
+      ],
+      "classes": [
+        {
+          "name": "PersistedLlmGateway",
+          "methods": [
+            "constructor",
+            "evaluate"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 48
+        }
+      ],
+      "imports": [
+        {
+          "source": "zod",
+          "specifiers": [
+            "z"
+          ]
+        },
+        {
+          "source": "crypto",
+          "specifiers": [
+            "createHash"
+          ]
+        },
+        {
+          "source": "./llm-evaluation",
+          "specifiers": [
+            "LlmEvaluationRecord",
+            "LlmEvaluationRepository",
+            "LlmEvaluationRequest",
+            "LlmProviderResult"
+          ]
+        }
+      ],
+      "exports": [
+        "PersistedLlmGateway"
+      ],
+      "totalLines": 124,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/matching/domain/candidate-pair-generator.ts": {
+      "filePath": "src/contexts/matching/domain/candidate-pair-generator.ts",
+      "contentHash": "046673ce2075d922fa2618a64c423132317f08109862968ce3edf9843decb0dc",
+      "functions": [
+        {
+          "name": "bucketKey",
+          "params": [
+            "market"
+          ],
+          "returnType": "string",
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "thresholdsMatch",
+          "params": [
+            "left",
+            "right"
+          ],
+          "returnType": "boolean",
+          "exported": false,
+          "lineCount": 7
+        },
+        {
+          "name": "deadlinesMatch",
+          "params": [
+            "left",
+            "right"
+          ],
+          "returnType": "boolean",
+          "exported": false,
+          "lineCount": 13
+        }
+      ],
+      "classes": [
+        {
+          "name": "CandidatePairGenerator",
+          "methods": [
+            "generate",
+            "bucketPolymarketMarkets",
+            "isCandidate"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 46
+        }
+      ],
+      "imports": [
+        {
+          "source": "./candidate-pair",
+          "specifiers": [
+            "CandidatePair"
+          ]
+        },
+        {
+          "source": "./normalized-market",
+          "specifiers": [
+            "NormalizedMarket"
+          ]
+        }
+      ],
+      "exports": [
+        "CandidatePairGenerator"
+      ],
+      "totalLines": 78,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/matching/domain/candidate-pair.ts": {
+      "filePath": "src/contexts/matching/domain/candidate-pair.ts",
+      "contentHash": "67613def6cf41bf1e6774d7e6ca43e9ee2e979fb4e5a16add1a0441c62d0404d",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "./normalized-market",
+          "specifiers": [
+            "NormalizedMarket"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 19,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/matching/domain/crypto-market-normalizer.ts": {
+      "filePath": "src/contexts/matching/domain/crypto-market-normalizer.ts",
+      "contentHash": "6a25b5c3b8d0c768ddbdbb363f779de279d78e1f4a1552440c890bdff70d3e32",
+      "functions": [
+        {
+          "name": "parseAsset",
+          "params": [
+            "text"
+          ],
+          "returnType": "NormalizedMarket[\"asset\"]",
+          "exported": false,
+          "lineCount": 5
+        },
+        {
+          "name": "parseThreshold",
+          "params": [
+            "text"
+          ],
+          "returnType": "number | undefined",
+          "exported": false,
+          "lineCount": 14
+        },
+        {
+          "name": "numericThresholdFromMatch",
+          "params": [
+            "match"
+          ],
+          "returnType": "number | undefined",
+          "exported": false,
+          "lineCount": 7
+        },
+        {
+          "name": "parseOperator",
+          "params": [
+            "text"
+          ],
+          "returnType": "MarketOperator | undefined",
+          "exported": false,
+          "lineCount": 5
+        },
+        {
+          "name": "eventTypeFor",
+          "params": [
+            "operator"
+          ],
+          "returnType": "EventType",
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "parsePayoffType",
+          "params": [
+            "text"
+          ],
+          "returnType": "PayoffType",
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "parseResolutionSource",
+          "params": [
+            "text"
+          ],
+          "returnType": "string | undefined",
+          "exported": false,
+          "lineCount": 7
+        },
+        {
+          "name": "parseDeadline",
+          "params": [
+            "text"
+          ],
+          "returnType": "string | undefined",
+          "exported": false,
+          "lineCount": 13
+        },
+        {
+          "name": "ambiguityFlagsFor",
+          "params": [
+            "input"
+          ],
+          "returnType": "string[]",
+          "exported": false,
+          "lineCount": 15
+        }
+      ],
+      "classes": [
+        {
+          "name": "CryptoMarketNormalizer",
+          "methods": [
+            "normalize"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 31
+        }
+      ],
+      "imports": [
+        {
+          "source": "../../venues/domain/venue-market",
+          "specifiers": [
+            "VenueMarketSnapshot"
+          ]
+        },
+        {
+          "source": "./normalized-market",
+          "specifiers": [
+            "EventType",
+            "MarketOperator",
+            "NormalizedMarket",
+            "PayoffType"
+          ]
+        }
+      ],
+      "exports": [
+        "CryptoMarketNormalizer"
+      ],
+      "totalLines": 117,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/matching/domain/equivalence-policy.ts": {
+      "filePath": "src/contexts/matching/domain/equivalence-policy.ts",
+      "contentHash": "1813acea01c4b941488ac08adbad05ef35f3236f70f52aa25b0fd0c72c21b9cb",
+      "functions": [
+        {
+          "name": "normalizeResolutionSource",
+          "params": [
+            "source"
+          ],
+          "returnType": "string | undefined",
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "materialMismatchReasonsFor",
+          "params": [
+            "pair"
+          ],
+          "returnType": "string[]",
+          "exported": false,
+          "lineCount": 15
+        },
+        {
+          "name": "thresholdsMatch",
+          "params": [
+            "left",
+            "right"
+          ],
+          "returnType": "boolean",
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "deadlinesMatch",
+          "params": [
+            "left",
+            "right"
+          ],
+          "returnType": "boolean",
+          "exported": false,
+          "lineCount": 7
+        }
+      ],
+      "classes": [
+        {
+          "name": "DeterministicEquivalencePolicy",
+          "methods": [
+            "classify"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 34
+        }
+      ],
+      "imports": [
+        {
+          "source": "./candidate-pair",
+          "specifiers": [
+            "CandidatePair",
+            "EquivalenceDecision"
+          ]
+        }
+      ],
+      "exports": [
+        "DeterministicEquivalencePolicy"
+      ],
+      "totalLines": 71,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/matching/domain/normalized-market.ts": {
+      "filePath": "src/contexts/matching/domain/normalized-market.ts",
+      "contentHash": "aee796f5f2476263da6c1f178040c43a2f8c6c220d9a6f4e4c3e63b4d0e43f95",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 26,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/observability/observability.service.ts": {
+      "filePath": "src/contexts/observability/observability.service.ts",
+      "contentHash": "3785563be8cc430d0f5408d08dc762c2c632fae357c9bf8162d4e9951b463eba",
+      "functions": [],
+      "classes": [
+        {
+          "name": "ObservabilityService",
+          "methods": [
+            "constructor",
+            "captureError",
+            "captureInfo",
+            "capture"
+          ],
+          "properties": [
+            "capturedEvents"
+          ],
+          "exported": true,
+          "lineCount": 19
+        }
+      ],
+      "imports": [
+        {
+          "source": "../../config/redaction",
+          "specifiers": [
+            "redactSensitiveData",
+            "redactSensitiveText"
+          ]
+        }
+      ],
+      "exports": [
+        "ObservabilityService"
+      ],
+      "totalLines": 32,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/scanner/in-memory-scanner-repository.ts": {
+      "filePath": "src/contexts/scanner/in-memory-scanner-repository.ts",
+      "contentHash": "3f046054bc2cc8d720d808ebd6e2ce59639a66c36300b39108bd0067b2f164b6",
+      "functions": [],
+      "classes": [
+        {
+          "name": "InMemoryScannerRepository",
+          "methods": [
+            "saveScanRun",
+            "saveSnapshots",
+            "saveNormalizedMarkets",
+            "saveCandidatePairs",
+            "saveOpportunities"
+          ],
+          "properties": [
+            "scanRuns",
+            "snapshots",
+            "normalizedMarkets",
+            "candidatePairs",
+            "opportunities",
+            "activeScanRunId"
+          ],
+          "exported": true,
+          "lineCount": 34
+        }
+      ],
+      "imports": [
+        {
+          "source": "../arbitrage/domain/opportunity",
+          "specifiers": [
+            "CrossVenueOpportunity"
+          ]
+        },
+        {
+          "source": "../matching/domain/candidate-pair",
+          "specifiers": [
+            "CandidatePair"
+          ]
+        },
+        {
+          "source": "../matching/domain/normalized-market",
+          "specifiers": [
+            "NormalizedMarket"
+          ]
+        },
+        {
+          "source": "../venues/domain/venue-market",
+          "specifiers": [
+            "VenueMarketSnapshot"
+          ]
+        },
+        {
+          "source": "./scanner-result",
+          "specifiers": [
+            "ScanResult"
+          ]
+        }
+      ],
+      "exports": [
+        "InMemoryScannerRepository"
+      ],
+      "totalLines": 49,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/scanner/postgres-scanner-repository.ts": {
+      "filePath": "src/contexts/scanner/postgres-scanner-repository.ts",
+      "contentHash": "820e6c830258d67a72260cbda8a0cc32163342d3e397fc6736239931ce7a1dfa",
+      "functions": [
+        {
+          "name": "uuidFromStableKey",
+          "params": [
+            "key"
+          ],
+          "returnType": "string",
+          "exported": false,
+          "lineCount": 11
+        }
+      ],
+      "classes": [
+        {
+          "name": "PostgresScannerRepository",
+          "methods": [
+            "constructor",
+            "saveScanRun",
+            "saveSnapshots",
+            "saveNormalizedMarkets",
+            "saveCandidatePairs",
+            "saveOpportunities"
+          ],
+          "properties": [
+            "activeScanRunId"
+          ],
+          "exported": true,
+          "lineCount": 132
+        }
+      ],
+      "imports": [
+        {
+          "source": "pg",
+          "specifiers": [
+            "Pool"
+          ]
+        },
+        {
+          "source": "../arbitrage/domain/opportunity",
+          "specifiers": [
+            "CrossVenueOpportunity"
+          ]
+        },
+        {
+          "source": "../matching/domain/candidate-pair",
+          "specifiers": [
+            "CandidatePair"
+          ]
+        },
+        {
+          "source": "../matching/domain/normalized-market",
+          "specifiers": [
+            "NormalizedMarket"
+          ]
+        },
+        {
+          "source": "../venues/domain/venue-market",
+          "specifiers": [
+            "VenueMarketSnapshot"
+          ]
+        },
+        {
+          "source": "./in-memory-scanner-repository",
+          "specifiers": [
+            "ScannerRepository"
+          ]
+        },
+        {
+          "source": "./scanner-result",
+          "specifiers": [
+            "ScanResult"
+          ]
+        }
+      ],
+      "exports": [
+        "PostgresScannerRepository"
+      ],
+      "totalLines": 154,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/scanner/read-only-scanner.ts": {
+      "filePath": "src/contexts/scanner/read-only-scanner.ts",
+      "contentHash": "9204ddb85908cdb22406bec64af0a338da59b8a3e226172935344f8dbcd942d4",
+      "functions": [
+        {
+          "name": "bookKey",
+          "params": [
+            "book"
+          ],
+          "returnType": "string",
+          "exported": false,
+          "lineCount": 3
+        }
+      ],
+      "classes": [
+        {
+          "name": "ReadOnlyScanner",
+          "methods": [
+            "constructor",
+            "runOnce"
+          ],
+          "properties": [
+            "normalizer",
+            "pairGenerator",
+            "equivalencePolicy",
+            "opportunityCalculator"
+          ],
+          "exported": true,
+          "lineCount": 81
+        }
+      ],
+      "imports": [
+        {
+          "source": "crypto",
+          "specifiers": [
+            "randomUUID"
+          ]
+        },
+        {
+          "source": "../arbitrage/domain/opportunity-calculator",
+          "specifiers": [
+            "OpportunityCalculator"
+          ]
+        },
+        {
+          "source": "../arbitrage/domain/opportunity",
+          "specifiers": [
+            "MarketBook"
+          ]
+        },
+        {
+          "source": "../matching/domain/candidate-pair-generator",
+          "specifiers": [
+            "CandidatePairGenerator"
+          ]
+        },
+        {
+          "source": "../matching/domain/equivalence-policy",
+          "specifiers": [
+            "DeterministicEquivalencePolicy"
+          ]
+        },
+        {
+          "source": "../matching/domain/crypto-market-normalizer",
+          "specifiers": [
+            "CryptoMarketNormalizer"
+          ]
+        },
+        {
+          "source": "../venues/domain/venue-market",
+          "specifiers": [
+            "VenueClient"
+          ]
+        },
+        {
+          "source": "./in-memory-scanner-repository",
+          "specifiers": [
+            "ScannerRepository"
+          ]
+        },
+        {
+          "source": "./scanner-result",
+          "specifiers": [
+            "ScanResult"
+          ]
+        }
+      ],
+      "exports": [
+        "ReadOnlyScanner"
+      ],
+      "totalLines": 104,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/scanner/scanner-result.ts": {
+      "filePath": "src/contexts/scanner/scanner-result.ts",
+      "contentHash": "6b162538e93bdd42c5c817f6b2938a73050a011e7fc4339507dd79c95de127fd",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 16,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/scanner/scanner.module.ts": {
+      "filePath": "src/contexts/scanner/scanner.module.ts",
+      "contentHash": "336d7d4a22589c1abce4de1ae7394ce815f999386db4325b95303d7c45508621",
+      "functions": [],
+      "classes": [
+        {
+          "name": "ScannerModule",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 1
+        }
+      ],
+      "imports": [
+        {
+          "source": "@nestjs/common",
+          "specifiers": [
+            "Module"
+          ]
+        },
+        {
+          "source": "./worker-scan-runner",
+          "specifiers": [
+            "WorkerScanRunner"
+          ]
+        }
+      ],
+      "exports": [
+        "ScannerModule"
+      ],
+      "totalLines": 9,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/scanner/worker-scan-runner.ts": {
+      "filePath": "src/contexts/scanner/worker-scan-runner.ts",
+      "contentHash": "7345c1c7d2cb321a19bcb6864d66a23211a60692936f3e5810373496ea424835",
+      "functions": [],
+      "classes": [
+        {
+          "name": "WorkerScanRunner",
+          "methods": [
+            "constructor",
+            "runOnce",
+            "onModuleDestroy"
+          ],
+          "properties": [
+            "pool"
+          ],
+          "exported": true,
+          "lineCount": 21
+        }
+      ],
+      "imports": [
+        {
+          "source": "@nestjs/common",
+          "specifiers": [
+            "Inject",
+            "Injectable",
+            "OnModuleDestroy"
+          ]
+        },
+        {
+          "source": "pg",
+          "specifiers": [
+            "Pool"
+          ]
+        },
+        {
+          "source": "../../config/config.module",
+          "specifiers": [
+            "APP_CONFIG"
+          ]
+        },
+        {
+          "source": "../../config/app-config",
+          "specifiers": [
+            "AppConfig"
+          ]
+        },
+        {
+          "source": "../venues/application/http-venue-clients",
+          "specifiers": [
+            "KalshiPublicVenueClient",
+            "PolymarketPublicVenueClient"
+          ]
+        },
+        {
+          "source": "./read-only-scanner",
+          "specifiers": [
+            "ReadOnlyScanner"
+          ]
+        },
+        {
+          "source": "./postgres-scanner-repository",
+          "specifiers": [
+            "PostgresScannerRepository"
+          ]
+        }
+      ],
+      "exports": [
+        "WorkerScanRunner"
+      ],
+      "totalLines": 31,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/venues/application/http-venue-clients.ts": {
+      "filePath": "src/contexts/venues/application/http-venue-clients.ts",
+      "contentHash": "bbc6d269f9a21af03d7f0cd4c3c6b9daee1b00b6ed9d008e5a845a539a5d9e01",
+      "functions": [],
+      "classes": [
+        {
+          "name": "KalshiPublicVenueClient",
+          "methods": [
+            "constructor",
+            "listMarkets",
+            "listOrderbooks"
+          ],
+          "properties": [
+            "lastMarkets"
+          ],
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "PolymarketPublicVenueClient",
+          "methods": [
+            "constructor",
+            "listMarkets",
+            "listOrderbooks"
+          ],
+          "properties": [
+            "lastMarkets"
+          ],
+          "exported": true,
+          "lineCount": 24
+        }
+      ],
+      "imports": [
+        {
+          "source": "../../arbitrage/domain/opportunity",
+          "specifiers": [
+            "MarketBook"
+          ]
+        },
+        {
+          "source": "../domain/venue-market",
+          "specifiers": [
+            "VenueClient",
+            "VenueMarketSnapshot"
+          ]
+        }
+      ],
+      "exports": [
+        "KalshiPublicVenueClient",
+        "PolymarketPublicVenueClient"
+      ],
+      "totalLines": 53,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/venues/application/static-venue-client.ts": {
+      "filePath": "src/contexts/venues/application/static-venue-client.ts",
+      "contentHash": "df171127b67904397dd9b8a4e236b7fd80e6003358ecae30e618b317e67c4275",
+      "functions": [],
+      "classes": [
+        {
+          "name": "StaticVenueClient",
+          "methods": [
+            "constructor",
+            "listMarkets",
+            "listOrderbooks"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 11
+        }
+      ],
+      "imports": [
+        {
+          "source": "../../arbitrage/domain/opportunity",
+          "specifiers": [
+            "MarketBook"
+          ]
+        },
+        {
+          "source": "../domain/venue-market",
+          "specifiers": [
+            "VenueClient",
+            "VenueMarketSnapshot"
+          ]
+        }
+      ],
+      "exports": [
+        "StaticVenueClient"
+      ],
+      "totalLines": 20,
+      "hasStructuralAnalysis": true
+    },
+    "src/contexts/venues/domain/venue-market.ts": {
+      "filePath": "src/contexts/venues/domain/venue-market.ts",
+      "contentHash": "299aafef74d0c0668717fdcf4190df3fc2927ff5cf510c1bb0b463a3c1dfc59f",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "../../arbitrage/domain/opportunity",
+          "specifiers": [
+            "MarketBook"
+          ]
+        },
+        {
+          "source": "../../matching/domain/normalized-market",
+          "specifiers": [
+            "Venue"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 17,
+      "hasStructuralAnalysis": true
+    },
+    "src/db/schema.ts": {
+      "filePath": "src/db/schema.ts",
+      "contentHash": "2d0da5f6d5c07e1a4a4c9866a42de99209066dcb7aa73becda6ae5dde35558a7",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "drizzle-orm",
+          "specifiers": [
+            "sql"
+          ]
+        },
+        {
+          "source": "drizzle-orm/pg-core",
+          "specifiers": [
+            "boolean",
+            "check",
+            "integer",
+            "jsonb",
+            "numeric",
+            "pgTable",
+            "text",
+            "timestamp",
+            "uniqueIndex",
+            "uuid"
+          ]
+        }
+      ],
+      "exports": [
+        "scanRuns",
+        "venueMarketSnapshots",
+        "normalizedMarkets",
+        "candidatePairs",
+        "llmEvaluations",
+        "orderbookSnapshots",
+        "opportunities",
+        "alerts"
+      ],
+      "totalLines": 126,
+      "hasStructuralAnalysis": true
+    },
+    "src/main-api.ts": {
+      "filePath": "src/main-api.ts",
+      "contentHash": "c12e4f6e1581e7c2d553398d35aebc628900fa051eb2b44872d8fbce76be3aa2",
+      "functions": [
+        {
+          "name": "bootstrap",
+          "params": [],
+          "exported": false,
+          "lineCount": 5
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "reflect-metadata",
+          "specifiers": []
+        },
+        {
+          "source": "@nestjs/core",
+          "specifiers": [
+            "NestFactory"
+          ]
+        },
+        {
+          "source": "./api-app.module",
+          "specifiers": [
+            "ApiAppModule"
+          ]
+        },
+        {
+          "source": "./config/config.module",
+          "specifiers": [
+            "APP_CONFIG"
+          ]
+        },
+        {
+          "source": "./config/app-config",
+          "specifiers": [
+            "AppConfig"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 14,
+      "hasStructuralAnalysis": true
+    },
+    "src/main-worker.ts": {
+      "filePath": "src/main-worker.ts",
+      "contentHash": "428b4f968ca085ef7f25a4ca64a3db92040c5995020694544b53c231293c7738",
+      "functions": [
+        {
+          "name": "bootstrap",
+          "params": [],
+          "exported": false,
+          "lineCount": 8
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "reflect-metadata",
+          "specifiers": []
+        },
+        {
+          "source": "@nestjs/core",
+          "specifiers": [
+            "NestFactory"
+          ]
+        },
+        {
+          "source": "./worker-app.module",
+          "specifiers": [
+            "WorkerAppModule"
+          ]
+        },
+        {
+          "source": "./contexts/scanner/worker-scan-runner",
+          "specifiers": [
+            "WorkerScanRunner"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 16,
+      "hasStructuralAnalysis": true
+    },
+    "src/worker-app.module.ts": {
+      "filePath": "src/worker-app.module.ts",
+      "contentHash": "35fbc70b34368fbb0594040ae96076403dd3d8e6ff091a12519e2a7c2fd46c5b",
+      "functions": [],
+      "classes": [
+        {
+          "name": "WorkerAppModule",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 1
+        }
+      ],
+      "imports": [
+        {
+          "source": "@nestjs/common",
+          "specifiers": [
+            "Module"
+          ]
+        },
+        {
+          "source": "./config/config.module",
+          "specifiers": [
+            "AppConfigModule"
+          ]
+        },
+        {
+          "source": "./contexts/scanner/scanner.module",
+          "specifiers": [
+            "ScannerModule"
+          ]
+        }
+      ],
+      "exports": [
+        "WorkerAppModule"
+      ],
+      "totalLines": 9,
+      "hasStructuralAnalysis": true
+    },
+    "test/arbitrage.test.ts": {
+      "filePath": "test/arbitrage.test.ts",
+      "contentHash": "643f059bddd180ae3ac36d05450beb2569af726b1be5cba5dfd13036b25dbdba",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "expect",
+            "it"
+          ]
+        },
+        {
+          "source": "../src/contexts/arbitrage/domain/opportunity-calculator",
+          "specifiers": [
+            "OpportunityCalculator"
+          ]
+        },
+        {
+          "source": "../src/contexts/matching/domain/candidate-pair",
+          "specifiers": [
+            "CandidatePair",
+            "EquivalenceDecision"
+          ]
+        },
+        {
+          "source": "../src/contexts/matching/domain/normalized-market",
+          "specifiers": [
+            "NormalizedMarket"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 90,
+      "hasStructuralAnalysis": true
+    },
+    "test/config.test.ts": {
+      "filePath": "test/config.test.ts",
+      "contentHash": "73bc8f10bf9533e56afd3cb1c479d7325ad3d53012dc0058c0968b21089d4f4c",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "expect",
+            "it"
+          ]
+        },
+        {
+          "source": "../src/config/app-config",
+          "specifiers": [
+            "loadAppConfig"
+          ]
+        },
+        {
+          "source": "../src/config/redaction",
+          "specifiers": [
+            "redactSensitiveData"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 51,
+      "hasStructuralAnalysis": true
+    },
+    "test/llm-observability.test.ts": {
+      "filePath": "test/llm-observability.test.ts",
+      "contentHash": "057cefccea19db8004511542a87b0d7b36b739f5feaa5242f4e5306b377a89ee",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "expect",
+            "it"
+          ]
+        },
+        {
+          "source": "../src/contexts/llm/application/persisted-llm-gateway",
+          "specifiers": [
+            "PersistedLlmGateway"
+          ]
+        },
+        {
+          "source": "../src/contexts/llm/application/in-memory-llm-evaluation-repository",
+          "specifiers": [
+            "InMemoryLlmEvaluationRepository"
+          ]
+        },
+        {
+          "source": "../src/contexts/observability/observability.service",
+          "specifiers": [
+            "ObservabilityService"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 47,
+      "hasStructuralAnalysis": true
+    },
+    "test/matching.test.ts": {
+      "filePath": "test/matching.test.ts",
+      "contentHash": "c6635ff984ff70caa5fe35f0a1c6ce7721a993c341dcc466b22bee2f3d444233",
+      "functions": [
+        {
+          "name": "market",
+          "params": [
+            "overrides"
+          ],
+          "returnType": "NormalizedMarket",
+          "exported": false,
+          "lineCount": 3
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "expect",
+            "it"
+          ]
+        },
+        {
+          "source": "../src/contexts/matching/domain/candidate-pair-generator",
+          "specifiers": [
+            "CandidatePairGenerator"
+          ]
+        },
+        {
+          "source": "../src/contexts/matching/domain/equivalence-policy",
+          "specifiers": [
+            "DeterministicEquivalencePolicy"
+          ]
+        },
+        {
+          "source": "../src/contexts/matching/domain/normalized-market",
+          "specifiers": [
+            "NormalizedMarket"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 111,
+      "hasStructuralAnalysis": true
+    },
+    "test/normalizer.test.ts": {
+      "filePath": "test/normalizer.test.ts",
+      "contentHash": "e78fb34fd2d9e655c008ef46f0f0e6404449b6eea145b8b10a513948c1363c97",
+      "functions": [
+        {
+          "name": "snapshot",
+          "params": [
+            "overrides"
+          ],
+          "returnType": "VenueMarketSnapshot",
+          "exported": false,
+          "lineCount": 11
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "expect",
+            "it"
+          ]
+        },
+        {
+          "source": "../src/contexts/matching/domain/crypto-market-normalizer",
+          "specifiers": [
+            "CryptoMarketNormalizer"
+          ]
+        },
+        {
+          "source": "../src/contexts/venues/domain/venue-market",
+          "specifiers": [
+            "VenueMarketSnapshot"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 54,
+      "hasStructuralAnalysis": true
+    },
+    "test/scanner.test.ts": {
+      "filePath": "test/scanner.test.ts",
+      "contentHash": "71294368a9cdeb00b3e5f26a86cf0f86cae5e38ec7af7987676984b40f23cc64",
+      "functions": [
+        {
+          "name": "market",
+          "params": [
+            "venue",
+            "id",
+            "title"
+          ],
+          "returnType": "VenueMarketSnapshot",
+          "exported": false,
+          "lineCount": 10
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "expect",
+            "it"
+          ]
+        },
+        {
+          "source": "../src/contexts/scanner/read-only-scanner",
+          "specifiers": [
+            "ReadOnlyScanner"
+          ]
+        },
+        {
+          "source": "../src/contexts/scanner/in-memory-scanner-repository",
+          "specifiers": [
+            "InMemoryScannerRepository"
+          ]
+        },
+        {
+          "source": "../src/contexts/venues/application/static-venue-client",
+          "specifiers": [
+            "StaticVenueClient"
+          ]
+        },
+        {
+          "source": "../src/contexts/venues/domain/venue-market",
+          "specifiers": [
+            "VenueMarketSnapshot"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 51,
+      "hasStructuralAnalysis": true
+    },
+    "tsconfig.json": {
+      "filePath": "tsconfig.json",
+      "contentHash": "7f64325bbe65ac508bffc907dce15c133f50614800e6947f5f464c479a6fb970",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 23,
+      "hasStructuralAnalysis": true
+    },
+    "vitest.config.ts": {
+      "filePath": "vitest.config.ts",
+      "contentHash": "b8f837a29e3cd357de4de946ef3466fae44e3da00d88ebfc91a8898b6d594ee6",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest/config",
+          "specifiers": [
+            "defineConfig"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 9,
+      "hasStructuralAnalysis": true
+    }
+  }
+}
