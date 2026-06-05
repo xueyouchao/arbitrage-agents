@@ -15,6 +15,13 @@
       "when": 1780493268204,
       "tag": "0001_freezing_nightshade",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780693511073,
+      "tag": "0002_closed_wolfsbane",
+      "breakpoints": true
     }
   ]
 }

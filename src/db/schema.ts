@@ -81,9 +81,10 @@ export const orderbookSnapshots = pgTable(
   "orderbook_snapshots",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    scanRunId: uuid("scan_run_id").references(() => scanRuns.id),
     normalizedMarketId: uuid("normalized_market_id").references(() => normalizedMarkets.id).notNull(),
-    yesAsk: numeric("yes_ask").notNull(),
-    noAsk: numeric("no_ask").notNull(),
+    yesAsk: numeric("yes_ask"),
+    noAsk: numeric("no_ask"),
     yesAvailableUsd: numeric("yes_available_usd").notNull(),
     noAvailableUsd: numeric("no_available_usd").notNull(),
     rawPayload: jsonb("raw_payload").notNull(),
@@ -91,8 +92,8 @@ export const orderbookSnapshots = pgTable(
     stale: boolean("stale").notNull().default(false)
   },
   (table) => [
-    check("orderbook_yes_ask_range", sql`${table.yesAsk} > 0 and ${table.yesAsk} < 1`),
-    check("orderbook_no_ask_range", sql`${table.noAsk} > 0 and ${table.noAsk} < 1`),
+    check("orderbook_yes_ask_range", sql`${table.yesAsk} is null or (${table.yesAsk} > 0 and ${table.yesAsk} < 1)`),
+    check("orderbook_no_ask_range", sql`${table.noAsk} is null or (${table.noAsk} > 0 and ${table.noAsk} < 1)`),
     check("orderbook_yes_available_nonnegative", sql`${table.yesAvailableUsd} >= 0`),
     check("orderbook_no_available_nonnegative", sql`${table.noAvailableUsd} >= 0`)
   ]
@@ -101,6 +102,8 @@ export const orderbookSnapshots = pgTable(
 export const opportunities = pgTable("opportunities", {
   id: uuid("id").primaryKey().defaultRandom(),
   candidatePairId: uuid("candidate_pair_id").references(() => candidatePairs.id).notNull(),
+  kalshiOrderbookSnapshotId: uuid("kalshi_orderbook_snapshot_id").references(() => orderbookSnapshots.id),
+  polymarketOrderbookSnapshotId: uuid("polymarket_orderbook_snapshot_id").references(() => orderbookSnapshots.id),
   longLeg: jsonb("long_leg").notNull(),
   hedgeLeg: jsonb("hedge_leg").notNull(),
   combinedCost: numeric("combined_cost").notNull(),

@@ -3,13 +3,13 @@ import { Pool } from "pg";
 import { APP_CONFIG } from "../../config/config.module";
 import { AppConfig } from "../../config/app-config";
 import {
+  MarketReadModel,
   MarketReadRepository,
+  OpportunityReadModel,
   OpportunityReadRepository,
   ScanRunReadModel,
   ScanRunReadRepository
 } from "./read-models";
-import { CrossVenueOpportunity } from "../arbitrage/domain/opportunity";
-import { NormalizedMarket } from "../matching/domain/normalized-market";
 
 @Injectable()
 export class PostgresReadRepositories
@@ -25,10 +25,12 @@ export class PostgresReadRepositories
     await this.pool.end();
   }
 
-  async listOpportunities(): Promise<CrossVenueOpportunity[]> {
+  async listOpportunities(): Promise<OpportunityReadModel[]> {
     const result = await this.pool.query<OpportunityRow>(`
       select id,
              candidate_pair_id,
+             kalshi_orderbook_snapshot_id,
+             polymarket_orderbook_snapshot_id,
              long_leg,
              hedge_leg,
              combined_cost,
@@ -50,10 +52,12 @@ export class PostgresReadRepositories
     return result.rows.map(toOpportunity);
   }
 
-  async getOpportunity(id: string): Promise<CrossVenueOpportunity | undefined> {
+  async getOpportunity(id: string): Promise<OpportunityReadModel | undefined> {
     const result = await this.pool.query<OpportunityRow>(`
       select id,
              candidate_pair_id,
+             kalshi_orderbook_snapshot_id,
+             polymarket_orderbook_snapshot_id,
              long_leg,
              hedge_leg,
              combined_cost,
@@ -75,7 +79,7 @@ export class PostgresReadRepositories
     return result.rows[0] ? toOpportunity(result.rows[0]) : undefined;
   }
 
-  async listMarkets(): Promise<NormalizedMarket[]> {
+  async listMarkets(): Promise<MarketReadModel[]> {
     const result = await this.pool.query<MarketRow>(`
       select id,
              venue,
@@ -139,36 +143,38 @@ export class PostgresReadRepositories
 interface OpportunityRow {
   id: string;
   candidate_pair_id: string;
-  long_leg: CrossVenueOpportunity["longLeg"];
-  hedge_leg: CrossVenueOpportunity["hedgeLeg"];
+  kalshi_orderbook_snapshot_id: string | null;
+  polymarket_orderbook_snapshot_id: string | null;
+  long_leg: OpportunityReadModel["longLeg"];
+  hedge_leg: OpportunityReadModel["hedgeLeg"];
   combined_cost: string;
   gross_edge: string;
   estimated_fees: string;
   estimated_slippage: string;
   net_edge: string;
   max_tradable_usd: string;
-  equivalence_class: CrossVenueOpportunity["equivalenceClass"];
-  resolution_risk: CrossVenueOpportunity["resolutionRisk"];
-  fill_risk: CrossVenueOpportunity["fillRisk"];
+  equivalence_class: OpportunityReadModel["equivalenceClass"];
+  resolution_risk: OpportunityReadModel["resolutionRisk"];
+  fill_risk: OpportunityReadModel["fillRisk"];
   detected_at: Date | string;
   last_verified_at: Date | string;
 }
 
 interface MarketRow {
   id: string;
-  venue: NormalizedMarket["venue"];
+  venue: MarketReadModel["venue"];
   venue_market_id: string;
   title: string;
   raw_resolution_text: string;
-  topic: NormalizedMarket["topic"];
-  event_type: NormalizedMarket["eventType"];
-  asset: NormalizedMarket["asset"] | null;
+  topic: MarketReadModel["topic"];
+  event_type: MarketReadModel["eventType"];
+  asset: MarketReadModel["asset"] | null;
   threshold: string | null;
-  operator: NormalizedMarket["operator"] | null;
+  operator: MarketReadModel["operator"] | null;
   deadline: Date | string | null;
   timezone: string | null;
   resolution_source: string | null;
-  payoff_type: NormalizedMarket["payoffType"];
+  payoff_type: MarketReadModel["payoffType"];
   ambiguity_flags: string[];
   confidence: string;
 }
@@ -181,10 +187,12 @@ interface ScanRunRow {
   metrics: Record<string, unknown> | null;
 }
 
-function toOpportunity(row: OpportunityRow): CrossVenueOpportunity {
+function toOpportunity(row: OpportunityRow): OpportunityReadModel {
   return {
     id: row.id,
     pairId: row.candidate_pair_id,
+    kalshiOrderbookSnapshotId: row.kalshi_orderbook_snapshot_id ?? undefined,
+    polymarketOrderbookSnapshotId: row.polymarket_orderbook_snapshot_id ?? undefined,
     longLeg: row.long_leg,
     hedgeLeg: row.hedge_leg,
     combinedCost: Number(row.combined_cost),
@@ -201,7 +209,7 @@ function toOpportunity(row: OpportunityRow): CrossVenueOpportunity {
   };
 }
 
-function toMarket(row: MarketRow): NormalizedMarket {
+function toMarket(row: MarketRow): MarketReadModel {
   return {
     id: row.id,
     venue: row.venue,

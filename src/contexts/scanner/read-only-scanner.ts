@@ -4,8 +4,9 @@ import { MarketBook } from "../arbitrage/domain/opportunity";
 import { CandidatePairGenerator } from "../matching/domain/candidate-pair-generator";
 import { DeterministicEquivalencePolicy } from "../matching/domain/equivalence-policy";
 import { CryptoMarketNormalizer } from "../matching/domain/crypto-market-normalizer";
+import { NormalizedMarket } from "../matching/domain/normalized-market";
 import { VenueClient } from "../venues/domain/venue-market";
-import { ScannerRepository } from "./in-memory-scanner-repository";
+import { OrderbookSnapshotArtifact, ReviewedCandidatePair, ScannerRepository } from "./scanner-repository";
 import { ScanResult } from "./scanner-result";
 
 export interface ReadOnlyScannerDependencies {
@@ -13,6 +14,7 @@ export interface ReadOnlyScannerDependencies {
   polymarketClient: VenueClient;
   repository: ScannerRepository;
   now?: string;
+  clock?: () => string;
 }
 
 export class ReadOnlyScanner {
@@ -24,7 +26,8 @@ export class ReadOnlyScanner {
   constructor(private readonly dependencies: ReadOnlyScannerDependencies) {}
 
   async runOnce(): Promise<ScanResult> {
-    const startedAt = this.dependencies.now ?? new Date().toISOString();
+    const now = this.dependencies.clock ?? (() => new Date().toISOString());
+    const startedAt = this.dependencies.now ?? now();
     let kalshiMarkets;
     let polymarketMarkets;
     let kalshiBooks;
@@ -51,30 +54,49 @@ export class ReadOnlyScanner {
         id: scanId,
         status: "failed",
         startedAt,
-        completedAt: new Date().toISOString(),
+        completedAt: now(),
         metrics: { marketsScanned: 0, normalizedMarkets: 0, candidatePairs: 0, opportunitiesFound: 0, llmEvaluations: 0 }
       };
       await this.dependencies.repository.saveScanRun(failed);
       return failed;
     }
 
+    const calculationAt = now();
     const snapshots = [...kalshiMarkets, ...polymarketMarkets];
     const normalizedMarkets = snapshots.map((snapshot) => this.normalizer.normalize(snapshot));
+    const normalizedMarketByBookKey = new Map(normalizedMarkets.map((market) => [`${market.venue}:${market.venueMarketId}`, market]));
+    const orderbookSnapshots = [...kalshiBooks, ...polymarketBooks].flatMap((book) =>
+      toOrderbookSnapshotArtifact(scanId, book, normalizedMarketByBookKey)
+    );
+    const orderbookSnapshotByBookKey = new Map(orderbookSnapshots.map((snapshot) => [`${snapshot.venue}:${snapshot.venueMarketId}`, snapshot]));
     const candidatePairs = this.pairGenerator.generate(normalizedMarkets);
+    const reviewedCandidatePairs: ReviewedCandidatePair[] = candidatePairs.map((pair) => ({
+      pair,
+      decision: this.equivalencePolicy.classify(pair)
+    }));
     const booksByKey = new Map([...kalshiBooks, ...polymarketBooks].map((book) => [bookKey(book), book]));
-    const opportunities = candidatePairs.flatMap((pair) => {
-      const decision = this.equivalencePolicy.classify(pair);
-      const kalshiBook = booksByKey.get(`${pair.kalshiMarket.venue}:${pair.kalshiMarket.venueMarketId}`);
-      const polymarketBook = booksByKey.get(`${pair.polymarketMarket.venue}:${pair.polymarketMarket.venueMarketId}`);
-      if (!kalshiBook || !polymarketBook) return [];
-      return this.opportunityCalculator.calculate(pair, decision, kalshiBook, polymarketBook, { now: startedAt });
+    const opportunities = reviewedCandidatePairs.flatMap(({ pair, decision }) => {
+      const kalshiKey = `${pair.kalshiMarket.venue}:${pair.kalshiMarket.venueMarketId}`;
+      const polymarketKey = `${pair.polymarketMarket.venue}:${pair.polymarketMarket.venueMarketId}`;
+      const kalshiBook = booksByKey.get(kalshiKey);
+      const polymarketBook = booksByKey.get(polymarketKey);
+      const kalshiSnapshot = orderbookSnapshotByBookKey.get(kalshiKey);
+      const polymarketSnapshot = orderbookSnapshotByBookKey.get(polymarketKey);
+      if (!kalshiBook || !polymarketBook || !kalshiSnapshot || !polymarketSnapshot) return [];
+      return this.opportunityCalculator
+        .calculate(pair, decision, kalshiBook, polymarketBook, { now: calculationAt })
+        .map((opportunity) => ({
+          opportunity,
+          kalshiOrderbookSnapshotId: kalshiSnapshot.id,
+          polymarketOrderbookSnapshotId: polymarketSnapshot.id
+        }));
     });
 
-    const result: ScanResult = {
+    const result: ScanResult & { status: "succeeded" } = {
       id: scanId,
       status: "succeeded",
       startedAt,
-      completedAt: startedAt,
+      completedAt: now(),
       metrics: {
         marketsScanned: snapshots.length,
         normalizedMarkets: normalizedMarkets.length,
@@ -85,21 +107,68 @@ export class ReadOnlyScanner {
     };
 
     try {
-      await this.dependencies.repository.saveSnapshots(snapshots);
-      await this.dependencies.repository.saveNormalizedMarkets(normalizedMarkets);
-      await this.dependencies.repository.saveCandidatePairs(candidatePairs);
-      await this.dependencies.repository.saveOpportunities(opportunities);
-      await this.dependencies.repository.saveScanRun(result);
+      await this.dependencies.repository.saveCompletedScan({
+        scanRun: result,
+        snapshots,
+        normalizedMarkets,
+        candidatePairs: reviewedCandidatePairs,
+        orderbookSnapshots,
+        opportunities
+      });
       return result;
     } catch (_error) {
-      const failed: ScanResult = { ...result, status: "failed", completedAt: new Date().toISOString() };
+      const failed: ScanResult = { ...result, status: "failed", completedAt: now() };
       await this.dependencies.repository.saveScanRun(failed);
       return failed;
     }
   }
 }
 
-function bookKey(book: MarketBook): string {
+function toOrderbookSnapshotArtifact(
+  scanId: string,
+  book: MarketBook,
+  normalizedMarketByBookKey: Map<string, NormalizedMarket>
+): OrderbookSnapshotArtifact[] {
+  const normalizedMarket = normalizedMarketByBookKey.get(bookKey(book));
+  if (!normalizedMarket) return [];
+
+  return [
+    {
+      id: `${scanId}:${book.venue}:${book.marketId}:${book.capturedAt}`,
+      scanRunId: scanId,
+      normalizedMarketId: normalizedMarket.id,
+      venue: book.venue,
+      venueMarketId: book.marketId,
+      yesAsk: validAsk(book.yesAsk),
+      noAsk: validAsk(book.noAsk),
+      yesAvailableUsd: book.yesAvailableUsd,
+      noAvailableUsd: book.noAvailableUsd,
+      rawPayload: toOrderbookRawPayload(book),
+      capturedAt: book.capturedAt,
+      stale: book.stale ?? false
+    }
+  ];
+}
+
+function toOrderbookRawPayload(book: MarketBook): Record<string, unknown> {
+  return {
+    sourcePayload: book.rawPayload ?? {},
+    marketId: book.marketId,
+    venue: book.venue,
+    yesAsk: validAsk(book.yesAsk),
+    noAsk: validAsk(book.noAsk),
+    yesAvailableUsd: book.yesAvailableUsd,
+    noAvailableUsd: book.noAvailableUsd,
+    capturedAt: book.capturedAt,
+    stale: book.stale ?? false
+  };
+}
+
+function validAsk(value: number): number | undefined {
+  return Number.isFinite(value) && value > 0 && value < 1 ? value : undefined;
+}
+
+function bookKey(book: Pick<MarketBook, "venue" | "marketId">): string {
   return `${book.venue}:${book.marketId}`;
 }
 

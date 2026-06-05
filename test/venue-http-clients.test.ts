@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { KalshiPublicVenueClient, PolymarketPublicVenueClient } from "../src/contexts/venues/application/http-venue-clients";
+import { KalshiPublicVenueClient, PolymarketPublicVenueClient } from "../src/contexts/venues/infrastructure/http-venue-clients";
 import { VenueMarketSnapshot } from "../src/contexts/venues/domain/venue-market";
 
 afterEach(() => {
