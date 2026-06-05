@@ -31,12 +31,18 @@ describe("ReadOnlyScanner", () => {
         books: [{ marketId: "P1", venue: "polymarket", yesAsk: 0.5, noAsk: 0.51, yesAvailableUsd: 50, noAvailableUsd: 12, capturedAt }]
       }),
       repository,
-      now: capturedAt
+      clock: sequenceClock([
+        "2026-06-03T11:59:59.000Z",
+        capturedAt,
+        "2026-06-03T12:00:01.000Z"
+      ])
     });
 
     const result = await scanner.runOnce();
 
     expect(result.status).toBe("succeeded");
+    expect(result.startedAt).toBe("2026-06-03T11:59:59.000Z");
+    expect(result.completedAt).toBe("2026-06-03T12:00:01.000Z");
     expect(result.metrics).toMatchObject({
       marketsScanned: 2,
       normalizedMarkets: 2,
@@ -46,6 +52,10 @@ describe("ReadOnlyScanner", () => {
     expect(repository.snapshots).toHaveLength(2);
     expect(repository.normalizedMarkets).toHaveLength(2);
     expect(repository.candidatePairs).toHaveLength(1);
+    expect(repository.candidatePairs[0].decision).toMatchObject({
+      equivalenceClass: "A",
+      decision: "tradable"
+    });
     expect(repository.opportunities).toHaveLength(1);
   });
 
@@ -76,6 +86,10 @@ describe("ReadOnlyScanner", () => {
   });
 
 });
+
+function sequenceClock(values: string[]): () => string {
+  return () => values.shift() ?? values[values.length - 1] ?? new Date(0).toISOString();
+}
 
 function sequencingClient(
   venue: "kalshi" | "polymarket",

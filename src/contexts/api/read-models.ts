@@ -1,6 +1,44 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { CrossVenueOpportunity } from "../arbitrage/domain/opportunity";
-import { NormalizedMarket } from "../matching/domain/normalized-market";
+import { ContractLeg, RiskLevel } from "../arbitrage/domain/opportunity";
+import { EquivalenceClass } from "../matching/domain/candidate-pair";
+import { CryptoAsset, EventType, MarketOperator, PayoffType, Topic, Venue } from "../matching/domain/normalized-market";
+
+export interface OpportunityReadModel {
+  id: string;
+  pairId: string;
+  longLeg: ContractLeg;
+  hedgeLeg: ContractLeg;
+  combinedCost: number;
+  grossEdge: number;
+  estimatedFees: number;
+  estimatedSlippage: number;
+  netEdge: number;
+  maxTradableUsd: number;
+  equivalenceClass: EquivalenceClass;
+  resolutionRisk: RiskLevel;
+  fillRisk: RiskLevel;
+  detectedAt: string;
+  lastVerifiedAt: string;
+}
+
+export interface MarketReadModel {
+  id: string;
+  venue: Venue;
+  venueMarketId: string;
+  title: string;
+  rawResolutionText: string;
+  topic: Topic;
+  eventType: EventType;
+  asset?: CryptoAsset;
+  threshold?: number;
+  operator?: MarketOperator;
+  deadline?: string;
+  timezone?: string;
+  resolutionSource?: string;
+  payoffType: PayoffType;
+  ambiguityFlags: string[];
+  confidence: number;
+}
 
 export interface ScanRunReadModel {
   id: string;
@@ -12,12 +50,12 @@ export interface ScanRunReadModel {
 }
 
 export interface OpportunityReadRepository {
-  listOpportunities(): Promise<CrossVenueOpportunity[]>;
-  getOpportunity(id: string): Promise<CrossVenueOpportunity | undefined>;
+  listOpportunities(): Promise<OpportunityReadModel[]>;
+  getOpportunity(id: string): Promise<OpportunityReadModel | undefined>;
 }
 
 export interface MarketReadRepository {
-  listMarkets(): Promise<NormalizedMarket[]>;
+  listMarkets(): Promise<MarketReadModel[]>;
 }
 
 export interface ScanRunReadRepository {
@@ -35,11 +73,11 @@ export class OpportunityReadService {
     private readonly opportunities: OpportunityReadRepository
   ) {}
 
-  listOpportunities(): Promise<CrossVenueOpportunity[]> {
+  listOpportunities(): Promise<OpportunityReadModel[]> {
     return this.opportunities.listOpportunities();
   }
 
-  getOpportunity(id: string): Promise<CrossVenueOpportunity | undefined> {
+  getOpportunity(id: string): Promise<OpportunityReadModel | undefined> {
     return this.opportunities.getOpportunity(id);
   }
 }
@@ -51,7 +89,7 @@ export class MarketReadService {
     private readonly markets: MarketReadRepository
   ) {}
 
-  listMarkets(): Promise<NormalizedMarket[]> {
+  listMarkets(): Promise<MarketReadModel[]> {
     return this.markets.listMarkets();
   }
 }

@@ -5,7 +5,7 @@ import { CandidatePairGenerator } from "../matching/domain/candidate-pair-genera
 import { DeterministicEquivalencePolicy } from "../matching/domain/equivalence-policy";
 import { CryptoMarketNormalizer } from "../matching/domain/crypto-market-normalizer";
 import { VenueClient } from "../venues/domain/venue-market";
-import { ScannerRepository } from "./in-memory-scanner-repository";
+import { ReviewedCandidatePair, ScannerRepository } from "./scanner-repository";
 import { ScanResult } from "./scanner-result";
 
 export interface ReadOnlyScannerDependencies {
@@ -13,6 +13,7 @@ export interface ReadOnlyScannerDependencies {
   polymarketClient: VenueClient;
   repository: ScannerRepository;
   now?: string;
+  clock?: () => string;
 }
 
 export class ReadOnlyScanner {
@@ -24,7 +25,8 @@ export class ReadOnlyScanner {
   constructor(private readonly dependencies: ReadOnlyScannerDependencies) {}
 
   async runOnce(): Promise<ScanResult> {
-    const startedAt = this.dependencies.now ?? new Date().toISOString();
+    const now = this.dependencies.clock ?? (() => new Date().toISOString());
+    const startedAt = this.dependencies.now ?? now();
     let kalshiMarkets;
     let polymarketMarkets;
     let kalshiBooks;
@@ -51,30 +53,34 @@ export class ReadOnlyScanner {
         id: scanId,
         status: "failed",
         startedAt,
-        completedAt: new Date().toISOString(),
+        completedAt: now(),
         metrics: { marketsScanned: 0, normalizedMarkets: 0, candidatePairs: 0, opportunitiesFound: 0, llmEvaluations: 0 }
       };
       await this.dependencies.repository.saveScanRun(failed);
       return failed;
     }
 
+    const calculationAt = now();
     const snapshots = [...kalshiMarkets, ...polymarketMarkets];
     const normalizedMarkets = snapshots.map((snapshot) => this.normalizer.normalize(snapshot));
     const candidatePairs = this.pairGenerator.generate(normalizedMarkets);
+    const reviewedCandidatePairs: ReviewedCandidatePair[] = candidatePairs.map((pair) => ({
+      pair,
+      decision: this.equivalencePolicy.classify(pair)
+    }));
     const booksByKey = new Map([...kalshiBooks, ...polymarketBooks].map((book) => [bookKey(book), book]));
-    const opportunities = candidatePairs.flatMap((pair) => {
-      const decision = this.equivalencePolicy.classify(pair);
+    const opportunities = reviewedCandidatePairs.flatMap(({ pair, decision }) => {
       const kalshiBook = booksByKey.get(`${pair.kalshiMarket.venue}:${pair.kalshiMarket.venueMarketId}`);
       const polymarketBook = booksByKey.get(`${pair.polymarketMarket.venue}:${pair.polymarketMarket.venueMarketId}`);
       if (!kalshiBook || !polymarketBook) return [];
-      return this.opportunityCalculator.calculate(pair, decision, kalshiBook, polymarketBook, { now: startedAt });
+      return this.opportunityCalculator.calculate(pair, decision, kalshiBook, polymarketBook, { now: calculationAt });
     });
 
-    const result: ScanResult = {
+    const result: ScanResult & { status: "succeeded" } = {
       id: scanId,
       status: "succeeded",
       startedAt,
-      completedAt: startedAt,
+      completedAt: now(),
       metrics: {
         marketsScanned: snapshots.length,
         normalizedMarkets: normalizedMarkets.length,
@@ -85,14 +91,16 @@ export class ReadOnlyScanner {
     };
 
     try {
-      await this.dependencies.repository.saveSnapshots(snapshots);
-      await this.dependencies.repository.saveNormalizedMarkets(normalizedMarkets);
-      await this.dependencies.repository.saveCandidatePairs(candidatePairs);
-      await this.dependencies.repository.saveOpportunities(opportunities);
-      await this.dependencies.repository.saveScanRun(result);
+      await this.dependencies.repository.saveCompletedScan({
+        scanRun: result,
+        snapshots,
+        normalizedMarkets,
+        candidatePairs: reviewedCandidatePairs,
+        opportunities
+      });
       return result;
     } catch (_error) {
-      const failed: ScanResult = { ...result, status: "failed", completedAt: new Date().toISOString() };
+      const failed: ScanResult = { ...result, status: "failed", completedAt: now() };
       await this.dependencies.repository.saveScanRun(failed);
       return failed;
     }

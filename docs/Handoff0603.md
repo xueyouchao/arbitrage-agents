@@ -636,3 +636,50 @@
   8. Fix coverage tooling and add integration tests.
   9. Harden API tests and response contracts.
   10. Only then launch production read-only analytics.
+---
+
+## 2026-06-05 architecture cleanup / cross-review implementation update
+
+Completed from `docs/CROSS-REVIEW-ISSUES-AND-IMPROVEMENTS.md` architecture TODOs:
+
+- [x] Move `ScannerRepository` into a neutral scanner port file.
+  - Added `src/contexts/scanner/scanner-repository.ts`.
+- [x] Make completed scan persistence explicit and atomic.
+  - Added `saveCompletedScan` with `CompletedScanArtifacts`.
+  - Postgres adapter now writes completed scan artifacts in one transaction.
+- [x] Move scanner infrastructure composition out of `WorkerScanRunner`.
+  - `ScannerModule` now wires scanner pool, venue clients, repository token, and `ReadOnlyScanner` factory.
+  - `WorkerScanRunner` is thin and only invokes the injected scanner.
+- [x] Separate API DTO/read models from internal domain entities.
+  - Added API-owned `OpportunityReadModel` and `MarketReadModel` contracts in `src/contexts/api/read-models.ts`.
+- [x] Persist candidate equivalence decisions.
+  - Scanner now produces reviewed candidate-pair artifacts `{ pair, decision }`.
+  - Postgres candidate-pair persistence writes `equivalence_class` and `decision`.
+- [x] Centralize stable UUID generation.
+  - Added shared `src/contexts/shared/stable-id.ts` and replaced local duplicate helpers.
+- [x] Move venue HTTP clients to infrastructure boundary.
+  - Concrete HTTP clients now live under `src/contexts/venues/infrastructure/`.
+  - Application path remains as a compatibility re-export.
+- [x] Fix scan timestamp correctness.
+  - Scanner now uses a calculation timestamp after orderbook fetch.
+  - Successful scan `completedAt` is captured freshly rather than reusing `startedAt`.
+
+Deferred / still open:
+
+- [ ] Broad scanner domain-policy injection was intentionally deferred as premature abstraction.
+- [ ] Persist orderbook snapshots as first-class artifacts.
+- [ ] Integrate persisted/schema-validated LLM gateway into the scanner path.
+- [ ] Complete opportunity risk/freshness/fee/slippage/liquidity modeling.
+- [ ] Add Postgres/API integration tests and migration smoke tests.
+- [ ] Fix coverage tooling with `@vitest/coverage-v8`.
+
+Verification for this update:
+
+- `npm test` — passed, 8 test files / 25 tests.
+- `npm run typecheck` — passed.
+- `npm run build` — passed.
+
+Indexing note:
+
+- GitNexus metadata in `CLAUDE.md` / `AGENTS.md` was refreshed to 652 symbols, 1258 relationships, and 36 execution flows.
+- Generated local index artifacts such as `.codegraph/` and `.understand-anything/dashboard.pid` should not be treated as source changes for the PR.
