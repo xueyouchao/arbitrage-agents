@@ -81,7 +81,7 @@ async function saveNormalizedMarkets(queryable: Queryable, markets: NormalizedMa
   const idsByMarketId = new Map<string, string>();
 
   for (const market of markets) {
-    const result = await queryable.query(
+    const result = await queryable.query<{ id: string }>(
       `insert into normalized_markets (
         id, venue, venue_market_id, title, raw_resolution_text, topic, event_type,
         asset, threshold, operator, deadline, timezone, resolution_source,
@@ -135,7 +135,7 @@ async function saveCandidatePairs(
   const idsByPairId = new Map<string, string>();
 
   for (const { pair, decision } of reviewedPairs) {
-    const result = await queryable.query(
+    const result = await queryable.query<{ id: string }>(
       `insert into candidate_pairs (id, kalshi_market_id, polymarket_market_id, equivalence_class, decision, reasons)
        values ($1, $2, $3, $4, $5, $6::jsonb)
        on conflict (kalshi_market_id, polymarket_market_id) do update set
@@ -158,7 +158,11 @@ async function saveCandidatePairs(
   return idsByPairId;
 }
 
-async function saveOrderbookSnapshots(queryable: Queryable, snapshots: OrderbookSnapshotArtifact[], marketIds: Map<string, string>): Promise<void> {
+async function saveOrderbookSnapshots(
+  queryable: Queryable,
+  snapshots: OrderbookSnapshotArtifact[],
+  marketIds: Map<string, string>
+): Promise<void> {
   for (const snapshot of snapshots) {
     await queryable.query(
       `insert into orderbook_snapshots (

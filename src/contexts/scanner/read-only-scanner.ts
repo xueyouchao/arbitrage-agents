@@ -171,4 +171,3 @@ function validAsk(value: number): number | undefined {
 function bookKey(book: Pick<MarketBook, "venue" | "marketId">): string {
   return `${book.venue}:${book.marketId}`;
 }
-
