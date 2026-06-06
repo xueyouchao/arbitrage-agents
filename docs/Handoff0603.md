@@ -717,20 +717,22 @@ Reviewer reachability:
      - `src/contexts/arbitrage/domain/opportunity-calculator.ts`
    - Root cause: `ReadOnlyScannerDependencies.now` is used for `startedAt`, but opportunity freshness uses a separate `calculationAt` derived from `clock ?? new Date()`. If callers pass fixed `now` without also passing `clock`, `OpportunityCalculator.calculate(...)` compares orderbook `capturedAt` values against wall-clock time rather than the intended scan time.
    - Impact: deterministic, replay, backfill, demo, or test scans can silently produce `opportunitiesFound: 0` even when orderbooks are fresh relative to the requested scan timestamp.
-   - Recommended fix: normalize scanner time handling so `dependencies.now` is honored by the effective scanner clock, or remove/deprecate `now` and require callers to provide `clock`.
+   - Fix applied in this follow-up: `ReadOnlyScanner` now builds one effective clock that honors `clock` first, then fixed `now`, then wall-clock time. Added scanner regression coverage for fixed `now` freshness.
 
-### Unconfirmed risks from reviewers
-
-1. **Opportunity IDs may include per-run snapshot IDs, causing recurring opportunities to duplicate instead of update**
-   - Consensus: 1 reviewer; classified as unconfirmed risk.
+2. **Persisted opportunity row IDs included per-run snapshot IDs**
+   - Consensus: 1 reviewer initially reported this as an unconfirmed risk; follow-up verification confirmed it.
    - Severity: medium.
-   - Confidence from reporting reviewer: high.
+   - Confidence: high after verification.
    - Files:
      - `src/contexts/scanner/read-only-scanner.ts`
      - `src/contexts/scanner/postgres-scanner-repository.ts`
-   - Reported root cause: orderbook snapshot IDs include the per-run `scanId`, and the persisted opportunity primary key is derived from `opportunity.id` plus the two source snapshot IDs.
-   - Potential impact: the same market opportunity could insert as a new row on each scan rather than refreshing `last_verified_at`, which would duplicate `/v1/opportunities` rows and weaken detected/verified timestamp semantics.
-   - Suggested follow-up: confirm desired opportunity identity semantics. If opportunities should represent the latest state per pair/direction, keep the opportunity row ID stable from `opportunity.id` or another scan-independent key and update source snapshot foreign keys on conflict. If per-scan opportunity observations are desired, introduce a separate history/provenance table.
+   - Verified root cause: orderbook snapshot IDs include the per-run `scanId`, and `saveOpportunities(...)` derived the persisted opportunity primary key from `opportunity.id` plus both source snapshot IDs.
+   - Impact: the same market opportunity would insert as a new row on each scan instead of refreshing `last_verified_at`, duplicating `/v1/opportunities` rows and weakening detected/verified timestamp semantics.
+   - Fix applied in this follow-up: persisted opportunity IDs now derive from scan-independent `opportunity.id`; the upsert still refreshes the Kalshi/Polymarket source snapshot foreign keys and `last_verified_at` on conflict.
+
+### Unconfirmed risks from reviewers
+
+- None remaining from this follow-up pass.
 
 ### Architecture suggestions from reviewers
 

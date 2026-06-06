@@ -224,7 +224,7 @@ async function saveOpportunities(
         fill_risk = excluded.fill_risk,
         last_verified_at = excluded.last_verified_at`,
       [
-        uuidFromStableKey(`${opportunity.id}:${kalshiOrderbookSnapshotId}:${polymarketOrderbookSnapshotId}`),
+        uuidFromStableKey(opportunity.id),
         persistedId(candidatePairIds, opportunity.pairId),
         uuidFromStableKey(kalshiOrderbookSnapshotId),
         uuidFromStableKey(polymarketOrderbookSnapshotId),

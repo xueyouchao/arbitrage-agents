@@ -26,8 +26,8 @@ export class ReadOnlyScanner {
   constructor(private readonly dependencies: ReadOnlyScannerDependencies) {}
 
   async runOnce(): Promise<ScanResult> {
-    const now = this.dependencies.clock ?? (() => new Date().toISOString());
-    const startedAt = this.dependencies.now ?? now();
+    const now = this.dependencies.clock ?? (() => this.dependencies.now ?? new Date().toISOString());
+    const startedAt = now();
     let kalshiMarkets;
     let polymarketMarkets;
     let kalshiBooks;

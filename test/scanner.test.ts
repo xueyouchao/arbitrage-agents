@@ -97,6 +97,30 @@ describe("ReadOnlyScanner", () => {
     });
   });
 
+  it("uses the injected scan time for opportunity freshness", async () => {
+    const repository = new InMemoryScannerRepository();
+    const scanner = new ReadOnlyScanner({
+      kalshiClient: new StaticVenueClient({
+        markets: [market("kalshi", "K1", "Will Bitcoin be above $100,000 on Jan 1, 2026?")],
+        books: [{ marketId: "K1", venue: "kalshi", yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 20, noAvailableUsd: 30, capturedAt }]
+      }),
+      polymarketClient: new StaticVenueClient({
+        markets: [market("polymarket", "P1", "Will BTC be above $100,000 on Jan 1, 2026?")],
+        books: [{ marketId: "P1", venue: "polymarket", yesAsk: 0.5, noAsk: 0.51, yesAvailableUsd: 50, noAvailableUsd: 12, capturedAt }]
+      }),
+      repository,
+      now: capturedAt
+    });
+
+    const result = await scanner.runOnce();
+
+    expect(result.status).toBe("succeeded");
+    expect(result.startedAt).toBe(capturedAt);
+    expect(result.completedAt).toBe(capturedAt);
+    expect(repository.opportunities[0].opportunity.detectedAt).toBe(capturedAt);
+    expect(result.metrics.opportunitiesFound).toBe(1);
+  });
+
   it("persists stale orderbook snapshots without emitting opportunities", async () => {
     const repository = new InMemoryScannerRepository();
     const scanner = new ReadOnlyScanner({
