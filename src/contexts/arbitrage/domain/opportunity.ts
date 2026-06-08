@@ -21,6 +21,7 @@ export interface MarketBook {
   noAvailableUsd: number;
   capturedAt: string;
   stale?: boolean;
+  rawPayload?: Record<string, unknown>;
 }
 
 export interface CrossVenueOpportunity {

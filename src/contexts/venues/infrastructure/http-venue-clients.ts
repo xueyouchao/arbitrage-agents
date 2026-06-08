@@ -67,7 +67,8 @@ export class KalshiPublicVenueClient implements VenueClient {
       yesAvailableUsd: bestNoBid ? roundUsd(yesAsk * bestNoBid.size) : 0,
       noAvailableUsd: bestYesBid ? roundUsd(noAsk * bestYesBid.size) : 0,
       capturedAt: new Date().toISOString(),
-      stale: !bestYesBid || !bestNoBid
+      stale: !bestYesBid || !bestNoBid,
+      rawPayload: body
     };
   }
 }
@@ -128,7 +129,8 @@ export class PolymarketPublicVenueClient implements VenueClient {
       yesAvailableUsd: yesAskLevel ? roundUsd(yesAskLevel.price * yesAskLevel.size) : 0,
       noAvailableUsd: noAskLevel ? roundUsd(noAskLevel.price * noAskLevel.size) : 0,
       capturedAt: new Date().toISOString(),
-      stale: !yesAskLevel || !noAskLevel
+      stale: !yesAskLevel || !noAskLevel,
+      rawPayload: { yesBook, noBook }
     };
   }
 }

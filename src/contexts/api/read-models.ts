@@ -6,6 +6,8 @@ import { CryptoAsset, EventType, MarketOperator, PayoffType, Topic, Venue } from
 export interface OpportunityReadModel {
   id: string;
   pairId: string;
+  kalshiOrderbookSnapshotId?: string;
+  polymarketOrderbookSnapshotId?: string;
   longLeg: ContractLeg;
   hedgeLeg: ContractLeg;
   combinedCost: number;

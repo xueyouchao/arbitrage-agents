@@ -683,3 +683,114 @@ Indexing note:
 
 - GitNexus metadata in `CLAUDE.md` / `AGENTS.md` was refreshed to 652 symbols, 1258 relationships, and 36 execution flows.
 - Generated local index artifacts such as `.codegraph/` and `.understand-anything/dashboard.pid` should not be treated as source changes for the PR.
+
+---
+
+## 2026-06-06 PR #2 merge-conflict resolution and multi-review handoff
+
+Merge-conflict resolution status:
+
+- Resolved and staged the PR #2 merge conflicts while preserving the orderbook provenance model.
+- Validation passed:
+  - `npm run typecheck`
+  - `npm test -- test/scanner.test.ts test/stable-id.test.ts`
+  - `npm test` — 8 test files / 26 tests passed.
+  - `npm run build`
+- `npx gitnexus detect-changes --repo arbitrage-agents` was run and returned `No changes detected`.
+
+Reviewer reachability:
+
+- Codex `gpt-5.5` — reachable.
+- `minimax-m3:cloud` — reachable.
+- `deepseek-v4-flash:cloud` — reachable.
+- `glm-5.1:cloud` — reachable.
+- `kimi-k2.6:cloud` — reachable.
+
+### Confirmed risks / bugs from reviewers
+
+- [x] **Injected scanner `now` timestamp is ignored for opportunity freshness calculation**
+  - Consensus: 5/5 reviewers.
+  - Severity: medium.
+  - Confidence: high.
+  - Files:
+    - `src/contexts/scanner/read-only-scanner.ts`
+    - `src/contexts/arbitrage/domain/opportunity-calculator.ts`
+  - Root cause: `ReadOnlyScannerDependencies.now` is used for `startedAt`, but opportunity freshness uses a separate `calculationAt` derived from `clock ?? new Date()`. If callers pass fixed `now` without also passing `clock`, `OpportunityCalculator.calculate(...)` compares orderbook `capturedAt` values against wall-clock time rather than the intended scan time.
+  - Impact: deterministic, replay, backfill, demo, or test scans can silently produce `opportunitiesFound: 0` even when orderbooks are fresh relative to the requested scan timestamp.
+  - Completion: fixed in `src/contexts/scanner/read-only-scanner.ts`; `ReadOnlyScanner` now builds one effective clock that honors `clock` first, then fixed `now`, then wall-clock time. Added scanner regression coverage for fixed `now` freshness.
+
+- [x] **Persisted opportunity row IDs included per-run snapshot IDs**
+  - Consensus: 1 reviewer initially reported this as an unconfirmed risk; follow-up verification confirmed it.
+  - Severity: medium.
+  - Confidence: high after verification.
+  - Files:
+    - `src/contexts/scanner/read-only-scanner.ts`
+    - `src/contexts/scanner/postgres-scanner-repository.ts`
+  - Verified root cause: orderbook snapshot IDs include the per-run `scanId`, and `saveOpportunities(...)` derived the persisted opportunity primary key from `opportunity.id` plus both source snapshot IDs.
+  - Impact: the same market opportunity would insert as a new row on each scan instead of refreshing `last_verified_at`, duplicating `/v1/opportunities` rows and weakening detected/verified timestamp semantics.
+  - Completion: fixed in `src/contexts/scanner/postgres-scanner-repository.ts`; persisted opportunity IDs now derive from scan-independent `opportunity.id`, while the upsert still refreshes the Kalshi/Polymarket source snapshot foreign keys and `last_verified_at` on conflict.
+
+### Unconfirmed risks from reviewers
+
+- [x] Verified and resolved during this follow-up pass; no unconfirmed reviewer risks remain open.
+
+### Architecture suggestions from reviewers
+
+1. **Decouple scanner orchestration from persistence DTO assembly and cross-context domain objects**
+   - Priority: high.
+   - Files:
+     - `src/contexts/scanner/read-only-scanner.ts`
+     - `src/contexts/scanner/scanner-repository.ts`
+     - `src/contexts/scanner/postgres-scanner-repository.ts`
+   - Suggestion: keep `ReadOnlyScanner` as the use-case coordinator, but move artifact/provenance mapping into a `ScanArtifactAssembler`, repository mapper, or narrower persistence ports such as market snapshot, matching decision, orderbook snapshot, and opportunity stores.
+
+2. **Clarify venues boundary and remove infrastructure re-export through the application layer**
+   - Priority: medium.
+   - Files:
+     - `src/contexts/venues/application/http-venue-clients.ts`
+     - `src/contexts/venues/infrastructure/http-venue-clients.ts`
+     - `src/contexts/scanner/scanner.module.ts`
+     - `test/venue-http-clients.test.ts`
+   - Suggestion: delete the compatibility re-export if it is no longer needed, or introduce a `VenuesModule` that exports provider tokens for `VenueClient` ports.
+
+3. **Centralize Postgres pool ownership in shared infrastructure**
+   - Priority: medium.
+   - Files:
+     - `src/contexts/api/postgres-read-repositories.ts`
+     - `src/contexts/api/api.module.ts`
+     - `src/contexts/scanner/scanner.module.ts`
+     - `src/contexts/scanner/postgres-scanner-repository.ts`
+   - Suggestion: create a shared database infrastructure module/provider such as `DATABASE_POOL` or `DB_POOL`, inject it into both read and write repositories, and let only that module own `pool.end()`.
+
+4. **Move orderbook/market-book types out of the arbitrage domain so venues do not depend on arbitrage**
+   - Priority: high.
+   - Files:
+     - `src/contexts/venues/domain/venue-market.ts`
+     - `src/contexts/venues/infrastructure/http-venue-clients.ts`
+     - `src/contexts/arbitrage/domain/opportunity.ts`
+     - `src/contexts/scanner/read-only-scanner.ts`
+   - Suggestion: define a venue-owned `VenueOrderbookSnapshot` / `MarketQuote` type or a small shared-kernel quote shape, then map to the calculator input at the scanner/application boundary.
+
+5. **Stop exposing internal domain types directly as API read models**
+   - Priority: medium.
+   - Files:
+     - `src/contexts/api/read-models.ts`
+     - `src/contexts/api/postgres-read-repositories.ts`
+   - Suggestion: define API-local DTO primitives/string unions in `src/contexts/api` and map persisted values explicitly in `PostgresReadRepositories`.
+
+6. **Keep scanner failure policy observable instead of swallowing fetch and persistence errors**
+   - Priority: medium.
+   - Files:
+     - `src/contexts/scanner/read-only-scanner.ts`
+     - `src/contexts/scanner/worker-scan-runner.ts`
+     - `src/contexts/scanner/scanner-repository.ts`
+   - Suggestion: add sanitized failure reason/category to `ScanResult` or persisted scan metrics, and have `WorkerScanRunner.runOnce()` return/log/raise based on `ScanResult` rather than discarding it.
+
+7. **Add immutable opportunity observation history if per-scan provenance is required**
+   - Priority: medium.
+   - Files:
+     - `src/contexts/scanner/postgres-scanner-repository.ts`
+     - `src/contexts/api/postgres-read-repositories.ts`
+     - `src/contexts/api/read-models.ts`
+   - Suggestion: keep `opportunities` as the stable/latest projection keyed by scan-independent opportunity identity for `/v1/opportunities`, and add a separate `opportunity_observations` or `opportunity_history` table keyed by scan run plus source orderbook snapshot IDs for immutable historical provenance.
+   - Rationale: putting snapshot IDs back into `opportunities.id` would reintroduce duplicate current opportunities across scans; a separate history table preserves auditability without weakening the current-opportunity de-duplication fix.

@@ -1,10 +1,15 @@
 import { Pool, PoolClient } from "pg";
 import { Inject, Injectable, OnModuleDestroy } from "@nestjs/common";
-import { CrossVenueOpportunity } from "../arbitrage/domain/opportunity";
 import { NormalizedMarket } from "../matching/domain/normalized-market";
 import { uuidFromStableKey } from "../shared/stable-id";
 import { VenueMarketSnapshot } from "../venues/domain/venue-market";
-import { CompletedScanArtifacts, ReviewedCandidatePair, ScannerRepository } from "./scanner-repository";
+import {
+  CompletedScanArtifacts,
+  OpportunityWithSourceSnapshots,
+  OrderbookSnapshotArtifact,
+  ReviewedCandidatePair,
+  ScannerRepository
+} from "./scanner-repository";
 import { SCANNER_DB_POOL } from "./scanner-tokens";
 import { ScanResult } from "./scanner-result";
 
@@ -26,9 +31,10 @@ export class PostgresScannerRepository implements ScannerRepository, OnModuleDes
       await client.query("begin");
       await saveScanRun(client, artifacts.scanRun);
       await saveSnapshots(client, artifacts.scanRun.id, artifacts.snapshots);
-      await saveNormalizedMarkets(client, artifacts.normalizedMarkets);
-      await saveCandidatePairs(client, artifacts.candidatePairs);
-      await saveOpportunities(client, artifacts.opportunities);
+      const marketIds = await saveNormalizedMarkets(client, artifacts.normalizedMarkets);
+      const candidatePairIds = await saveCandidatePairs(client, artifacts.candidatePairs, marketIds);
+      await saveOrderbookSnapshots(client, artifacts.orderbookSnapshots, marketIds);
+      await saveOpportunities(client, artifacts.opportunities, candidatePairIds);
       await client.query("commit");
     } catch (error) {
       await client.query("rollback");
@@ -56,14 +62,26 @@ async function saveSnapshots(queryable: Queryable, scanRunId: string, snapshots:
     await queryable.query(
       `insert into venue_market_snapshots (scan_run_id, venue, venue_market_id, raw_payload, captured_at)
        values ($1, $2, $3, $4::jsonb, $5)`,
-      [scanRunId, snapshot.venue, snapshot.venueMarketId, JSON.stringify({ title: snapshot.title, rawResolutionText: snapshot.rawResolutionText, ...snapshot.rawPayload }), snapshot.capturedAt]
+      [
+        scanRunId,
+        snapshot.venue,
+        snapshot.venueMarketId,
+        JSON.stringify({
+          scannerTitle: snapshot.title,
+          scannerRawResolutionText: snapshot.rawResolutionText,
+          sourcePayload: snapshot.rawPayload
+        }),
+        snapshot.capturedAt
+      ]
     );
   }
 }
 
-async function saveNormalizedMarkets(queryable: Queryable, markets: NormalizedMarket[]): Promise<void> {
+async function saveNormalizedMarkets(queryable: Queryable, markets: NormalizedMarket[]): Promise<Map<string, string>> {
+  const idsByMarketId = new Map<string, string>();
+
   for (const market of markets) {
-    await queryable.query(
+    const result = await queryable.query<{ id: string }>(
       `insert into normalized_markets (
         id, venue, venue_market_id, title, raw_resolution_text, topic, event_type,
         asset, threshold, operator, deadline, timezone, resolution_source,
@@ -82,7 +100,8 @@ async function saveNormalizedMarkets(queryable: Queryable, markets: NormalizedMa
         resolution_source = excluded.resolution_source,
         payoff_type = excluded.payoff_type,
         ambiguity_flags = excluded.ambiguity_flags,
-        confidence = excluded.confidence`,
+        confidence = excluded.confidence
+      returning id`,
       [
         uuidFromStableKey(market.id),
         market.venue,
@@ -102,40 +121,96 @@ async function saveNormalizedMarkets(queryable: Queryable, markets: NormalizedMa
         market.confidence
       ]
     );
+    idsByMarketId.set(market.id, result.rows[0].id);
   }
+
+  return idsByMarketId;
 }
 
-async function saveCandidatePairs(queryable: Queryable, reviewedPairs: ReviewedCandidatePair[]): Promise<void> {
+async function saveCandidatePairs(
+  queryable: Queryable,
+  reviewedPairs: ReviewedCandidatePair[],
+  marketIds: Map<string, string>
+): Promise<Map<string, string>> {
+  const idsByPairId = new Map<string, string>();
+
   for (const { pair, decision } of reviewedPairs) {
-    await queryable.query(
+    const result = await queryable.query<{ id: string }>(
       `insert into candidate_pairs (id, kalshi_market_id, polymarket_market_id, equivalence_class, decision, reasons)
        values ($1, $2, $3, $4, $5, $6::jsonb)
        on conflict (kalshi_market_id, polymarket_market_id) do update set
-         id = excluded.id,
          equivalence_class = excluded.equivalence_class,
          decision = excluded.decision,
-         reasons = excluded.reasons`,
+         reasons = excluded.reasons
+       returning id`,
       [
         uuidFromStableKey(pair.id),
-        uuidFromStableKey(pair.kalshiMarket.id),
-        uuidFromStableKey(pair.polymarketMarket.id),
+        persistedId(marketIds, pair.kalshiMarket.id),
+        persistedId(marketIds, pair.polymarketMarket.id),
         decision.equivalenceClass,
         decision.decision,
         JSON.stringify([...pair.reasons, ...decision.reasons])
       ]
     );
+    idsByPairId.set(pair.id, result.rows[0].id);
+  }
+
+  return idsByPairId;
+}
+
+async function saveOrderbookSnapshots(
+  queryable: Queryable,
+  snapshots: OrderbookSnapshotArtifact[],
+  marketIds: Map<string, string>
+): Promise<void> {
+  for (const snapshot of snapshots) {
+    await queryable.query(
+      `insert into orderbook_snapshots (
+        id, scan_run_id, normalized_market_id, yes_ask, no_ask, yes_available_usd,
+        no_available_usd, raw_payload, captured_at, stale
+      ) values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
+      on conflict (id) do update set
+        scan_run_id = excluded.scan_run_id,
+        normalized_market_id = excluded.normalized_market_id,
+        yes_ask = excluded.yes_ask,
+        no_ask = excluded.no_ask,
+        yes_available_usd = excluded.yes_available_usd,
+        no_available_usd = excluded.no_available_usd,
+        raw_payload = excluded.raw_payload,
+        captured_at = excluded.captured_at,
+        stale = excluded.stale`,
+      [
+        uuidFromStableKey(snapshot.id),
+        snapshot.scanRunId,
+        persistedId(marketIds, snapshot.normalizedMarketId),
+        snapshot.yesAsk ?? null,
+        snapshot.noAsk ?? null,
+        snapshot.yesAvailableUsd,
+        snapshot.noAvailableUsd,
+        JSON.stringify(snapshot.rawPayload),
+        snapshot.capturedAt,
+        snapshot.stale
+      ]
+    );
   }
 }
 
-async function saveOpportunities(queryable: Queryable, opportunities: CrossVenueOpportunity[]): Promise<void> {
-  for (const opportunity of opportunities) {
+async function saveOpportunities(
+  queryable: Queryable,
+  opportunities: OpportunityWithSourceSnapshots[],
+  candidatePairIds: Map<string, string>
+): Promise<void> {
+  for (const { opportunity, kalshiOrderbookSnapshotId, polymarketOrderbookSnapshotId } of opportunities) {
     await queryable.query(
       `insert into opportunities (
-        id, candidate_pair_id, long_leg, hedge_leg, combined_cost, gross_edge,
-        estimated_fees, estimated_slippage, net_edge, max_tradable_usd,
-        equivalence_class, resolution_risk, fill_risk, detected_at, last_verified_at
-      ) values ($1, $2, $3::jsonb, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        id, candidate_pair_id, kalshi_orderbook_snapshot_id, polymarket_orderbook_snapshot_id,
+        long_leg, hedge_leg, combined_cost, gross_edge, estimated_fees,
+        estimated_slippage, net_edge, max_tradable_usd, equivalence_class,
+        resolution_risk, fill_risk, detected_at, last_verified_at
+      ) values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
       on conflict (id) do update set
+        kalshi_orderbook_snapshot_id = excluded.kalshi_orderbook_snapshot_id,
+        polymarket_orderbook_snapshot_id = excluded.polymarket_orderbook_snapshot_id,
         long_leg = excluded.long_leg,
         hedge_leg = excluded.hedge_leg,
         combined_cost = excluded.combined_cost,
@@ -150,7 +225,9 @@ async function saveOpportunities(queryable: Queryable, opportunities: CrossVenue
         last_verified_at = excluded.last_verified_at`,
       [
         uuidFromStableKey(opportunity.id),
-        uuidFromStableKey(opportunity.pairId),
+        persistedId(candidatePairIds, opportunity.pairId),
+        uuidFromStableKey(kalshiOrderbookSnapshotId),
+        uuidFromStableKey(polymarketOrderbookSnapshotId),
         JSON.stringify(opportunity.longLeg),
         JSON.stringify(opportunity.hedgeLeg),
         opportunity.combinedCost,
@@ -167,6 +244,12 @@ async function saveOpportunities(queryable: Queryable, opportunities: CrossVenue
       ]
     );
   }
+}
+
+function persistedId(ids: Map<string, string>, key: string): string {
+  const id = ids.get(key);
+  if (!id) throw new Error(`Missing persisted id for ${key}`);
+  return id;
 }
 
 interface Queryable {

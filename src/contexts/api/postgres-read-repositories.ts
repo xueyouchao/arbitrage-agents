@@ -29,6 +29,8 @@ export class PostgresReadRepositories
     const result = await this.pool.query<OpportunityRow>(`
       select id,
              candidate_pair_id,
+             kalshi_orderbook_snapshot_id,
+             polymarket_orderbook_snapshot_id,
              long_leg,
              hedge_leg,
              combined_cost,
@@ -54,6 +56,8 @@ export class PostgresReadRepositories
     const result = await this.pool.query<OpportunityRow>(`
       select id,
              candidate_pair_id,
+             kalshi_orderbook_snapshot_id,
+             polymarket_orderbook_snapshot_id,
              long_leg,
              hedge_leg,
              combined_cost,
@@ -139,6 +143,8 @@ export class PostgresReadRepositories
 interface OpportunityRow {
   id: string;
   candidate_pair_id: string;
+  kalshi_orderbook_snapshot_id: string | null;
+  polymarket_orderbook_snapshot_id: string | null;
   long_leg: OpportunityReadModel["longLeg"];
   hedge_leg: OpportunityReadModel["hedgeLeg"];
   combined_cost: string;
@@ -185,6 +191,8 @@ function toOpportunity(row: OpportunityRow): OpportunityReadModel {
   return {
     id: row.id,
     pairId: row.candidate_pair_id,
+    kalshiOrderbookSnapshotId: row.kalshi_orderbook_snapshot_id ?? undefined,
+    polymarketOrderbookSnapshotId: row.polymarket_orderbook_snapshot_id ?? undefined,
     longLeg: row.long_leg,
     hedgeLeg: row.hedge_leg,
     combinedCost: Number(row.combined_cost),

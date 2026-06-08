@@ -116,4 +116,3 @@ function schemaForTask(taskType: LlmEvaluationRequest["taskType"]): z.ZodType<Re
     explanation: z.string().min(1)
   }).strict();
 }
-
