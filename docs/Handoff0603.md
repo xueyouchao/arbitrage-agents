@@ -708,31 +708,31 @@ Reviewer reachability:
 
 ### Confirmed risks / bugs from reviewers
 
-1. **Injected scanner `now` timestamp is ignored for opportunity freshness calculation**
-   - Consensus: 5/5 reviewers.
-   - Severity: medium.
-   - Confidence: high.
-   - Files:
-     - `src/contexts/scanner/read-only-scanner.ts`
-     - `src/contexts/arbitrage/domain/opportunity-calculator.ts`
-   - Root cause: `ReadOnlyScannerDependencies.now` is used for `startedAt`, but opportunity freshness uses a separate `calculationAt` derived from `clock ?? new Date()`. If callers pass fixed `now` without also passing `clock`, `OpportunityCalculator.calculate(...)` compares orderbook `capturedAt` values against wall-clock time rather than the intended scan time.
-   - Impact: deterministic, replay, backfill, demo, or test scans can silently produce `opportunitiesFound: 0` even when orderbooks are fresh relative to the requested scan timestamp.
-   - Fix applied in this follow-up: `ReadOnlyScanner` now builds one effective clock that honors `clock` first, then fixed `now`, then wall-clock time. Added scanner regression coverage for fixed `now` freshness.
+- [x] **Injected scanner `now` timestamp is ignored for opportunity freshness calculation**
+  - Consensus: 5/5 reviewers.
+  - Severity: medium.
+  - Confidence: high.
+  - Files:
+    - `src/contexts/scanner/read-only-scanner.ts`
+    - `src/contexts/arbitrage/domain/opportunity-calculator.ts`
+  - Root cause: `ReadOnlyScannerDependencies.now` is used for `startedAt`, but opportunity freshness uses a separate `calculationAt` derived from `clock ?? new Date()`. If callers pass fixed `now` without also passing `clock`, `OpportunityCalculator.calculate(...)` compares orderbook `capturedAt` values against wall-clock time rather than the intended scan time.
+  - Impact: deterministic, replay, backfill, demo, or test scans can silently produce `opportunitiesFound: 0` even when orderbooks are fresh relative to the requested scan timestamp.
+  - Completion: fixed in `src/contexts/scanner/read-only-scanner.ts`; `ReadOnlyScanner` now builds one effective clock that honors `clock` first, then fixed `now`, then wall-clock time. Added scanner regression coverage for fixed `now` freshness.
 
-2. **Persisted opportunity row IDs included per-run snapshot IDs**
-   - Consensus: 1 reviewer initially reported this as an unconfirmed risk; follow-up verification confirmed it.
-   - Severity: medium.
-   - Confidence: high after verification.
-   - Files:
-     - `src/contexts/scanner/read-only-scanner.ts`
-     - `src/contexts/scanner/postgres-scanner-repository.ts`
-   - Verified root cause: orderbook snapshot IDs include the per-run `scanId`, and `saveOpportunities(...)` derived the persisted opportunity primary key from `opportunity.id` plus both source snapshot IDs.
-   - Impact: the same market opportunity would insert as a new row on each scan instead of refreshing `last_verified_at`, duplicating `/v1/opportunities` rows and weakening detected/verified timestamp semantics.
-   - Fix applied in this follow-up: persisted opportunity IDs now derive from scan-independent `opportunity.id`; the upsert still refreshes the Kalshi/Polymarket source snapshot foreign keys and `last_verified_at` on conflict.
+- [x] **Persisted opportunity row IDs included per-run snapshot IDs**
+  - Consensus: 1 reviewer initially reported this as an unconfirmed risk; follow-up verification confirmed it.
+  - Severity: medium.
+  - Confidence: high after verification.
+  - Files:
+    - `src/contexts/scanner/read-only-scanner.ts`
+    - `src/contexts/scanner/postgres-scanner-repository.ts`
+  - Verified root cause: orderbook snapshot IDs include the per-run `scanId`, and `saveOpportunities(...)` derived the persisted opportunity primary key from `opportunity.id` plus both source snapshot IDs.
+  - Impact: the same market opportunity would insert as a new row on each scan instead of refreshing `last_verified_at`, duplicating `/v1/opportunities` rows and weakening detected/verified timestamp semantics.
+  - Completion: fixed in `src/contexts/scanner/postgres-scanner-repository.ts`; persisted opportunity IDs now derive from scan-independent `opportunity.id`, while the upsert still refreshes the Kalshi/Polymarket source snapshot foreign keys and `last_verified_at` on conflict.
 
 ### Unconfirmed risks from reviewers
 
-- None remaining from this follow-up pass.
+- [x] Verified and resolved during this follow-up pass; no unconfirmed reviewer risks remain open.
 
 ### Architecture suggestions from reviewers
 
@@ -785,3 +785,12 @@ Reviewer reachability:
      - `src/contexts/scanner/worker-scan-runner.ts`
      - `src/contexts/scanner/scanner-repository.ts`
    - Suggestion: add sanitized failure reason/category to `ScanResult` or persisted scan metrics, and have `WorkerScanRunner.runOnce()` return/log/raise based on `ScanResult` rather than discarding it.
+
+7. **Add immutable opportunity observation history if per-scan provenance is required**
+   - Priority: medium.
+   - Files:
+     - `src/contexts/scanner/postgres-scanner-repository.ts`
+     - `src/contexts/api/postgres-read-repositories.ts`
+     - `src/contexts/api/read-models.ts`
+   - Suggestion: keep `opportunities` as the stable/latest projection keyed by scan-independent opportunity identity for `/v1/opportunities`, and add a separate `opportunity_observations` or `opportunity_history` table keyed by scan run plus source orderbook snapshot IDs for immutable historical provenance.
+   - Rationale: putting snapshot IDs back into `opportunities.id` would reintroduce duplicate current opportunities across scans; a separate history table preserves auditability without weakening the current-opportunity de-duplication fix.
