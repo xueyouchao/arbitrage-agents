@@ -169,7 +169,7 @@
 
   Files referenced:
 
-  - src/contexts/venues/application/http-venue-clients.ts
+  - src/contexts/venues/infrastructure/http-venue-clients.ts
   - src/contexts/scanner/read-only-scanner.ts
 
   Both production orderbook clients return empty arrays:
@@ -659,19 +659,19 @@ Completed from `docs/CROSS-REVIEW-ISSUES-AND-IMPROVEMENTS.md` architecture TODOs
   - Added shared `src/contexts/shared/stable-id.ts` and replaced local duplicate helpers.
 - [x] Move venue HTTP clients to infrastructure boundary.
   - Concrete HTTP clients now live under `src/contexts/venues/infrastructure/`.
-  - Application path remains as a compatibility re-export.
+  - Removed the unused application compatibility re-export after import search confirmed active source/test imports use the infrastructure path.
 - [x] Fix scan timestamp correctness.
   - Scanner now uses a calculation timestamp after orderbook fetch.
   - Successful scan `completedAt` is captured freshly rather than reusing `startedAt`.
 
 Deferred / still open:
 
-- [ ] Broad scanner domain-policy injection was intentionally deferred as premature abstraction.
-- [ ] Persist orderbook snapshots as first-class artifacts.
+- [ ] Broad scanner domain-policy injection remains intentionally deferred as premature abstraction.
+- [x] Persist orderbook snapshots as first-class artifacts.
 - [ ] Integrate persisted/schema-validated LLM gateway into the scanner path.
 - [ ] Complete opportunity risk/freshness/fee/slippage/liquidity modeling.
 - [ ] Add Postgres/API integration tests and migration smoke tests.
-- [ ] Fix coverage tooling with `@vitest/coverage-v8`.
+- [x] Fix coverage tooling with `@vitest/coverage-v8`.
 
 Verification for this update:
 
@@ -747,7 +747,6 @@ Reviewer reachability:
 2. **Clarify venues boundary and remove infrastructure re-export through the application layer**
    - Priority: medium.
    - Files:
-     - `src/contexts/venues/application/http-venue-clients.ts`
      - `src/contexts/venues/infrastructure/http-venue-clients.ts`
      - `src/contexts/scanner/scanner.module.ts`
      - `test/venue-http-clients.test.ts`
@@ -784,7 +783,7 @@ Reviewer reachability:
      - `src/contexts/scanner/read-only-scanner.ts`
      - `src/contexts/scanner/worker-scan-runner.ts`
      - `src/contexts/scanner/scanner-repository.ts`
-   - Suggestion: add sanitized failure reason/category to `ScanResult` or persisted scan metrics, and have `WorkerScanRunner.runOnce()` return/log/raise based on `ScanResult` rather than discarding it.
+   - Completion: scanner failures now include sanitized `failureCategory` / `failureReason` on `ScanResult` and `scan_runs.metrics`; `WorkerScanRunner.runOnce()` throws a sanitized error when a scan result fails.
 
 7. **Add immutable opportunity observation history if per-scan provenance is required**
    - Priority: medium.

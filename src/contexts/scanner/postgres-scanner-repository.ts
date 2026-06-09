@@ -5,6 +5,7 @@ import { uuidFromStableKey } from "../shared/stable-id";
 import { VenueMarketSnapshot } from "../venues/domain/venue-market";
 import {
   CompletedScanArtifacts,
+  CompletedScanResult,
   OpportunityWithSourceSnapshots,
   OrderbookSnapshotArtifact,
   ReviewedCandidatePair,
@@ -25,17 +26,19 @@ export class PostgresScannerRepository implements ScannerRepository, OnModuleDes
     await saveScanRun(this.pool, scanRun);
   }
 
-  async saveCompletedScan(artifacts: CompletedScanArtifacts): Promise<void> {
+  async saveCompletedScan(artifacts: CompletedScanArtifacts): Promise<CompletedScanResult> {
     const client = await this.pool.connect();
     try {
       await client.query("begin");
-      await saveScanRun(client, artifacts.scanRun);
       await saveSnapshots(client, artifacts.scanRun.id, artifacts.snapshots);
       const marketIds = await saveNormalizedMarkets(client, artifacts.normalizedMarkets);
       const candidatePairIds = await saveCandidatePairs(client, artifacts.candidatePairs, marketIds);
       await saveOrderbookSnapshots(client, artifacts.orderbookSnapshots, marketIds);
       await saveOpportunities(client, artifacts.opportunities, candidatePairIds);
+      const completedScanRun = artifacts.completeScanRun(artifacts.scanRun);
+      await saveScanRun(client, completedScanRun);
       await client.query("commit");
+      return completedScanRun;
     } catch (error) {
       await client.query("rollback");
       throw error;
@@ -46,6 +49,12 @@ export class PostgresScannerRepository implements ScannerRepository, OnModuleDes
 }
 
 async function saveScanRun(queryable: Queryable, scanRun: ScanResult): Promise<void> {
+  const metrics = {
+    ...scanRun.metrics,
+    ...(scanRun.failureCategory ? { failureCategory: scanRun.failureCategory } : {}),
+    ...(scanRun.failureReason ? { failureReason: scanRun.failureReason } : {})
+  };
+
   await queryable.query(
     `insert into scan_runs (id, status, started_at, completed_at, metrics)
      values ($1, $2, $3, $4, $5::jsonb)
@@ -53,7 +62,7 @@ async function saveScanRun(queryable: Queryable, scanRun: ScanResult): Promise<v
        status = excluded.status,
        completed_at = excluded.completed_at,
        metrics = excluded.metrics`,
-    [scanRun.id, scanRun.status, scanRun.startedAt, scanRun.completedAt ?? null, JSON.stringify(scanRun.metrics)]
+    [scanRun.id, scanRun.status, scanRun.startedAt, scanRun.completedAt ?? null, JSON.stringify(metrics)]
   );
 }
 

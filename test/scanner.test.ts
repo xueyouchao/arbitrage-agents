@@ -1,18 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 import { ReadOnlyScanner } from "../src/contexts/scanner/read-only-scanner";
 import { InMemoryScannerRepository } from "../src/contexts/scanner/in-memory-scanner-repository";
+import { WorkerScanRunner } from "../src/contexts/scanner/worker-scan-runner";
 import { StaticVenueClient } from "../src/contexts/venues/application/static-venue-client";
 import { VenueClient, VenueMarketSnapshot } from "../src/contexts/venues/domain/venue-market";
 import { MarketBook } from "../src/contexts/arbitrage/domain/opportunity";
+import { CompletedScanArtifacts, CompletedScanResult } from "../src/contexts/scanner/scanner-repository";
 
 const capturedAt = "2026-06-03T12:00:00.000Z";
 
-function market(venue: "kalshi" | "polymarket", id: string, title: string): VenueMarketSnapshot {
+function market(venue: "kalshi" | "polymarket", id: string, title: string, rawResolutionText = "Resolves using Coinbase BTC/USD at 2026-01-01T00:00:00Z"): VenueMarketSnapshot {
   return {
     venue,
     venueMarketId: id,
     title,
-    rawResolutionText: "Resolves using Coinbase BTC/USD at 2026-01-01T00:00:00Z",
+    rawResolutionText,
     rawPayload: { id, title },
     capturedAt
   };
@@ -155,6 +157,97 @@ describe("ReadOnlyScanner", () => {
     expect(repository.opportunities).toHaveLength(0);
   });
 
+  it("records sanitized fetch failures", async () => {
+    const repository = new InMemoryScannerRepository();
+    const scanner = new ReadOnlyScanner({
+      kalshiClient: failingClient("Kalshi failed: https://secret.test/book?token_id=abc&api_key=secret"),
+      polymarketClient: new StaticVenueClient({ markets: [], books: [] }),
+      repository,
+      now: capturedAt
+    });
+
+    const result = await scanner.runOnce();
+
+    expect(result).toMatchObject({
+      status: "failed",
+      failureCategory: "fetch",
+      failureReason: "Kalshi failed: [redacted-url]"
+    });
+    expect(result.metrics).toMatchObject({
+      failureCategory: "fetch",
+      failureReason: "Kalshi failed: [redacted-url]"
+    });
+    expect(repository.scanRuns.at(-1)).toMatchObject(result);
+  });
+
+  it("records sanitized processing failures", async () => {
+    const repository = new InMemoryScannerRepository();
+    const scanner = new ReadOnlyScanner({
+      kalshiClient: new StaticVenueClient({
+        markets: [market("kalshi", "K1", "Will Bitcoin be above $100,000 on Jan 1, 2026?")],
+        books: [{ marketId: "K1", venue: "kalshi", yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 20, noAvailableUsd: 30, capturedAt }]
+      }),
+      polymarketClient: new StaticVenueClient({
+        markets: [market("polymarket", "P1", "Will BTC be above $100,000 on Jan 1, 2026?", "Resolves using Coinbase BTC/USD at 2026-99-99T00:00:00Z")],
+        books: [{ marketId: "P1", venue: "polymarket", yesAsk: 0.5, noAsk: 0.51, yesAvailableUsd: 50, noAvailableUsd: 12, capturedAt }]
+      }),
+      repository,
+      now: capturedAt
+    });
+
+    const result = await scanner.runOnce();
+
+    expect(result).toMatchObject({
+      status: "failed",
+      failureCategory: "processing"
+    });
+    expect(result.metrics.marketsScanned).toBe(2);
+    expect(result.failureReason).not.toContain("secret");
+    expect(repository.scanRuns.at(-1)).toMatchObject(result);
+  });
+
+  it("records sanitized persistence failures", async () => {
+    const repository = new FailingCompletedScanRepository("insert failed for Authorization: Bearer secret");
+    const scanner = new ReadOnlyScanner({
+      kalshiClient: new StaticVenueClient({
+        markets: [market("kalshi", "K1", "Will Bitcoin be above $100,000 on Jan 1, 2026?")],
+        books: [{ marketId: "K1", venue: "kalshi", yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 20, noAvailableUsd: 30, capturedAt }]
+      }),
+      polymarketClient: new StaticVenueClient({
+        markets: [market("polymarket", "P1", "Will BTC be above $100,000 on Jan 1, 2026?")],
+        books: [{ marketId: "P1", venue: "polymarket", yesAsk: 0.5, noAsk: 0.51, yesAvailableUsd: 50, noAvailableUsd: 12, capturedAt }]
+      }),
+      repository,
+      now: capturedAt
+    });
+
+    const result = await scanner.runOnce();
+
+    expect(result).toMatchObject({
+      status: "failed",
+      failureCategory: "persistence",
+      failureReason: "insert failed for Authorization: [REDACTED]"
+    });
+    expect(result.metrics.opportunitiesFound).toBe(1);
+    expect(repository.scanRuns.at(-1)).toMatchObject(result);
+  });
+
+  it("throws when the worker scanner result fails", async () => {
+    const scanner = {
+      runOnce: vi.fn(async () => ({
+        id: "scan-1",
+        status: "failed" as const,
+        startedAt: capturedAt,
+        completedAt: capturedAt,
+        metrics: { marketsScanned: 0, normalizedMarkets: 0, candidatePairs: 0, opportunitiesFound: 0, llmEvaluations: 0 },
+        failureCategory: "fetch" as const,
+        failureReason: "Kalshi failed: [redacted-url]"
+      }))
+    } as Pick<ReadOnlyScanner, "runOnce"> as ReadOnlyScanner;
+
+    await expect(new WorkerScanRunner(scanner).runOnce()).rejects.toThrow("Scan failed (fetch): Kalshi failed: [redacted-url]");
+  });
+
   it("fetches orderbooks only after freshly fetched markets", async () => {
     const kalshiMarkets = [market("kalshi", "K1", "Will Bitcoin be above $100,000 on Jan 1, 2026?")];
     const polymarketMarkets = [market("polymarket", "P1", "Will BTC be above $100,000 on Jan 1, 2026?")];
@@ -185,6 +278,25 @@ describe("ReadOnlyScanner", () => {
 
 function sequenceClock(values: string[]): () => string {
   return () => values.shift() ?? values[values.length - 1] ?? new Date(0).toISOString();
+}
+
+function failingClient(message: string): VenueClient {
+  return {
+    listMarkets: vi.fn(async () => {
+      throw new Error(message);
+    }),
+    listOrderbooks: vi.fn(async () => [])
+  };
+}
+
+class FailingCompletedScanRepository extends InMemoryScannerRepository {
+  constructor(private readonly message: string) {
+    super();
+  }
+
+  async saveCompletedScan(_artifacts: CompletedScanArtifacts): Promise<CompletedScanResult> {
+    throw new Error(this.message);
+  }
 }
 
 function sequencingClient(

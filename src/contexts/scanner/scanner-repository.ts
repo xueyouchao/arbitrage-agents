@@ -30,8 +30,12 @@ export interface OpportunityWithSourceSnapshots {
   polymarketOrderbookSnapshotId: string;
 }
 
+export type SucceededScanResult = ScanResult & { status: "succeeded" };
+export type CompletedScanResult = SucceededScanResult & { completedAt: string };
+
 export interface CompletedScanArtifacts {
-  scanRun: ScanResult & { status: "succeeded" };
+  scanRun: SucceededScanResult;
+  completeScanRun: (scanRun: SucceededScanResult) => CompletedScanResult;
   snapshots: VenueMarketSnapshot[];
   normalizedMarkets: NormalizedMarket[];
   candidatePairs: ReviewedCandidatePair[];
@@ -41,5 +45,5 @@ export interface CompletedScanArtifacts {
 
 export interface ScannerRepository {
   saveScanRun(scanRun: ScanResult): Promise<void>;
-  saveCompletedScan(artifacts: CompletedScanArtifacts): Promise<void>;
+  saveCompletedScan(artifacts: CompletedScanArtifacts): Promise<CompletedScanResult>;
 }
