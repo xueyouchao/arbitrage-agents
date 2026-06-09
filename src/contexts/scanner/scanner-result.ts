@@ -1,9 +1,13 @@
+export type ScanFailureCategory = "fetch" | "processing" | "persistence";
+
 export interface ScanMetrics {
   marketsScanned: number;
   normalizedMarkets: number;
   candidatePairs: number;
   opportunitiesFound: number;
   llmEvaluations: number;
+  failureCategory?: ScanFailureCategory;
+  failureReason?: string;
 }
 
 export interface ScanResult {
@@ -12,4 +16,6 @@ export interface ScanResult {
   startedAt: string;
   completedAt?: string;
   metrics: ScanMetrics;
+  failureCategory?: ScanFailureCategory;
+  failureReason?: string;
 }

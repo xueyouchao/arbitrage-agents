@@ -1,43 +1,58 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { ContractLeg, RiskLevel } from "../arbitrage/domain/opportunity";
-import { EquivalenceClass } from "../matching/domain/candidate-pair";
-import { CryptoAsset, EventType, MarketOperator, PayoffType, Topic, Venue } from "../matching/domain/normalized-market";
+
+export type ApiVenue = "kalshi" | "polymarket";
+export type ApiContractSide = "YES" | "NO";
+export type ApiRiskLevel = "low" | "medium" | "high";
+export type ApiEquivalenceClass = "A" | "B" | "C" | "D";
+export type ApiTopic = "crypto" | "macro";
+export type ApiEventType = "price_above" | "price_below" | "fed_rate_decision" | "cpi_range";
+export type ApiCryptoAsset = "BTC" | "ETH";
+export type ApiMarketOperator = ">" | ">=" | "<" | "<=" | "=" | "between";
+export type ApiPayoffType = "at_time" | "any_time_before" | "range" | "settlement_value";
+
+export interface ApiContractLeg {
+  venue: ApiVenue;
+  marketId: string;
+  side: ApiContractSide;
+  askPrice: number;
+  availableUsd: number;
+}
 
 export interface OpportunityReadModel {
   id: string;
   pairId: string;
   kalshiOrderbookSnapshotId?: string;
   polymarketOrderbookSnapshotId?: string;
-  longLeg: ContractLeg;
-  hedgeLeg: ContractLeg;
+  longLeg: ApiContractLeg;
+  hedgeLeg: ApiContractLeg;
   combinedCost: number;
   grossEdge: number;
   estimatedFees: number;
   estimatedSlippage: number;
   netEdge: number;
   maxTradableUsd: number;
-  equivalenceClass: EquivalenceClass;
-  resolutionRisk: RiskLevel;
-  fillRisk: RiskLevel;
+  equivalenceClass: ApiEquivalenceClass;
+  resolutionRisk: ApiRiskLevel;
+  fillRisk: ApiRiskLevel;
   detectedAt: string;
   lastVerifiedAt: string;
 }
 
 export interface MarketReadModel {
   id: string;
-  venue: Venue;
+  venue: ApiVenue;
   venueMarketId: string;
   title: string;
   rawResolutionText: string;
-  topic: Topic;
-  eventType: EventType;
-  asset?: CryptoAsset;
+  topic: ApiTopic;
+  eventType: ApiEventType;
+  asset?: ApiCryptoAsset;
   threshold?: number;
-  operator?: MarketOperator;
+  operator?: ApiMarketOperator;
   deadline?: string;
   timezone?: string;
   resolutionSource?: string;
-  payoffType: PayoffType;
+  payoffType: ApiPayoffType;
   ambiguityFlags: string[];
   confidence: number;
 }
@@ -49,6 +64,8 @@ export interface ScanRunReadModel {
   completedAt?: string;
   marketsScanned: number;
   opportunitiesFound: number;
+  failureCategory?: "fetch" | "processing" | "persistence";
+  failureReason?: string;
 }
 
 export interface OpportunityReadRepository {

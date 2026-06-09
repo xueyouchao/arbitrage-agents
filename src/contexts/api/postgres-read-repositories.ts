@@ -135,7 +135,9 @@ export class PostgresReadRepositories
       startedAt: toIso(row.started_at),
       completedAt: row.completed_at ? toIso(row.completed_at) : undefined,
       marketsScanned: numberFromUnknown(metrics.marketsScanned),
-      opportunitiesFound: numberFromUnknown(metrics.opportunitiesFound)
+      opportunitiesFound: numberFromUnknown(metrics.opportunitiesFound),
+      failureCategory: toFailureCategory(metrics.failureCategory),
+      failureReason: stringFromUnknown(metrics.failureReason)
     };
   }
 }
@@ -240,4 +242,12 @@ function toScanRunStatus(value: string): ScanRunReadModel["status"] {
 
 function numberFromUnknown(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function toFailureCategory(value: unknown): ScanRunReadModel["failureCategory"] {
+  return value === "fetch" || value === "processing" || value === "persistence" ? value : undefined;
+}
+
+function stringFromUnknown(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }

@@ -10,6 +10,7 @@
     "start:worker": "node dist/main-worker.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate"
@@ -29,6 +30,7 @@
     "@nestjs/testing": "^10.4.15",
     "@types/node": "^22.10.2",
     "@types/pg": "^8.20.0",
+    "@vitest/coverage-v8": "^2.1.8",
     "drizzle-kit": "^0.31.10",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"

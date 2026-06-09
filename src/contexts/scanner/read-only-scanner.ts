@@ -1,13 +1,15 @@
 import { randomUUID } from "crypto";
+import { redactSensitiveText } from "../../config/redaction";
 import { OpportunityCalculator } from "../arbitrage/domain/opportunity-calculator";
 import { MarketBook } from "../arbitrage/domain/opportunity";
+import { CandidatePair } from "../matching/domain/candidate-pair";
 import { CandidatePairGenerator } from "../matching/domain/candidate-pair-generator";
 import { DeterministicEquivalencePolicy } from "../matching/domain/equivalence-policy";
 import { CryptoMarketNormalizer } from "../matching/domain/crypto-market-normalizer";
 import { NormalizedMarket } from "../matching/domain/normalized-market";
 import { VenueClient } from "../venues/domain/venue-market";
-import { OrderbookSnapshotArtifact, ReviewedCandidatePair, ScannerRepository } from "./scanner-repository";
-import { ScanResult } from "./scanner-result";
+import { OpportunityWithSourceSnapshots, OrderbookSnapshotArtifact, ReviewedCandidatePair, ScannerRepository } from "./scanner-repository";
+import { ScanFailureCategory, ScanMetrics, ScanResult } from "./scanner-result";
 
 export interface ReadOnlyScannerDependencies {
   kalshiClient: VenueClient;
@@ -33,12 +35,16 @@ export class ReadOnlyScanner {
     let kalshiBooks;
     let polymarketBooks;
     const scanId = randomUUID();
-    await this.dependencies.repository.saveScanRun({
-      id: scanId,
-      status: "running",
-      startedAt,
-      metrics: { marketsScanned: 0, normalizedMarkets: 0, candidatePairs: 0, opportunitiesFound: 0, llmEvaluations: 0 }
-    });
+    try {
+      await this.dependencies.repository.saveScanRun({
+        id: scanId,
+        status: "running",
+        startedAt,
+        metrics: emptyMetrics()
+      });
+    } catch (_error) {
+      return failedScanResult(scanId, startedAt, now(), emptyMetrics(), "persistence", _error);
+    }
 
     try {
       [kalshiMarkets, polymarketMarkets] = await Promise.all([
@@ -50,53 +56,59 @@ export class ReadOnlyScanner {
         this.dependencies.polymarketClient.listOrderbooks(polymarketMarkets)
       ]);
     } catch (_error) {
-      const failed: ScanResult = {
-        id: scanId,
-        status: "failed",
-        startedAt,
-        completedAt: now(),
-        metrics: { marketsScanned: 0, normalizedMarkets: 0, candidatePairs: 0, opportunitiesFound: 0, llmEvaluations: 0 }
-      };
-      await this.dependencies.repository.saveScanRun(failed);
+      const failed = failedScanResult(scanId, startedAt, now(), emptyMetrics(), "fetch", _error);
+      await saveFailedScanRun(this.dependencies.repository, failed);
       return failed;
     }
 
     const calculationAt = now();
     const snapshots = [...kalshiMarkets, ...polymarketMarkets];
-    const normalizedMarkets = snapshots.map((snapshot) => this.normalizer.normalize(snapshot));
-    const normalizedMarketByBookKey = new Map(normalizedMarkets.map((market) => [`${market.venue}:${market.venueMarketId}`, market]));
-    const orderbookSnapshots = [...kalshiBooks, ...polymarketBooks].flatMap((book) =>
-      toOrderbookSnapshotArtifact(scanId, book, normalizedMarketByBookKey)
-    );
-    const orderbookSnapshotByBookKey = new Map(orderbookSnapshots.map((snapshot) => [`${snapshot.venue}:${snapshot.venueMarketId}`, snapshot]));
-    const candidatePairs = this.pairGenerator.generate(normalizedMarkets);
-    const reviewedCandidatePairs: ReviewedCandidatePair[] = candidatePairs.map((pair) => ({
-      pair,
-      decision: this.equivalencePolicy.classify(pair)
-    }));
-    const booksByKey = new Map([...kalshiBooks, ...polymarketBooks].map((book) => [bookKey(book), book]));
-    const opportunities = reviewedCandidatePairs.flatMap(({ pair, decision }) => {
-      const kalshiKey = `${pair.kalshiMarket.venue}:${pair.kalshiMarket.venueMarketId}`;
-      const polymarketKey = `${pair.polymarketMarket.venue}:${pair.polymarketMarket.venueMarketId}`;
-      const kalshiBook = booksByKey.get(kalshiKey);
-      const polymarketBook = booksByKey.get(polymarketKey);
-      const kalshiSnapshot = orderbookSnapshotByBookKey.get(kalshiKey);
-      const polymarketSnapshot = orderbookSnapshotByBookKey.get(polymarketKey);
-      if (!kalshiBook || !polymarketBook || !kalshiSnapshot || !polymarketSnapshot) return [];
-      return this.opportunityCalculator
-        .calculate(pair, decision, kalshiBook, polymarketBook, { now: calculationAt })
-        .map((opportunity) => ({
-          opportunity,
-          kalshiOrderbookSnapshotId: kalshiSnapshot.id,
-          polymarketOrderbookSnapshotId: polymarketSnapshot.id
-        }));
-    });
+    const fetchMetrics: ScanMetrics = { ...emptyMetrics(), marketsScanned: snapshots.length };
+    let normalizedMarkets: NormalizedMarket[];
+    let orderbookSnapshots: OrderbookSnapshotArtifact[];
+    let candidatePairs: CandidatePair[];
+    let reviewedCandidatePairs: ReviewedCandidatePair[];
+    let opportunities: OpportunityWithSourceSnapshots[];
+
+    try {
+      normalizedMarkets = snapshots.map((snapshot) => this.normalizer.normalize(snapshot));
+      const normalizedMarketByBookKey = new Map(normalizedMarkets.map((market) => [`${market.venue}:${market.venueMarketId}`, market]));
+      orderbookSnapshots = [...kalshiBooks, ...polymarketBooks].flatMap((book) =>
+        toOrderbookSnapshotArtifact(scanId, book, normalizedMarketByBookKey)
+      );
+      const orderbookSnapshotByBookKey = new Map(orderbookSnapshots.map((snapshot) => [`${snapshot.venue}:${snapshot.venueMarketId}`, snapshot]));
+      candidatePairs = this.pairGenerator.generate(normalizedMarkets);
+      reviewedCandidatePairs = candidatePairs.map((pair) => ({
+        pair,
+        decision: this.equivalencePolicy.classify(pair)
+      }));
+      const booksByKey = new Map([...kalshiBooks, ...polymarketBooks].map((book) => [bookKey(book), book]));
+      opportunities = reviewedCandidatePairs.flatMap(({ pair, decision }) => {
+        const kalshiKey = `${pair.kalshiMarket.venue}:${pair.kalshiMarket.venueMarketId}`;
+        const polymarketKey = `${pair.polymarketMarket.venue}:${pair.polymarketMarket.venueMarketId}`;
+        const kalshiBook = booksByKey.get(kalshiKey);
+        const polymarketBook = booksByKey.get(polymarketKey);
+        const kalshiSnapshot = orderbookSnapshotByBookKey.get(kalshiKey);
+        const polymarketSnapshot = orderbookSnapshotByBookKey.get(polymarketKey);
+        if (!kalshiBook || !polymarketBook || !kalshiSnapshot || !polymarketSnapshot) return [];
+        return this.opportunityCalculator
+          .calculate(pair, decision, kalshiBook, polymarketBook, { now: calculationAt })
+          .map((opportunity) => ({
+            opportunity,
+            kalshiOrderbookSnapshotId: kalshiSnapshot.id,
+            polymarketOrderbookSnapshotId: polymarketSnapshot.id
+          }));
+      });
+    } catch (_error) {
+      const failed = failedScanResult(scanId, startedAt, now(), fetchMetrics, "processing", _error);
+      await saveFailedScanRun(this.dependencies.repository, failed);
+      return failed;
+    }
 
     const result: ScanResult & { status: "succeeded" } = {
       id: scanId,
       status: "succeeded",
       startedAt,
-      completedAt: now(),
       metrics: {
         marketsScanned: snapshots.length,
         normalizedMarkets: normalizedMarkets.length,
@@ -107,21 +119,64 @@ export class ReadOnlyScanner {
     };
 
     try {
-      await this.dependencies.repository.saveCompletedScan({
+      return await this.dependencies.repository.saveCompletedScan({
         scanRun: result,
+        completeScanRun: (scanRun) => ({ ...scanRun, completedAt: now() }),
         snapshots,
         normalizedMarkets,
         candidatePairs: reviewedCandidatePairs,
         orderbookSnapshots,
         opportunities
       });
-      return result;
     } catch (_error) {
-      const failed: ScanResult = { ...result, status: "failed", completedAt: now() };
-      await this.dependencies.repository.saveScanRun(failed);
+      const failed = failedScanResult(scanId, startedAt, now(), result.metrics, "persistence", _error);
+      await saveFailedScanRun(this.dependencies.repository, failed);
       return failed;
     }
   }
+}
+
+async function saveFailedScanRun(repository: ScannerRepository, failed: ScanResult): Promise<void> {
+  try {
+    await repository.saveScanRun(failed);
+  } catch {
+    // The caller still needs the sanitized original failure even if persisting the failure marker also fails.
+  }
+}
+
+function failedScanResult(
+  id: string,
+  startedAt: string,
+  completedAt: string,
+  metrics: ScanMetrics,
+  failureCategory: ScanFailureCategory,
+  error: unknown
+): ScanResult {
+  const failureReason = sanitizeFailureReason(error);
+  const failedMetrics = { ...metrics, failureCategory, failureReason };
+
+  return {
+    id,
+    status: "failed",
+    startedAt,
+    completedAt,
+    metrics: failedMetrics,
+    failureCategory,
+    failureReason
+  };
+}
+
+function emptyMetrics(): ScanMetrics {
+  return { marketsScanned: 0, normalizedMarkets: 0, candidatePairs: 0, opportunitiesFound: 0, llmEvaluations: 0 };
+}
+
+function sanitizeFailureReason(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return redactSensitiveText(message)
+    .replace(/https?:\/\/\S+/gi, "[redacted-url]")
+    .replace(/token[_-]?id=[^\s&]+/gi, "token_id=[redacted]")
+    .replace(/(api[_-]?key|authorization|password|secret|token)=\S+/gi, "$1=[redacted]")
+    .slice(0, 200);
 }
 
 function toOrderbookSnapshotArtifact(
