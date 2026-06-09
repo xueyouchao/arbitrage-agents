@@ -9,6 +9,7 @@
     "start:api": "node dist/main-api.js",
     "start:worker": "node dist/main-worker.js",
     "test": "vitest run",
+    "test:acceptance": "bash test/acceptance/run-api-acceptance.sh",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
