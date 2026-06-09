@@ -7,6 +7,7 @@ PORT="${PORT:-3100}"
 BASE_URL="http://127.0.0.1:$PORT"
 CURL_CONNECT_TIMEOUT="${CURL_CONNECT_TIMEOUT:-2}"
 CURL_MAX_TIME="${CURL_MAX_TIME:-10}"
+ACCEPTANCE_CURL_TRACE_DIR="${ACCEPTANCE_CURL_TRACE_DIR:-}"
 API_PID=""
 
 fail() {
@@ -67,6 +68,23 @@ NODE
 }
 
 curl_with_timeouts() {
+  if [[ -n "$ACCEPTANCE_CURL_TRACE_DIR" ]]; then
+    local trace_file raw_trace curl_status
+    mkdir -p "$ACCEPTANCE_CURL_TRACE_DIR"
+    trace_file="$ACCEPTANCE_CURL_TRACE_DIR/curl-$(date +%Y%m%dT%H%M%S%N)-$$.trace"
+    raw_trace="$trace_file.raw"
+
+    curl --trace-ascii "$raw_trace" --connect-timeout "$CURL_CONNECT_TIMEOUT" --max-time "$CURL_MAX_TIME" "$@"
+    curl_status=$?
+
+    {
+      printf 'traceCapturedAt=%s\n\n' "$(date -Iseconds)"
+      sed -E '/^(== Info:|=> Send header|<= Recv header|=> Send data|<= Recv data|=> Send SSL data|<= Recv SSL data|=> Send SSL header|<= Recv SSL header)/d; s/^[[:xdigit:]]{4}: //; /^$/N; /^\n$/D' "$raw_trace"
+    } > "$trace_file"
+    rm -f "$raw_trace"
+    return "$curl_status"
+  fi
+
   curl --connect-timeout "$CURL_CONNECT_TIMEOUT" --max-time "$CURL_MAX_TIME" "$@"
 }
 
@@ -120,7 +138,7 @@ client.connect()
 NODE
 
 printf 'Starting API on port %s...\n' "$PORT"
-NODE_ENV=test PORT="$PORT" DATABASE_URL="$DATABASE_URL" node "$ROOT_DIR/dist/main-api.js" &
+NODE_ENV=test PORT="$PORT" DATABASE_URL="$DATABASE_URL" node "$ROOT_DIR/dist/src/main-api.js" &
 API_PID=$!
 
 for _ in $(seq 1 60); do
