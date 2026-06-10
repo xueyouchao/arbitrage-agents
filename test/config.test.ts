@@ -11,7 +11,13 @@ describe("loadAppConfig", () => {
         DATABASE_URL: "postgres://user:pass@localhost:5432/db",
         LOG_LEVEL: "debug",
         SENTRY_SEND_DEFAULT_PII: "false",
-        LLM_PROMPT_SAMPLE_RATE: "0.25"
+        LLM_PROMPT_SAMPLE_RATE: "0.25",
+        LLM_MODEL: "test-model",
+        SCANNER_LLM_PROMPT_VERSION: "scanner-v2",
+        VENUE_HTTP_TIMEOUT_MS: "15000",
+        VENUE_HTTP_RETRIES: "4",
+        VENUE_HTTP_RETRY_DELAY_MS: "250",
+        VENUE_HTTP_VERBOSE: "true"
       })
     ).toMatchObject({
       nodeEnv: "test",
@@ -19,7 +25,13 @@ describe("loadAppConfig", () => {
       databaseUrl: "postgres://user:pass@localhost:5432/db",
       logLevel: "debug",
       sentrySendDefaultPii: false,
-      llmPromptSampleRate: 0.25
+      llmPromptSampleRate: 0.25,
+      llmModel: "test-model",
+      scannerLlmPromptVersion: "scanner-v2",
+      venueHttpTimeoutMs: 15000,
+      venueHttpRetries: 4,
+      venueHttpRetryDelayMs: 250,
+      venueHttpVerbose: true
     });
   });
 

@@ -10,6 +10,8 @@
     "start:worker": "node dist/main-worker.js",
     "test": "vitest run",
     "test:acceptance": "bash test/acceptance/run-api-acceptance.sh",
+    "test:live-smoke": "bash test/acceptance/run-live-market-data-smoke.sh",
+    "test:live-smoke:docker": "bash test/acceptance/run-live-market-data-smoke-with-docker.sh",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",

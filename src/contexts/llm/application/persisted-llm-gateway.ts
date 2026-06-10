@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createHash } from "crypto";
+import { redactSensitiveText } from "../../../config/redaction";
 import { uuidFromStableKey } from "../../shared/stable-id";
 import {
   LlmEvaluationRecord,
@@ -43,9 +44,9 @@ export class PersistedLlmGateway {
     } catch (error) {
       const record: LlmEvaluationRecord = {
         ...request,
-        id: uuidFromStableKey(`${request.taskType}:${request.promptVersion}:${request.model}:${inputHash}:failed`),
+        id: uuidFromStableKey(`${request.taskType}:${request.promptVersion}:${request.model}:${inputHash}`),
         inputHash,
-        output: { error: String(error) },
+        output: { error: sanitizeProviderError(error) },
         status: "failed",
         promptTokens: 0,
         completionTokens: 0,
@@ -61,6 +62,15 @@ export class PersistedLlmGateway {
 
 function hashInput(input: Record<string, unknown>): string {
   return createHash("sha256").update(stableStringify(input)).digest("hex");
+}
+
+function sanitizeProviderError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return redactSensitiveText(message)
+    .replace(/https?:\/\/\S+/gi, "[redacted-url]")
+    .replace(/token[_-]?id=[^\s&]+/gi, "token_id=[redacted]")
+    .replace(/(api[_-]?key|authorization|password|secret|token)=\S+/gi, "$1=[redacted]")
+    .slice(0, 200);
 }
 
 function stableStringify(value: unknown): string {

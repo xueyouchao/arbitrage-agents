@@ -5,6 +5,7 @@ interface PublicHttpOptions {
   timeoutMs?: number;
   retries?: number;
   retryDelayMs?: number;
+  verbose?: boolean;
 }
 
 interface PriceLevel {
@@ -15,7 +16,8 @@ interface PriceLevel {
 const DEFAULT_HTTP_OPTIONS: Required<PublicHttpOptions> = {
   timeoutMs: 5_000,
   retries: 2,
-  retryDelayMs: 100
+  retryDelayMs: 100,
+  verbose: false
 };
 
 export class KalshiPublicVenueClient implements VenueClient {
@@ -143,7 +145,7 @@ async function fetchPublicJson<T>(url: string, label: string, options: PublicHtt
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), mergedOptions.timeoutMs);
     try {
-      const response = await fetch(url, { method: "GET", signal: controller.signal });
+      const response = await fetch(url, buildRequestInit(controller.signal, mergedOptions.verbose));
       if (response.ok) return (await response.json()) as T;
       if (!isRetryableStatus(response.status)) throw new Error(`${label} failed: ${response.status}`);
       lastError = new Error(`${label} failed: ${response.status}`);
@@ -157,6 +159,10 @@ async function fetchPublicJson<T>(url: string, label: string, options: PublicHtt
   }
 
   throw lastError instanceof Error ? lastError : new Error(`${label} failed`);
+}
+
+function buildRequestInit(signal: AbortSignal, verbose: boolean): RequestInit {
+  return { method: "GET", signal, ...(verbose ? { verbose: true } : {}) } as RequestInit;
 }
 
 function isRetryableStatus(status: number): boolean {

@@ -2,11 +2,12 @@ import { randomUUID } from "crypto";
 import { redactSensitiveText } from "../../config/redaction";
 import { OpportunityCalculator } from "../arbitrage/domain/opportunity-calculator";
 import { MarketBook } from "../arbitrage/domain/opportunity";
-import { CandidatePair } from "../matching/domain/candidate-pair";
+import { CandidatePair, EquivalenceDecision } from "../matching/domain/candidate-pair";
 import { CandidatePairGenerator } from "../matching/domain/candidate-pair-generator";
 import { DeterministicEquivalencePolicy } from "../matching/domain/equivalence-policy";
 import { CryptoMarketNormalizer } from "../matching/domain/crypto-market-normalizer";
 import { NormalizedMarket } from "../matching/domain/normalized-market";
+import { LlmEvaluationRecord, LlmEvaluationRequest } from "../llm/application/llm-evaluation";
 import { VenueClient } from "../venues/domain/venue-market";
 import { OpportunityWithSourceSnapshots, OrderbookSnapshotArtifact, ReviewedCandidatePair, ScannerRepository } from "./scanner-repository";
 import { ScanFailureCategory, ScanMetrics, ScanResult } from "./scanner-result";
@@ -15,8 +16,15 @@ export interface ReadOnlyScannerDependencies {
   kalshiClient: VenueClient;
   polymarketClient: VenueClient;
   repository: ScannerRepository;
+  llmGateway?: ScannerLlmGateway;
+  llmPromptVersion?: string;
+  llmModel?: string;
   now?: string;
   clock?: () => string;
+}
+
+export interface ScannerLlmGateway {
+  evaluate(request: LlmEvaluationRequest): Promise<LlmEvaluationRecord>;
 }
 
 export class ReadOnlyScanner {
@@ -26,6 +34,47 @@ export class ReadOnlyScanner {
   private readonly opportunityCalculator = new OpportunityCalculator();
 
   constructor(private readonly dependencies: ReadOnlyScannerDependencies) {}
+
+  private async reviewAmbiguousMarkets(markets: NormalizedMarket[]): Promise<number> {
+    if (!this.dependencies.llmGateway) {
+      return 0;
+    }
+
+    const marketsForReview = markets.filter(shouldRequestLlmNormalization);
+    for (const market of marketsForReview) {
+      await this.dependencies.llmGateway.evaluate({
+        taskType: "market_normalization",
+        promptVersion: this.dependencies.llmPromptVersion ?? "scanner-normalization-v1",
+        model: this.dependencies.llmModel ?? "scanner-default",
+        input: toLlmMarketInput(market)
+      });
+    }
+    return marketsForReview.length;
+  }
+
+  private async reviewCandidatePairs(pairs: CandidatePair[]): Promise<ReviewedCandidatePair[]> {
+    const reviewedPairs: ReviewedCandidatePair[] = [];
+    for (const pair of pairs) {
+      reviewedPairs.push(await this.reviewCandidatePair(pair));
+    }
+    return reviewedPairs;
+  }
+
+  private async reviewCandidatePair(pair: CandidatePair): Promise<ReviewedCandidatePair> {
+    const decision = this.equivalencePolicy.classify(pair);
+    if (!this.dependencies.llmGateway || !shouldRequestLlmEquivalence(decision)) {
+      return { pair, decision };
+    }
+
+    const llmEvaluation = await this.dependencies.llmGateway.evaluate({
+      taskType: "market_equivalence",
+      promptVersion: this.dependencies.llmPromptVersion ?? "scanner-equivalence-v1",
+      model: this.dependencies.llmModel ?? "scanner-default",
+      input: toLlmEquivalenceInput(pair, decision)
+    });
+
+    return { pair, decision: decisionWithLlmReason(decision, llmEvaluation), llmEvaluation };
+  }
 
   async runOnce(): Promise<ScanResult> {
     const now = this.dependencies.clock ?? (() => this.dependencies.now ?? new Date().toISOString());
@@ -68,20 +117,20 @@ export class ReadOnlyScanner {
     let orderbookSnapshots: OrderbookSnapshotArtifact[];
     let candidatePairs: CandidatePair[];
     let reviewedCandidatePairs: ReviewedCandidatePair[];
+    let llmEvaluations = 0;
     let opportunities: OpportunityWithSourceSnapshots[];
 
     try {
       normalizedMarkets = snapshots.map((snapshot) => this.normalizer.normalize(snapshot));
+      llmEvaluations += await this.reviewAmbiguousMarkets(normalizedMarkets);
       const normalizedMarketByBookKey = new Map(normalizedMarkets.map((market) => [`${market.venue}:${market.venueMarketId}`, market]));
       orderbookSnapshots = [...kalshiBooks, ...polymarketBooks].flatMap((book) =>
         toOrderbookSnapshotArtifact(scanId, book, normalizedMarketByBookKey)
       );
       const orderbookSnapshotByBookKey = new Map(orderbookSnapshots.map((snapshot) => [`${snapshot.venue}:${snapshot.venueMarketId}`, snapshot]));
       candidatePairs = this.pairGenerator.generate(normalizedMarkets);
-      reviewedCandidatePairs = candidatePairs.map((pair) => ({
-        pair,
-        decision: this.equivalencePolicy.classify(pair)
-      }));
+      reviewedCandidatePairs = await this.reviewCandidatePairs(candidatePairs);
+      llmEvaluations += reviewedCandidatePairs.filter((review) => review.llmEvaluation).length;
       const booksByKey = new Map([...kalshiBooks, ...polymarketBooks].map((book) => [bookKey(book), book]));
       opportunities = reviewedCandidatePairs.flatMap(({ pair, decision }) => {
         const kalshiKey = `${pair.kalshiMarket.venue}:${pair.kalshiMarket.venueMarketId}`;
@@ -114,7 +163,7 @@ export class ReadOnlyScanner {
         normalizedMarkets: normalizedMarkets.length,
         candidatePairs: candidatePairs.length,
         opportunitiesFound: opportunities.length,
-        llmEvaluations: 0
+        llmEvaluations
       }
     };
 
@@ -168,6 +217,50 @@ function failedScanResult(
 
 function emptyMetrics(): ScanMetrics {
   return { marketsScanned: 0, normalizedMarkets: 0, candidatePairs: 0, opportunitiesFound: 0, llmEvaluations: 0 };
+}
+
+function shouldRequestLlmNormalization(market: NormalizedMarket): boolean {
+  return market.confidence < 0.8 || market.ambiguityFlags.length > 0;
+}
+
+function shouldRequestLlmEquivalence(decision: EquivalenceDecision): boolean {
+  return decision.equivalenceClass === "B" || decision.equivalenceClass === "D";
+}
+
+function decisionWithLlmReason(decision: EquivalenceDecision, llmEvaluation: LlmEvaluationRecord): EquivalenceDecision {
+  return {
+    ...decision,
+    reasons: [...decision.reasons, `llm_${llmEvaluation.status}`]
+  };
+}
+
+function toLlmEquivalenceInput(pair: CandidatePair, decision: EquivalenceDecision): Record<string, unknown> {
+  return {
+    pairId: pair.id,
+    deterministicDecision: decision,
+    kalshiMarket: toLlmMarketInput(pair.kalshiMarket),
+    polymarketMarket: toLlmMarketInput(pair.polymarketMarket)
+  };
+}
+
+function toLlmMarketInput(market: NormalizedMarket): Record<string, unknown> {
+  return {
+    venue: market.venue,
+    venueMarketId: market.venueMarketId,
+    title: market.title,
+    rawResolutionText: market.rawResolutionText,
+    topic: market.topic,
+    eventType: market.eventType,
+    asset: market.asset,
+    threshold: market.threshold,
+    operator: market.operator,
+    deadline: market.deadline,
+    timezone: market.timezone,
+    resolutionSource: market.resolutionSource,
+    payoffType: market.payoffType,
+    ambiguityFlags: market.ambiguityFlags,
+    confidence: market.confidence
+  };
 }
 
 function sanitizeFailureReason(error: unknown): string {

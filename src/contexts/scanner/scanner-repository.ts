@@ -1,4 +1,5 @@
 import { CrossVenueOpportunity } from "../arbitrage/domain/opportunity";
+import { LlmEvaluationRecord } from "../llm/application/llm-evaluation";
 import { CandidatePair, EquivalenceDecision } from "../matching/domain/candidate-pair";
 import { NormalizedMarket, Venue } from "../matching/domain/normalized-market";
 import { VenueMarketSnapshot } from "../venues/domain/venue-market";
@@ -7,6 +8,7 @@ import { ScanResult } from "./scanner-result";
 export interface ReviewedCandidatePair {
   pair: CandidatePair;
   decision: EquivalenceDecision;
+  llmEvaluation?: LlmEvaluationRecord;
 }
 
 export interface OrderbookSnapshotArtifact {
