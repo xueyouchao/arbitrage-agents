@@ -6,6 +6,11 @@ export interface ScanMetrics {
   candidatePairs: number;
   opportunitiesFound: number;
   llmEvaluations: number;
+  llmEvaluationsSkipped?: number;
+  llmPromptTokens?: number;
+  llmCompletionTokens?: number;
+  llmEstimatedCostUsd?: number;
+  llmLatencyMs?: number;
   failureCategory?: ScanFailureCategory;
   failureReason?: string;
 }

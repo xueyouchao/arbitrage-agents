@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createHash } from "crypto";
+import { redactSensitiveText } from "../../../config/redaction";
 import { uuidFromStableKey } from "../../shared/stable-id";
 import {
   LlmEvaluationRecord,
@@ -43,9 +44,9 @@ export class PersistedLlmGateway {
     } catch (error) {
       const record: LlmEvaluationRecord = {
         ...request,
-        id: uuidFromStableKey(`${request.taskType}:${request.promptVersion}:${request.model}:${inputHash}:failed`),
+        id: uuidFromStableKey(`${request.taskType}:${request.promptVersion}:${request.model}:${inputHash}`),
         inputHash,
-        output: { error: String(error) },
+        output: { error: sanitizeProviderError(error) },
         status: "failed",
         promptTokens: 0,
         completionTokens: 0,
@@ -61,6 +62,16 @@ export class PersistedLlmGateway {
 
 function hashInput(input: Record<string, unknown>): string {
   return createHash("sha256").update(stableStringify(input)).digest("hex");
+}
+
+function sanitizeProviderError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return redactSensitiveText(message)
+    .replace(/https?:\/\/\S+/gi, "[redacted-url]")
+    .replace(/token[_-]?id=[^\s&]+/gi, "token_id=[redacted]")
+    .replace(/(["'])(api[_-]?key|apiKey|private[_-]?key|privateKey|authorization|auth[_-]?header|authHeader|password|secret|token|access[_-]?token|accessToken|refresh[_-]?token|refreshToken)\1\s*:\s*(["']).*?\3/gi, "$1$2$1:$3[REDACTED]$3")
+    .replace(/(api[_-]?key|apiKey|private[_-]?key|privateKey|authorization|auth[_-]?header|authHeader|password|secret|token|access[_-]?token|accessToken|refresh[_-]?token|refreshToken)(\s*[:=]\s*)[^\s,;}&]+/gi, "$1$2[REDACTED]")
+    .slice(0, 200);
 }
 
 function stableStringify(value: unknown): string {
@@ -95,8 +106,15 @@ function schemaForTask(taskType: LlmEvaluationRequest["taskType"]): z.ZodType<Re
 
   if (taskType === "market_normalization") {
     return z.object({
-      topic: z.string().min(1),
-      eventType: z.string().min(1),
+      topic: z.enum(["crypto", "macro"]),
+      eventType: z.enum(["price_above", "price_below", "fed_rate_decision", "cpi_range"]),
+      asset: z.enum(["BTC", "ETH"]).nullable(),
+      threshold: z.number().nullable(),
+      operator: z.enum([">", ">=", "<", "<=", "=", "between"]).nullable(),
+      deadline: z.string().datetime().nullable(),
+      timezone: z.string().min(1).nullable(),
+      resolutionSource: z.string().min(1).nullable(),
+      payoffType: z.enum(["at_time", "any_time_before", "range", "settlement_value"]),
       confidence: z.number().min(0).max(1),
       ambiguityFlags: z.array(z.string())
     }).strict();

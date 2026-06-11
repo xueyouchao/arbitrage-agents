@@ -22,6 +22,13 @@
       "when": 1780693511073,
       "tag": "0002_closed_wolfsbane",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781122582521,
+      "tag": "0003_colorful_rockslide",
+      "breakpoints": true
     }
   ]
 }

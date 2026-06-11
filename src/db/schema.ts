@@ -37,6 +37,7 @@ export const normalizedMarkets = pgTable(
     payoffType: text("payoff_type").notNull(),
     ambiguityFlags: jsonb("ambiguity_flags").notNull().default([]),
     confidence: numeric("confidence").notNull(),
+    llmEvaluationId: uuid("llm_evaluation_id").references(() => llmEvaluations.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => [uniqueIndex("normalized_markets_venue_market_unique").on(table.venue, table.venueMarketId)]
@@ -51,6 +52,7 @@ export const candidatePairs = pgTable(
     equivalenceClass: text("equivalence_class"),
     decision: text("decision"),
     reasons: jsonb("reasons").notNull().default([]),
+    llmEvaluationId: uuid("llm_evaluation_id").references(() => llmEvaluations.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => [uniqueIndex("candidate_pairs_market_unique").on(table.kalshiMarketId, table.polymarketMarketId)]

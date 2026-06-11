@@ -1,0 +1,4 @@
+ALTER TABLE "candidate_pairs" ADD COLUMN "llm_evaluation_id" uuid;--> statement-breakpoint
+ALTER TABLE "normalized_markets" ADD COLUMN "llm_evaluation_id" uuid;--> statement-breakpoint
+ALTER TABLE "candidate_pairs" ADD CONSTRAINT "candidate_pairs_llm_evaluation_id_llm_evaluations_id_fk" FOREIGN KEY ("llm_evaluation_id") REFERENCES "public"."llm_evaluations"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "normalized_markets" ADD CONSTRAINT "normalized_markets_llm_evaluation_id_llm_evaluations_id_fk" FOREIGN KEY ("llm_evaluation_id") REFERENCES "public"."llm_evaluations"("id") ON DELETE no action ON UPDATE no action;

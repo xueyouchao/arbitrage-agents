@@ -668,10 +668,80 @@ Deferred / still open:
 
 - [ ] Broad scanner domain-policy injection remains intentionally deferred as premature abstraction.
 - [x] Persist orderbook snapshots as first-class artifacts.
-- [ ] Integrate persisted/schema-validated LLM gateway into the scanner path.
+- [x] Integrate persisted/schema-validated LLM gateway into the scanner path.
 - [ ] Complete opportunity risk/freshness/fee/slippage/liquidity modeling.
+- [ ] Make worker resumable and wire Sentry check-ins.
 - [ ] Add Postgres/API integration tests and migration smoke tests.
+- [ ] Harden API tests and response contracts.
 - [x] Fix coverage tooling with `@vitest/coverage-v8`.
+
+## 2026-06-09 persisted/schema-validated LLM scanner integration update
+
+Completed from the remaining handoff list:
+
+- [x] Integrate persisted/schema-validated LLM gateway into the scanner path.
+
+Implementation summary:
+
+- `ReadOnlyScanner` now accepts an optional scanner LLM gateway dependency.
+- Scanner module wiring gates LLM use behind `LLM_ENABLED`; disabled scans make no LLM calls instead of persisting no-op provider failures.
+- Enabled scans use a CCR/Ollama-compatible chat provider against `LLM_BASE_URL` / `LLM_MODEL` using the native `/api/chat` request shape.
+- Ambiguous / low-confidence normalized markets are routed through persisted `market_normalization` evaluations.
+- Schema-validated LLM normalization output is conservatively merged before candidate generation; source identity fields remain deterministic and `llm_normalized` keeps downstream decisions auditable/conservative.
+- Ambiguous candidate-pair decisions (`B` / `D`) are routed through persisted `market_equivalence` evaluations.
+- Normalized markets and candidate pairs persist nullable `llm_evaluation_id` links for durable auditability.
+- Scanner metrics now count persisted LLM evaluations, skipped evaluations, prompt/completion tokens, estimated cost, and aggregate LLM latency.
+- `SCANNER_LLM_MAX_EVALUATIONS_PER_SCAN` caps total LLM work per scan; calls remain sequential to avoid provider / DB concurrency fan-out.
+- Provider failure text is redacted and bounded before being stored in `llm_evaluations.output`.
+- Failed and successful attempts for the same `(task_type, input_hash, prompt_version, model)` cache key now share one stable identity to avoid failed-to-success cache ID drift.
+
+Files changed for this item:
+
+- `src/contexts/scanner/read-only-scanner.ts`
+- `src/contexts/scanner/scanner-repository.ts`
+- `src/contexts/scanner/scanner-result.ts`
+- `src/contexts/scanner/scanner.module.ts`
+- `src/contexts/scanner/scanner-tokens.ts`
+- `src/contexts/scanner/in-memory-scanner-repository.ts`
+- `src/contexts/scanner/postgres-scanner-repository.ts`
+- `src/contexts/llm/application/persisted-llm-gateway.ts`
+- `src/contexts/llm/infrastructure/ollama-chat-llm-provider.ts`
+- `src/contexts/llm/infrastructure/postgres-llm-evaluation-repository.ts`
+- `src/db/schema.ts`
+- `drizzle/0003_colorful_rockslide.sql`
+- `src/config/app-config.ts`
+- `test/scanner.test.ts`
+- `test/config.test.ts`
+- `test/llm-observability.test.ts`
+- `test/ollama-chat-llm-provider.test.ts`
+
+Verification completed locally:
+
+- `npm test` — passed, 9 test files / 36 tests.
+- `npm run typecheck` — passed.
+- `npm run build` — passed.
+
+Review notes:
+
+- TypeScript reviewer pass found production no-op wiring, uncapped total LLM work, ignored normalization output, weak durable audit linkage, and incomplete provider-error redaction.
+- Those issues were addressed before the successful verification above.
+
+Git / PR status:
+
+- Work is on branch `integrate-scanner-llm-gateway`.
+- Commit and PR creation are still pending.
+- Before committing, separate unrelated DOX / `AGENTS.md` files from the scanner LLM task unless the operator explicitly wants those included.
+
+Updated remaining engineering sequence:
+
+1. Complete opportunity risk/freshness/fee/slippage/liquidity modeling.
+2. Make the worker resumable and wire Sentry check-ins.
+3. Add Postgres/API integration tests and migration smoke tests.
+4. Harden API tests and response contracts.
+5. Only then launch production read-only analytics.
+
+Production launch gate remains unchanged: do not launch read-only production analytics until the above hardening items pass end-to-end verification against real persistence and API read paths.
+
 
 Verification for this update:
 

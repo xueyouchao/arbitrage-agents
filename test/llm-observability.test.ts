@@ -29,6 +29,30 @@ describe("PersistedLlmGateway", () => {
     expect(record.status).toBe("failed");
     expect(record.parsedOutput).toBeUndefined();
   });
+
+  it("redacts provider errors before persisting failed evaluations", async () => {
+    const repository = new InMemoryLlmEvaluationRepository();
+    const gateway = new PersistedLlmGateway(repository, async () => {
+      throw new Error("provider failed https://example.test?api_key=secret Authorization: Bearer token");
+    });
+
+    const record = await gateway.evaluate({ taskType: "explanation", promptVersion: "v1", model: "test", input: { a: 1 } });
+
+    expect(record.status).toBe("failed");
+    expect(record.output).toEqual({ error: "provider failed [redacted-url] Authorization: [REDACTED]" });
+    expect(repository.records[0].output).toEqual(record.output);
+  });
+
+  it("redacts JSON-shaped provider secrets before persistence", async () => {
+    const repository = new InMemoryLlmEvaluationRepository();
+    const gateway = new PersistedLlmGateway(repository, async () => {
+      throw new Error('{"api_key":"secret","apiKey":"secret","accessToken":"secret","authorization":"Bearer token","safe":"visible"}');
+    });
+
+    const record = await gateway.evaluate({ taskType: "explanation", promptVersion: "v1", model: "test", input: { a: 1 } });
+
+    expect(record.output).toEqual({ error: '{"api_key":"[REDACTED]","apiKey":"[REDACTED]","accessToken":"[REDACTED]","authorization":"[REDACTED]","safe":"visible"}' });
+  });
 });
 
 describe("ObservabilityService", () => {
