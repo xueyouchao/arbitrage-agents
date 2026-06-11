@@ -1,0 +1,1 @@
+ALTER TABLE "llm_evaluations" ADD COLUMN "payload_schema_version" text;

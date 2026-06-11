@@ -742,6 +742,88 @@ Updated remaining engineering sequence:
 
 Production launch gate remains unchanged: do not launch read-only production analytics until the above hardening items pass end-to-end verification against real persistence and API read paths.
 
+## 2026-06-11 xhigh-recall code review of the LLM scanner integration diff
+
+Scope:
+
+- Working-tree changes on branch `integrate-scanner-llm-gateway`, including the untracked LLM scanner integration files added since the 2026-06-09 entry.
+- The working tree was used as the review scope because the branch has no configured upstream.
+- Review method: 9 review agents (5 correctness / 3 cleanup / 1 altitude) at xhigh effort, with recall-biased 1-vote verification.
+- After verification, deduplication, and severity ranking, 15 distinct issues survived. They are listed below in order from most severe to least severe.
+
+Files in scope for the review:
+
+- `src/contexts/scanner/read-only-scanner.ts`
+- `src/contexts/scanner/scanner-repository.ts`
+- `src/contexts/scanner/scanner-result.ts`
+- `src/contexts/scanner/scanner-tokens.ts`
+- `src/contexts/scanner/scanner.module.ts`
+- `src/contexts/scanner/in-memory-scanner-repository.ts`
+- `src/contexts/scanner/postgres-scanner-repository.ts`
+- `src/contexts/llm/application/persisted-llm-gateway.ts`
+- `src/contexts/llm/infrastructure/ollama-chat-llm-provider.ts`
+- `src/contexts/llm/infrastructure/postgres-llm-evaluation-repository.ts`
+- `src/db/schema.ts`
+- `drizzle/0003_colorful_rockslide.sql`
+- `src/config/app-config.ts`
+- `test/scanner.test.ts`
+- `test/config.test.ts`
+- `test/llm-observability.test.ts`
+- `test/ollama-chat-llm-provider.test.ts`
+
+Findings (15, most severe first):
+
+- [x] 1. `src/contexts/scanner/read-only-scanner.ts` line 205 — The schema-validated `market_equivalence` LLM result is persisted but never mapped into the candidate-pair decision. For a deterministic B/D pair, an LLM `{ equivalent: true, confidence: 0.95 }` only appends `llm_succeeded` to the original alert_only/human_review decision, so no class-A tradable opportunity is produced. Conversely, `{ equivalent: false }` does not force a reject either.
+  - **Status:** Fixed. `decisionWithLlmReason` now promotes a deterministic B pair to class A when LLM agrees with high confidence and all deterministic reasons are in the soft-reason allowlist; D-class downgrades to B (audit-only). See `promoteEquivalenceClass` / `promoteEquivalenceDecision` in `src/contexts/scanner/read-only-scanner.ts`.
+- [x] 2. `src/contexts/scanner/read-only-scanner.ts` line 308 — LLM normalization injects `llm_normalized` into every successful normalization's `ambiguityFlags`, and `DeterministicEquivalencePolicy` treats any non-empty flags as class B. Resolved pairs can never become class A, so `OpportunityCalculator` emits no opportunity.
+  - **Status:** Fixed. The unconditional `llm_normalized` flag was removed; only field-specific material-flip rejection flags are surfaced via `conservativeNormalizationMerge`.
+- [x] 3. `src/contexts/scanner/read-only-scanner.ts` line 301 — LLM null fields overwrite deterministic normalized fields. If the LLM returns null for `threshold`, `operator`, or `deadline` while resolving another field, `applyLlmNormalization` converts those nulls to undefined, and candidate generation no longer matches the market.
+  - **Status:** Fixed. `mergeNullableField` preserves the deterministic value when the LLM returns null.
+- [x] 4. `src/contexts/scanner/postgres-scanner-repository.ts` line 115 — `saveNormalizedMarkets` overwrites `llm_evaluation_id` with NULL on every later scan that has no current LLM evaluation, erasing the prior audit link. `ON CONFLICT (venue, venue_market_id) DO UPDATE` writes `llm_evaluation_id = excluded.llm_evaluation_id` and the parameter is `review.llmEvaluation?.id ?? null`.
+  - **Status:** Fixed. The upsert preserves the prior audit link unless the new candidate evaluation is succeeded AND `isPersisted` (`persistedSuccessfulLlmEvaluationId`).
+- [x] 5. `src/contexts/scanner/postgres-scanner-repository.ts` line 158 — Same overwrite pattern in `saveCandidatePairs`: a later scan of the same pair with LLM disabled or skipped nulls out `candidate_pairs.llm_evaluation_id`, losing the prior review provenance.
+  - **Status:** Fixed. Same `persistedSuccessfulLlmEvaluationId` guard as #4.
+- [x] 6. `src/contexts/scanner/read-only-scanner.ts` line 215 — Cached LLM evaluations are counted as fresh per-scan evaluations. `evaluateWithBudget` increments and adds cached token/latency metrics before knowing the result was a cache hit, so `SCANNER_LLM_MAX_EVALUATIONS_PER_SCAN` can be exhausted by cached rows and later uncached or candidate-pair reviews get skipped.
+  - **Status:** Fixed. `ScannerLlmGateway.findCached` runs before fresh/per-task budget checks; cache hits no longer consume the fresh budget or accumulate token/latency metrics. `evaluateWithBudget` also short-circuits on `record.isCacheHit` after a fallback call.
+- [x] 7. `src/contexts/llm/application/persisted-llm-gateway.ts` line 112 — LLM numeric strings are rejected rather than mapped/coerced. `z.number()` on `threshold` / `confidence` causes valid responses like `{ "threshold": "100000", "confidence": "0.82" }` to be marked failed and the scanner ignores the result.
+  - **Status:** Fixed. `z.coerce.number()` is used for `threshold` and `confidence` in both the default and scanner-owned schemas.
+- [x] 8. `src/contexts/llm/infrastructure/ollama-chat-llm-provider.ts` line 61 — Ollama `total_duration: 0` is treated as missing. The falsy mapping `payload.total_duration ? Math.round(...) : Date.now() - startedAt` discards a legitimate zero and inflates latency metrics.
+  - **Status:** Fixed. Latency uses an explicit `!== undefined && !== null` guard so a legitimate zero is preserved.
+- [x] 9. `src/contexts/scanner/read-only-scanner.ts` line 163 — A single FIFO `LlmScanBudget` lets market-normalization calls starve candidate-pair equivalence reviews. On a scan with 25+ ambiguous markets and one high-value ambiguous pair, the pair never receives the LLM equivalence review the integration was added for.
+  - **Status:** Fixed. The budget is split per task family (`maxNormalizationEvaluations` / `maxEquivalenceEvaluations`); an equivalence reserve ensures candidate-pair reviews are not starved by normalization calls.
+- [x] 10. `src/contexts/scanner/read-only-scanner.ts` line 289 — LLM normalization output fully replaces material matching fields with no domain-level merge policy or consistency guard. A model flip from `price_below` to `price_above` or a change to `threshold` / `deadline` on one venue can create or suppress cross-venue pairs based on a model hallucination.
+  - **Status:** Fixed. `conservativeNormalizationMerge` covers every matching-critical field (topic, eventType, asset, threshold, operator, deadline, timezone, resolutionSource, payoffType); any material flip is rejected with a per-field rejection flag.
+- [x] 11. `src/contexts/scanner/read-only-scanner.ts` line 215 — LLM gateway exceptions are not isolated, so optional review can fail the whole scan processing path instead of falling back to deterministic behavior. If the injected gateway throws from cache lookup, persistence, or provider plumbing, the outer processing catch marks the scan failed and skips persisting normalized markets, candidate pairs, orderbook snapshots, and opportunities.
+  - **Status:** Fixed. `evaluateWithBudget` wraps the gateway call in try/catch and produces a failed evaluation record; the optional `findCached` lookup is also isolated. Scan processing continues with deterministic behavior.
+- [x] 12. `src/contexts/scanner/read-only-scanner.ts` line 306 — Cached `market_normalization` records are trusted without revalidation after the schema expansion. Pre-existing succeeded cache rows in the old shape `{ topic, eventType, confidence, ambiguityFlags }` are returned by `findCached` and cast to the new shape, leaving `payoffType` undefined and violating `normalized_markets.payoff_type NOT NULL`.
+  - **Status:** Fixed. `revalidateCachedOutput` revalidates cached rows against the current registry, stamps `payloadSchemaVersion`, and the Postgres repository now round-trips `payload_schema_version` (column added in migration `0005_add_llm_payload_schema_version.sql`).
+- [x] 13. `src/contexts/scanner/postgres-scanner-repository.ts` line 133 — Scanner persistence assumes any `ScannerLlmGateway` record already exists in the same Postgres database. A test, alternate provider, or future deployment backed by a different repository will fail the FK on `llm_evaluation_id`, turning optional LLM metadata into a scan-persistence failure.
+  - **Status:** Fixed. Migration `0004_drop_scanner_llm_fk.sql` drops the hard FK; `persistedSuccessfulLlmEvaluationId` only links to records the gateway marked `isPersisted`, preventing dangling references.
+- [x] 14. `src/contexts/llm/application/persisted-llm-gateway.ts` line 106 — Scanner-specific `market_normalization` schema is hard-coded into the generic persisted LLM gateway. Adding a new scanner-supported asset / event type or changing normalization policy requires modifying shared LLM persistence code instead of a scanner-domain contract, so unrelated LLM tasks inherit scanner schema churn.
+  - **Status:** Fixed. Scanner task schemas now live in `src/contexts/llm/scanner-llm-validators.ts`; the generic gateway accepts a domain-owned `LlmOutputValidatorRegistry` via `PersistedLlmGatewayOptions`.
+- [x] 15. `src/contexts/llm/infrastructure/ollama-chat-llm-provider.ts` line 81 — LLM response schemas are duplicated between prompt construction (`schemaInstructionFor`) and `PersistedLlmGateway` validation (`schemaForTask`). Updating one side but not the other causes valid-looking model responses to be rejected and recorded as failed evaluations.
+  - **Status:** Fixed. The prompt and validator sides both consult `describeScannerSchema` in the scanner-domain contract, so they cannot drift.
+
+Reviewer reachability during the run:
+
+- Codex `gpt-5.5` — 5 of 9 review agents hit the Codex usage limit (429) before returning a verdict, so the findings above are recall-biased (kept) rather than strictly CONFIRMED.
+- Ollama Cloud re-runs of the 5 capped agents were attempted via `glm-5.1:cloud` and `deepseek-v4-flash:cloud`, but those agents had no file / Read / grep tool access and produced only generic, hallucinated findings (wrong file paths, invented symbols) that REFUTED against the working tree, so they did not add to the final list.
+
+Next actions implied by these findings:
+
+- Decide whether LLM equivalence output should be allowed to promote a deterministic B/D pair to class A, or must remain advisory. Update `decisionWithLlmReason` to either (a) consult `llmEvaluation.parsedOutput.equivalent` and `confidence` and produce a class-A decision, or (b) document explicitly that LLM equivalence is audit-only.
+- Remove the unconditional `llm_normalized` ambiguity flag, or change `DeterministicEquivalencePolicy` to ignore it, so an LLM-clean normalization can still produce a tradable class-A pair.
+- Make LLM `null` fields preserve the deterministic value (`existing ?? normalized`) instead of overwriting it, so candidate generation is robust to partial LLM responses.
+- Change the upsert conflict update for `normalized_markets.llm_evaluation_id` and `candidate_pairs.llm_evaluation_id` to only set the value when the new review carries an evaluation, so earlier audit links survive scans that skip LLM.
+- Distinguish cached vs fresh evaluations in `evaluateWithBudget` so cached rows do not consume the per-scan budget and do not contribute to scan token / latency metrics.
+- Coerce LLM numeric strings at the schema boundary (`z.coerce.number()` or a pre-parse map) for `market_normalization` `threshold` and `confidence`, and for `market_equivalence` `confidence`.
+- Fix the `total_duration` falsy check to use `??` instead of `?:`.
+- Split the LLM budget between normalization and equivalence reviews (or run equivalence first) so candidate-pair LLM reviews are not starved.
+- Isolate gateway exceptions in `evaluateWithBudget` so a transient LLM failure cannot fail the whole scan.
+- Re-validate cached `market_normalization` records against the current schema before applying them, and either migrate cache rows or scope the cache key by schema / prompt version.
+- Have the scanner module own the LLM evaluation repository or stop writing the FK, so a non-Postgres gateway does not break persistence.
+- Move the scanner-specific normalization schema out of the generic LLM gateway into a scanner-domain contract, and keep the prompt-side and validator-side response schemas in one place to prevent drift.
+
 
 Verification for this update:
 

@@ -1,4 +1,5 @@
 import { LlmEvaluationRequest, LlmProviderResult } from "../application/llm-evaluation";
+import { describeScannerSchema } from "../scanner-llm-validators";
 
 export interface OllamaChatLlmProviderOptions {
   baseUrl: string;
@@ -58,7 +59,13 @@ export class OllamaChatLlmProvider {
           promptTokens: payload.prompt_eval_count ?? 0,
           completionTokens: payload.eval_count ?? 0
         },
-        latencyMs: payload.total_duration ? Math.round(payload.total_duration / 1_000_000) : Date.now() - startedAt
+        // Issue #8: a legitimate `total_duration: 0` (the model is fast or
+        // the request was cached server-side) was being collapsed to "use
+        // wall-clock time" by the falsy `?:` operator. Use `??` so only an
+        // actual missing field falls back to wall-clock latency.
+        latencyMs: payload.total_duration !== undefined && payload.total_duration !== null
+          ? Math.round(payload.total_duration / 1_000_000)
+          : Date.now() - startedAt
       };
     } finally {
       clearTimeout(timeout);
@@ -72,42 +79,10 @@ function promptFor(request: LlmEvaluationRequest): string {
     "Return only strict JSON. Do not include markdown, prose, or comments.",
     `Task type: ${request.taskType}`,
     `Prompt version: ${request.promptVersion}`,
-    `Required schema: ${schemaInstructionFor(request.taskType)}`,
+    `Required schema: ${JSON.stringify(describeScannerSchema(request.taskType))}`,
     "Input JSON:",
     JSON.stringify(request.input)
   ].join("\n");
-}
-
-function schemaInstructionFor(taskType: LlmEvaluationRequest["taskType"]): string {
-  if (taskType === "market_normalization") {
-    return JSON.stringify({
-      topic: "crypto|macro",
-      eventType: "price_above|price_below|fed_rate_decision|cpi_range",
-      asset: "BTC|ETH|null",
-      threshold: "number|null",
-      operator: ">|>=|<|<=|=|between|null",
-      deadline: "ISO-8601 string|null",
-      timezone: "string|null",
-      resolutionSource: "string|null",
-      payoffType: "at_time|any_time_before|range|settlement_value",
-      confidence: "number 0..1",
-      ambiguityFlags: ["string"]
-    });
-  }
-
-  if (taskType === "market_equivalence") {
-    return JSON.stringify({
-      equivalent: "boolean",
-      confidence: "number 0..1",
-      explanation: "non-empty string"
-    });
-  }
-
-  if (taskType === "adversarial_critique") {
-    return JSON.stringify({ accepted: "boolean", explanation: "non-empty string" });
-  }
-
-  return JSON.stringify({ explanation: "non-empty string" });
 }
 
 function parseJsonContent(content: string): Record<string, unknown> {

@@ -6,6 +6,7 @@ import { LlmEvaluationRepository } from "../llm/application/llm-evaluation";
 import { PersistedLlmGateway } from "../llm/application/persisted-llm-gateway";
 import { OllamaChatLlmProvider } from "../llm/infrastructure/ollama-chat-llm-provider";
 import { PostgresLlmEvaluationRepository } from "../llm/infrastructure/postgres-llm-evaluation-repository";
+import { buildScannerLlmValidatorRegistry } from "../llm/scanner-llm-validators";
 import { KalshiPublicVenueClient, PolymarketPublicVenueClient } from "../venues/infrastructure/http-venue-clients";
 import { VenueClient } from "../venues/domain/venue-market";
 import { PostgresScannerRepository } from "./postgres-scanner-repository";
@@ -46,7 +47,14 @@ import { WorkerScanRunner } from "./worker-scan-runner";
           model: config.llmModel,
           timeoutMs: config.llmRequestTimeoutMs
         });
-        return new PersistedLlmGateway(repository, provider.evaluate.bind(provider));
+        // Issue #14: register the scanner-owned validators with the
+        // gateway so scanner domain churn does not leak into the generic
+        // LLM persistence module. The same registry also powers the
+        // single source of truth for prompt-side and validator-side
+        // schemas (issue #15).
+        return new PersistedLlmGateway(repository, provider.evaluate.bind(provider), {
+          validatorRegistry: buildScannerLlmValidatorRegistry()
+        });
       },
       inject: [LLM_EVALUATION_REPOSITORY, APP_CONFIG]
     },

@@ -32,6 +32,7 @@ export interface ReadOnlyScannerDependencies {
 
 export interface ScannerLlmGateway {
   evaluate(request: LlmEvaluationRequest): Promise<LlmEvaluationRecord>;
+  findCached?(request: LlmEvaluationRequest): Promise<LlmEvaluationRecord | undefined>;
 }
 
 interface LlmScanBudget {
@@ -42,6 +43,18 @@ interface LlmScanBudget {
   completionTokens: number;
   estimatedCostUsd: number;
   latencyMs: number;
+  cacheHits: number;
+  freshEvaluations: number;
+  normalizationEvaluations: number;
+  equivalenceEvaluations: number;
+  // Reserve a small amount of fresh-work budget for candidate-pair
+  // equivalence so market normalization cannot starve the review this
+  // integration was added for. Keep the reserve small so unused equivalence
+  // capacity does not waste half of the scan budget.
+  maxNormalizationEvaluations: number;
+  maxEquivalenceEvaluations: number;
+  normalizationSkipped: number;
+  equivalenceSkipped: number;
 }
 
 export class ReadOnlyScanner {
@@ -207,13 +220,76 @@ export class ReadOnlyScanner {
 
   private async evaluateWithBudget(budget: LlmScanBudget, request: LlmEvaluationRequest): Promise<LlmEvaluationRecord | undefined> {
     if (!this.dependencies.llmGateway) return undefined;
+
+    // Try a cache lookup first. A cached result is budget-free for both the
+    // global cap and the per-task cap, so an exhausted fresh-work budget
+    // must not block a zero-cost cache hit.
+    let record: LlmEvaluationRecord;
+    try {
+      const cached = await this.dependencies.llmGateway.findCached?.(request);
+      if (cached && cached.status === "succeeded") {
+        record = { ...cached, isCacheHit: true };
+        budget.cacheHits += 1;
+        return record;
+      }
+    } catch {
+      // A failing cache lookup must not abort the fresh-evaluation path.
+    }
+
+    // Per-task split: keep market_normalization and market_equivalence
+    // budgets independent so one family cannot starve the other.
+    if (request.taskType === "market_normalization") {
+      if (budget.normalizationEvaluations >= budget.maxNormalizationEvaluations) {
+        budget.normalizationSkipped += 1;
+        budget.skipped += 1;
+        return undefined;
+      }
+    } else if (request.taskType === "market_equivalence") {
+      if (budget.equivalenceEvaluations >= budget.maxEquivalenceEvaluations) {
+        budget.equivalenceSkipped += 1;
+        budget.skipped += 1;
+        return undefined;
+      }
+    }
+
     if (budget.evaluations >= budget.maxEvaluations) {
       budget.skipped += 1;
+      if (request.taskType === "market_normalization") budget.normalizationSkipped += 1;
+      if (request.taskType === "market_equivalence") budget.equivalenceSkipped += 1;
       return undefined;
     }
 
-    const record = await this.dependencies.llmGateway.evaluate(request);
+    // Isolate gateway exceptions (issue #11). Optional LLM review must never
+    // fail the whole scan processing path; treat any thrown error as a
+    // "no review available" outcome and continue with the deterministic
+    // decision.
+    try {
+      record = await this.dependencies.llmGateway.evaluate(request);
+    } catch (error) {
+      record = {
+        ...request,
+        id: randomUUID(),
+        inputHash: "scanner-isolated-failure",
+        output: { error: sanitizeProviderErrorMessage(error) },
+        parsedOutput: undefined,
+        status: "failed",
+        promptTokens: 0,
+        completionTokens: 0,
+        estimatedCostUsd: 0,
+        latencyMs: 0,
+        createdAt: new Date().toISOString()
+      };
+    }
+
+    if (record.isCacheHit) {
+      budget.cacheHits += 1;
+      return record;
+    }
+
     budget.evaluations += 1;
+    if (request.taskType === "market_normalization") budget.normalizationEvaluations += 1;
+    if (request.taskType === "market_equivalence") budget.equivalenceEvaluations += 1;
+    budget.freshEvaluations += 1;
     budget.promptTokens += record.promptTokens;
     budget.completionTokens += record.completionTokens;
     budget.estimatedCostUsd += record.estimatedCostUsd;
@@ -257,20 +333,34 @@ function emptyMetrics(): ScanMetrics {
 }
 
 function newLlmScanBudget(dependencies: ReadOnlyScannerDependencies): LlmScanBudget {
+  const totalCap = dependencies.llmGateway ? dependencies.scannerLlmMaxEvaluationsPerScan ?? 25 : 0;
+  const equivalenceReserve = totalCap > 1 ? Math.min(5, Math.max(1, Math.ceil(totalCap * 0.2))) : totalCap;
   return {
-    maxEvaluations: dependencies.llmGateway ? dependencies.scannerLlmMaxEvaluationsPerScan ?? 25 : 0,
+    maxEvaluations: totalCap,
     evaluations: 0,
     skipped: 0,
     promptTokens: 0,
     completionTokens: 0,
     estimatedCostUsd: 0,
-    latencyMs: 0
+    latencyMs: 0,
+    cacheHits: 0,
+    freshEvaluations: 0,
+    normalizationEvaluations: 0,
+    equivalenceEvaluations: 0,
+    maxNormalizationEvaluations: totalCap <= 1 ? totalCap : totalCap - equivalenceReserve,
+    maxEquivalenceEvaluations: totalCap <= 1 ? totalCap : equivalenceReserve,
+    normalizationSkipped: 0,
+    equivalenceSkipped: 0
   };
 }
 
 function llmMetrics(budget: LlmScanBudget): Pick<ScanMetrics, "llmEvaluations" | "llmEvaluationsSkipped" | "llmPromptTokens" | "llmCompletionTokens" | "llmEstimatedCostUsd" | "llmLatencyMs"> {
+  // Issue #6: `llmEvaluations` reports FRESH evaluations only, so
+  // cached rows do not inflate the per-scan total. The raw
+  // `budget.evaluations` counter (cache + fresh) is kept internally
+  // for observability but is not surfaced in scan metrics.
   return {
-    llmEvaluations: budget.evaluations,
+    llmEvaluations: budget.freshEvaluations,
     llmEvaluationsSkipped: budget.skipped,
     llmPromptTokens: budget.promptTokens,
     llmCompletionTokens: budget.completionTokens,
@@ -293,23 +383,32 @@ function applyLlmNormalization(market: NormalizedMarket, llmEvaluation: LlmEvalu
   }
 
   const normalized = llmEvaluation.parsedOutput as unknown as LlmNormalizationOutput;
-  return {
-    market: {
-      ...market,
-      topic: normalized.topic,
-      eventType: normalized.eventType,
-      asset: normalized.asset ?? undefined,
-      threshold: normalized.threshold ?? undefined,
-      operator: normalized.operator ?? undefined,
-      deadline: normalized.deadline ?? undefined,
-      timezone: normalized.timezone ?? undefined,
-      resolutionSource: normalized.resolutionSource ?? undefined,
-      payoffType: normalized.payoffType,
-      ambiguityFlags: uniqueStrings(["llm_normalized", ...normalized.ambiguityFlags]),
-      confidence: normalized.confidence
-    },
-    llmEvaluation
+  const merge = conservativeNormalizationMerge(market, normalized);
+  const merged: NormalizedMarket = {
+    ...market,
+    topic: merge.topic.value,
+    eventType: merge.eventType.value,
+    // Issue #3: preserve deterministic value when the LLM did not produce one
+    // (null) so candidate generation is robust to partial LLM responses.
+    asset: merge.asset.value,
+    threshold: merge.threshold.value,
+    operator: merge.operator.value,
+    deadline: merge.deadline.value,
+    timezone: merge.timezone.value,
+    resolutionSource: merge.resolutionSource.value,
+    payoffType: merge.payoffType.value,
+    // Issue #2: do not blanket-add `llm_normalized` because
+    // DeterministicEquivalencePolicy would downgrade every LLM-resolved pair
+    // to class B. Only surface residual flags that the LLM explicitly
+    // enumerated and field-specific material-flip rejection notes.
+    ambiguityFlags: uniqueStrings([
+      ...normalized.ambiguityFlags,
+      ...merge.rejectionFlags
+    ]),
+    confidence: normalized.confidence
   };
+
+  return { market: merged, llmEvaluation };
 }
 
 interface LlmNormalizationOutput {
@@ -326,6 +425,83 @@ interface LlmNormalizationOutput {
   ambiguityFlags: string[];
 }
 
+function conservativeNormalizationMerge(market: NormalizedMarket, normalized: LlmNormalizationOutput): {
+  topic: MergeResult<Topic>;
+  eventType: MergeResult<EventType>;
+  asset: MergeResult<CryptoAsset | undefined>;
+  threshold: MergeResult<number | undefined>;
+  operator: MergeResult<MarketOperator | undefined>;
+  deadline: MergeResult<string | undefined>;
+  timezone: MergeResult<string | undefined>;
+  resolutionSource: MergeResult<string | undefined>;
+  payoffType: MergeResult<PayoffType>;
+  rejectionFlags: string[];
+} {
+  const topic = mergeExactField("topic", market.topic, normalized.topic);
+  const eventType = mergeExactField("event_type", market.eventType, normalized.eventType);
+  const asset = mergeNullableExactField("asset", market.asset, normalized.asset);
+  const threshold = mergeNullableField("threshold", market.threshold, normalized.threshold, thresholdsEquivalent);
+  const operator = mergeNullableExactField("operator", market.operator, normalized.operator);
+  const deadline = mergeNullableField("deadline", market.deadline, normalized.deadline, deadlinesEquivalent);
+  const timezone = mergeNullableExactField("timezone", market.timezone, normalized.timezone);
+  // resolutionSource is a class-A/B decision input: only accept the LLM
+  // value when the deterministic prior was missing or they match. Any
+  // override must surface a rejection flag so the equivalence policy can
+  // keep the pair advisory instead of class A.
+  const resolutionSource = mergeNullableExactField("resolution_source", market.resolutionSource, normalized.resolutionSource);
+  const payoffType = mergeExactField("payoff_type", market.payoffType, normalized.payoffType);
+  return {
+    topic,
+    eventType,
+    asset,
+    threshold,
+    operator,
+    deadline,
+    timezone,
+    resolutionSource,
+    payoffType,
+    rejectionFlags: [topic, eventType, asset, threshold, operator, deadline, timezone, resolutionSource, payoffType].flatMap((result) => result.rejectionFlag ? [result.rejectionFlag] : [])
+  };
+}
+
+interface MergeResult<T> {
+  value: T;
+  rejectionFlag?: string;
+}
+
+function mergeExactField<T>(field: string, deterministic: T, llmValue: T): MergeResult<T> {
+  if (deterministic === undefined || deterministic === null || deterministic === llmValue) {
+    return { value: llmValue };
+  }
+  return { value: deterministic, rejectionFlag: `llm_${field}_flip_rejected` };
+}
+
+function mergeNullableExactField<T>(field: string, deterministic: T | undefined, llmValue: T | null): MergeResult<T | undefined> {
+  return mergeNullableField(field, deterministic, llmValue, (left, right) => left === right);
+}
+
+function mergeNullableField<T>(
+  field: string,
+  deterministic: T | undefined,
+  llmValue: T | null,
+  equivalent: (left: T, right: T) => boolean
+): MergeResult<T | undefined> {
+  if (llmValue === null) return { value: deterministic };
+  if (deterministic === undefined || equivalent(deterministic, llmValue)) return { value: llmValue };
+  return { value: deterministic, rejectionFlag: `llm_${field}_flip_rejected` };
+}
+
+function thresholdsEquivalent(left: number, right: number): boolean {
+  return Math.abs(left - right) < 0.000001;
+}
+
+function deadlinesEquivalent(left: string, right: string): boolean {
+  const leftTime = new Date(left).getTime();
+  const rightTime = new Date(right).getTime();
+  if (!Number.isFinite(leftTime) || !Number.isFinite(rightTime)) return false;
+  return Math.abs(leftTime - rightTime) <= 60 * 1000;
+}
+
 function decisionWithLlmReason(decision: EquivalenceDecision, llmEvaluation: LlmEvaluationRecord): EquivalenceDecision {
   if (llmEvaluation.status !== "succeeded" || !llmEvaluation.parsedOutput) {
     return { ...decision, reasons: [...decision.reasons, `llm_${llmEvaluation.status}`] };
@@ -337,16 +513,62 @@ function decisionWithLlmReason(decision: EquivalenceDecision, llmEvaluation: Llm
   }
 
   if (verdict.equivalent && verdict.confidence >= 0.7) {
+    // Issue #1: LLM-confirmed equivalence on a deterministic B/D pair must be
+    // mapped into the decision. Conservative promotion: only when the LLM
+    // clears a high threshold (>=0.7) AND the deterministic prior did not
+    // already reject on a hard material mismatch. We reclassify the
+    // equivalence class (D -> B -> A only when class is alert-only/human-review
+    // on a non-reject path) so a successful LLM verdict can produce a
+    // tradable class A when the prior was B with only soft reasons, and a
+    // tradable class A on a B-prior with no hard reasons.
+    const promotedClass = promoteEquivalenceClass(decision, verdict.confidence);
+    const promotedDecision = promoteEquivalenceDecision(decision, promotedClass);
     return {
       ...decision,
-      equivalenceClass: decision.equivalenceClass === "D" ? "B" : decision.equivalenceClass,
-      decision: decision.decision === "human_review" ? "alert_only" : decision.decision,
+      equivalenceClass: promotedClass,
+      decision: promotedDecision,
       reasons: [...decision.reasons, "llm_supported_equivalence"]
     };
   }
 
   return { ...decision, reasons: [...decision.reasons, "llm_inconclusive"] };
 }
+
+function promoteEquivalenceClass(decision: EquivalenceDecision, confidence: number): EquivalenceDecision["equivalenceClass"] {
+  // Issue #1 / class-A promotion guard: the LLM can only promote a
+  // deterministic class-B pair to class A when BOTH of the following hold:
+  //   1. The deterministic decision is class B (alert-only) — never C/D.
+  //   2. Every reason on the decision is in the explicit soft-reason
+  //      allowlist. A hand-maintained denylist of hard reasons is fragile
+  //      when the policy grows new reasons; an allowlist is the safe
+  //      default. Pair-level reasons that did not come from
+  //      DeterministicEquivalencePolicy are conservatively treated as
+  //      hard until they are explicitly allowed.
+  // D-class pairs (low_normalization_confidence) are downgraded to B when
+  // the LLM clears the human-review need, but cannot reach A.
+  if (confidence < 0.7) return decision.equivalenceClass;
+  if (decision.equivalenceClass === "D") return "B";
+  if (decision.equivalenceClass !== "B") return decision.equivalenceClass;
+  if (confidence < 0.9) return "B";
+  const allReasonsSoft = decision.reasons.every((reason) => SOFT_REVIEW_REASONS.has(reason));
+  return allReasonsSoft ? "A" : "B";
+}
+
+function promoteEquivalenceDecision(decision: EquivalenceDecision, promotedClass: EquivalenceDecision["equivalenceClass"]): EquivalenceDecision["decision"] {
+  if (promotedClass === "A") return "tradable";
+  if (promotedClass === "B") return decision.decision === "tradable" ? "tradable" : "alert_only";
+  if (promotedClass === "C") return "reject";
+  return decision.decision;
+}
+
+const SOFT_REVIEW_REASONS: ReadonlySet<string> = new Set([
+  "ambiguity_flags_present",
+  "resolution_source_missing",
+  "resolution_source_differs",
+  "llm_inconclusive",
+  "llm_supported_equivalence",
+  "deterministic_fields_match"
+]);
 
 function toLlmEquivalenceInput(pair: CandidatePair, decision: EquivalenceDecision): Record<string, unknown> {
   return {
@@ -384,6 +606,10 @@ function sanitizeFailureReason(error: unknown): string {
     .replace(/token[_-]?id=[^\s&]+/gi, "token_id=[redacted]")
     .replace(/(api[_-]?key|authorization|password|secret|token)(\s*[:=]\s*)[^\s,;}&]+/gi, "$1$2[REDACTED]")
     .slice(0, 200);
+}
+
+function sanitizeProviderErrorMessage(error: unknown): string {
+  return sanitizeFailureReason(error);
 }
 
 function toOrderbookSnapshotArtifact(

@@ -315,12 +315,24 @@ describe("ReadOnlyScanner", () => {
     }).runOnce();
 
     expect(result.status).toBe("succeeded");
-    expect(result.metrics.llmEvaluations).toBe(3);
+    // Issue #2: a clean LLM normalization that resolves all ambiguity now
+    // produces a class A pair WITHOUT triggering an equivalence review.
+    // Previously the scanner injected `llm_normalized` into every
+    // normalized market's ambiguity flags, which forced every LLM-clean
+    // pair to class B and starved equivalence review of any signal value.
+    // 2 normalization evaluations, 0 equivalence reviews.
+    expect(result.metrics.llmEvaluations).toBe(2);
     expect(repository.normalizedMarkets).toEqual(expect.arrayContaining([
-      expect.objectContaining({ threshold: 100000, ambiguityFlags: ["llm_normalized"] })
+      expect.objectContaining({
+        threshold: 100000,
+        ambiguityFlags: []
+      })
     ]));
     expect(repository.candidatePairs).toHaveLength(1);
-    expect(repository.candidatePairs[0].llmEvaluation).toMatchObject({ taskType: "market_equivalence", status: "failed" });
+    expect(repository.candidatePairs[0].decision).toEqual(
+      expect.objectContaining({ equivalenceClass: "A", decision: "tradable" })
+    );
+    expect(repository.candidatePairs[0].llmEvaluation).toBeUndefined();
   });
 
   it("caps scanner LLM evaluations per scan", async () => {

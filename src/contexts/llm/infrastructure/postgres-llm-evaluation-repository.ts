@@ -7,7 +7,7 @@ export class PostgresLlmEvaluationRepository implements LlmEvaluationRepository 
   async findCached(request: LlmEvaluationRequest, inputHash: string): Promise<LlmEvaluationRecord | undefined> {
     const result = await this.pool.query<LlmEvaluationRow>(
       `select id, task_type, prompt_version, input_hash, model, input, output, parsed_output, status,
-              prompt_tokens, completion_tokens, estimated_cost_usd, latency_ms, created_at
+              prompt_tokens, completion_tokens, estimated_cost_usd, latency_ms, payload_schema_version, created_at
        from llm_evaluations
        where task_type = $1
          and prompt_version = $2
@@ -26,8 +26,8 @@ export class PostgresLlmEvaluationRepository implements LlmEvaluationRepository 
     await this.pool.query(
       `insert into llm_evaluations (
         id, task_type, prompt_version, input_hash, model, input, output, parsed_output, status,
-        prompt_tokens, completion_tokens, estimated_cost_usd, latency_ms, created_at
-      ) values ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10, $11, $12, $13, $14)
+        prompt_tokens, completion_tokens, estimated_cost_usd, latency_ms, payload_schema_version, created_at
+      ) values ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10, $11, $12, $13, $14, $15)
       on conflict (task_type, input_hash, prompt_version, model) do update set
         id = excluded.id,
         input = excluded.input,
@@ -38,6 +38,7 @@ export class PostgresLlmEvaluationRepository implements LlmEvaluationRepository 
         completion_tokens = excluded.completion_tokens,
         estimated_cost_usd = excluded.estimated_cost_usd,
         latency_ms = excluded.latency_ms,
+        payload_schema_version = excluded.payload_schema_version,
         created_at = excluded.created_at`,
       [
         record.id,
@@ -53,6 +54,7 @@ export class PostgresLlmEvaluationRepository implements LlmEvaluationRepository 
         record.completionTokens,
         record.estimatedCostUsd,
         record.latencyMs,
+        record.payloadSchemaVersion ?? null,
         record.createdAt
       ]
     );
@@ -73,6 +75,7 @@ interface LlmEvaluationRow {
   completion_tokens: number | null;
   estimated_cost_usd: string | number | null;
   latency_ms: number | null;
+  payload_schema_version: string | null;
   created_at: Date | string;
 }
 
@@ -91,6 +94,7 @@ function toRecord(row: LlmEvaluationRow): LlmEvaluationRecord {
     completionTokens: row.completion_tokens ?? 0,
     estimatedCostUsd: Number(row.estimated_cost_usd ?? 0),
     latencyMs: row.latency_ms ?? 0,
+    payloadSchemaVersion: row.payload_schema_version ?? undefined,
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at
   };
 }

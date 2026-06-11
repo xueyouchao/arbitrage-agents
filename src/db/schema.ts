@@ -37,7 +37,7 @@ export const normalizedMarkets = pgTable(
     payoffType: text("payoff_type").notNull(),
     ambiguityFlags: jsonb("ambiguity_flags").notNull().default([]),
     confidence: numeric("confidence").notNull(),
-    llmEvaluationId: uuid("llm_evaluation_id").references(() => llmEvaluations.id),
+    llmEvaluationId: uuid("llm_evaluation_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => [uniqueIndex("normalized_markets_venue_market_unique").on(table.venue, table.venueMarketId)]
@@ -52,7 +52,12 @@ export const candidatePairs = pgTable(
     equivalenceClass: text("equivalence_class"),
     decision: text("decision"),
     reasons: jsonb("reasons").notNull().default([]),
-    llmEvaluationId: uuid("llm_evaluation_id").references(() => llmEvaluations.id),
+    // Issue #13: the optional LLM evaluation FK is intentionally NOT a
+    // hard foreign key constraint. A test, an alternate provider, or a
+    // future deployment may back the scanner with a different LLM
+    // evaluation repository. The audit link is preserved as a plain UUID
+    // and the optional LLM metadata must never fail scan persistence.
+    llmEvaluationId: uuid("llm_evaluation_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => [uniqueIndex("candidate_pairs_market_unique").on(table.kalshiMarketId, table.polymarketMarketId)]
@@ -74,6 +79,10 @@ export const llmEvaluations = pgTable(
     completionTokens: integer("completion_tokens"),
     estimatedCostUsd: numeric("estimated_cost_usd"),
     latencyMs: integer("latency_ms"),
+    // Persisted schema version of the parsed output. The cache-version
+    // invariant only works end-to-end if this value round-trips through
+    // the repository (issue #12, blocker follow-up).
+    payloadSchemaVersion: text("payload_schema_version"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => [uniqueIndex("llm_evaluations_cache_unique").on(table.taskType, table.inputHash, table.promptVersion, table.model)]
