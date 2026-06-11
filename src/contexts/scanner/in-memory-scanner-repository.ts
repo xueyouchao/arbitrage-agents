@@ -31,7 +31,7 @@ export class InMemoryScannerRepository implements ScannerRepository {
   saveCompletedScan(artifacts: CompletedScanArtifacts): Promise<CompletedScanResult> {
     const completedScanRun = artifacts.completeScanRun(artifacts.scanRun);
     this.snapshots.push(...artifacts.snapshots);
-    this.normalizedMarkets.push(...artifacts.normalizedMarkets);
+    this.normalizedMarkets.push(...artifacts.normalizedMarkets.map((review) => review.market));
     this.candidatePairs.push(...artifacts.candidatePairs);
     this.orderbookSnapshots.push(...artifacts.orderbookSnapshots);
     this.opportunities.push(...artifacts.opportunities);

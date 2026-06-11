@@ -9,10 +9,12 @@ import {
   OpportunityWithSourceSnapshots,
   OrderbookSnapshotArtifact,
   ReviewedCandidatePair,
+  ReviewedNormalizedMarket,
   ScannerRepository
 } from "./scanner-repository";
 import { SCANNER_DB_POOL } from "./scanner-tokens";
 import { ScanResult } from "./scanner-result";
+import { LlmEvaluationRecord } from "../llm/application/llm-evaluation";
 
 @Injectable()
 export class PostgresScannerRepository implements ScannerRepository, OnModuleDestroy {
@@ -86,16 +88,21 @@ async function saveSnapshots(queryable: Queryable, scanRunId: string, snapshots:
   }
 }
 
-async function saveNormalizedMarkets(queryable: Queryable, markets: NormalizedMarket[]): Promise<Map<string, string>> {
+async function saveNormalizedMarkets(queryable: Queryable, markets: ReviewedNormalizedMarket[]): Promise<Map<string, string>> {
   const idsByMarketId = new Map<string, string>();
 
-  for (const market of markets) {
+  for (const review of markets) {
+    const market = review.market;
+    // Issue #4: only set llm_evaluation_id when this scan carries a
+    // succeeded, persisted LLM review. Skipped, failed, or isolated
+    // in-memory failure records must not erase prior successful provenance.
+    const newLlmEvaluationId = persistedSuccessfulLlmEvaluationId(review.llmEvaluation);
     const result = await queryable.query<{ id: string }>(
       `insert into normalized_markets (
         id, venue, venue_market_id, title, raw_resolution_text, topic, event_type,
         asset, threshold, operator, deadline, timezone, resolution_source,
-        payoff_type, ambiguity_flags, confidence
-      ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16)
+        payoff_type, ambiguity_flags, confidence, llm_evaluation_id
+      ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16, $17)
       on conflict (venue, venue_market_id) do update set
         title = excluded.title,
         raw_resolution_text = excluded.raw_resolution_text,
@@ -109,7 +116,11 @@ async function saveNormalizedMarkets(queryable: Queryable, markets: NormalizedMa
         resolution_source = excluded.resolution_source,
         payoff_type = excluded.payoff_type,
         ambiguity_flags = excluded.ambiguity_flags,
-        confidence = excluded.confidence
+        confidence = excluded.confidence,
+        llm_evaluation_id = case
+          when excluded.llm_evaluation_id is null then normalized_markets.llm_evaluation_id
+          else excluded.llm_evaluation_id
+        end
       returning id`,
       [
         uuidFromStableKey(market.id),
@@ -127,7 +138,8 @@ async function saveNormalizedMarkets(queryable: Queryable, markets: NormalizedMa
         market.resolutionSource ?? null,
         market.payoffType,
         JSON.stringify(market.ambiguityFlags),
-        market.confidence
+        market.confidence,
+        newLlmEvaluationId
       ]
     );
     idsByMarketId.set(market.id, result.rows[0].id);
@@ -143,14 +155,22 @@ async function saveCandidatePairs(
 ): Promise<Map<string, string>> {
   const idsByPairId = new Map<string, string>();
 
-  for (const { pair, decision } of reviewedPairs) {
+  for (const { pair, decision, llmEvaluation } of reviewedPairs) {
+    // Issue #5: only set llm_evaluation_id when this scan carries a
+    // succeeded, persisted LLM review. Skipped, failed, or isolated
+    // in-memory failure records must not erase prior successful provenance.
+    const newLlmEvaluationId = persistedSuccessfulLlmEvaluationId(llmEvaluation);
     const result = await queryable.query<{ id: string }>(
-      `insert into candidate_pairs (id, kalshi_market_id, polymarket_market_id, equivalence_class, decision, reasons)
-       values ($1, $2, $3, $4, $5, $6::jsonb)
+      `insert into candidate_pairs (id, kalshi_market_id, polymarket_market_id, equivalence_class, decision, reasons, llm_evaluation_id)
+       values ($1, $2, $3, $4, $5, $6::jsonb, $7)
        on conflict (kalshi_market_id, polymarket_market_id) do update set
          equivalence_class = excluded.equivalence_class,
          decision = excluded.decision,
-         reasons = excluded.reasons
+         reasons = excluded.reasons,
+         llm_evaluation_id = case
+           when excluded.llm_evaluation_id is null then candidate_pairs.llm_evaluation_id
+           else excluded.llm_evaluation_id
+         end
        returning id`,
       [
         uuidFromStableKey(pair.id),
@@ -158,13 +178,24 @@ async function saveCandidatePairs(
         persistedId(marketIds, pair.polymarketMarket.id),
         decision.equivalenceClass,
         decision.decision,
-        JSON.stringify([...pair.reasons, ...decision.reasons])
+        JSON.stringify([...pair.reasons, ...decision.reasons]),
+        newLlmEvaluationId
       ]
     );
     idsByPairId.set(pair.id, result.rows[0].id);
   }
 
   return idsByPairId;
+}
+
+function persistedSuccessfulLlmEvaluationId(llmEvaluation: LlmEvaluationRecord | undefined): string | null {
+  if (!llmEvaluation || llmEvaluation.status !== "succeeded") return null;
+  // The scanner FK was dropped (issue #13) to support non-Postgres LLM
+  // gateways. With the FK gone, a non-persisted succeeded record would
+  // silently write a dangling audit reference. Only link to records the
+  // gateway actually persisted to its repository.
+  if (llmEvaluation.isPersisted === false) return null;
+  return llmEvaluation.id;
 }
 
 async function saveOrderbookSnapshots(

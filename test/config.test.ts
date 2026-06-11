@@ -11,7 +11,12 @@ describe("loadAppConfig", () => {
         DATABASE_URL: "postgres://user:pass@localhost:5432/db",
         LOG_LEVEL: "debug",
         SENTRY_SEND_DEFAULT_PII: "false",
-        LLM_PROMPT_SAMPLE_RATE: "0.25"
+        LLM_PROMPT_SAMPLE_RATE: "0.25",
+        LLM_ENABLED: "true",
+        LLM_BASE_URL: "http://127.0.0.1:11434/api/chat",
+        LLM_MODEL: "kimi-k2.6:cloud",
+        LLM_REQUEST_TIMEOUT_MS: "45000",
+        SCANNER_LLM_MAX_EVALUATIONS_PER_SCAN: "7"
       })
     ).toMatchObject({
       nodeEnv: "test",
@@ -19,7 +24,12 @@ describe("loadAppConfig", () => {
       databaseUrl: "postgres://user:pass@localhost:5432/db",
       logLevel: "debug",
       sentrySendDefaultPii: false,
-      llmPromptSampleRate: 0.25
+      llmPromptSampleRate: 0.25,
+      llmEnabled: true,
+      llmBaseUrl: "http://127.0.0.1:11434/api/chat",
+      llmModel: "kimi-k2.6:cloud",
+      llmRequestTimeoutMs: 45000,
+      scannerLlmMaxEvaluationsPerScan: 7
     });
   });
 

@@ -22,6 +22,27 @@
       "when": 1780693511073,
       "tag": "0002_closed_wolfsbane",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781122582521,
+      "tag": "0003_colorful_rockslide",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1781189652529,
+      "tag": "0004_drop_scanner_llm_fk",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1781194198367,
+      "tag": "0005_add_llm_payload_schema_version",
+      "breakpoints": true
     }
   ]
 }
