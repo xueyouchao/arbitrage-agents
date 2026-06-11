@@ -38,6 +38,7 @@ sudo docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 printf 'Starting disposable live-smoke Postgres %s on 127.0.0.1:%s/%s...\n' "$POSTGRES_IMAGE" "$DB_PORT" "$DB_NAME"
 sudo docker run --rm -d \
   --name "$CONTAINER" \
+  -e POSTGRES_USER="$DB_USER" \
   -e POSTGRES_PASSWORD="$DB_PASS" \
   -e POSTGRES_DB="$DB_NAME" \
   -p "127.0.0.1:${DB_PORT}:5432" \
