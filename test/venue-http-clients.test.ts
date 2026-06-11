@@ -87,6 +87,18 @@ describe("public venue HTTP clients", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("passes verbose fetch diagnostics only when explicitly enabled", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ markets: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await new KalshiPublicVenueClient("https://kalshi.test", { retryDelayMs: 0, verbose: true }).listMarkets();
+
+    expect(fetchMock).toHaveBeenCalledWith("https://kalshi.test/markets?status=open&limit=100", expect.objectContaining({
+      method: "GET",
+      verbose: true
+    }));
+  });
 });
 
 function snapshot(venue: "kalshi" | "polymarket", venueMarketId: string, rawPayload: Record<string, unknown>): VenueMarketSnapshot {

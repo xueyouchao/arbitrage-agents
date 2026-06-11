@@ -26,7 +26,11 @@ const AppConfigSchema = z.object({
   llmModel: z.string().min(1).default("minimax-m3:cloud"),
   llmRequestTimeoutMs: z.coerce.number().int().positive().max(180_000).default(30_000),
   scannerLlmPromptVersion: z.string().min(1).default("scanner-v1"),
-  scannerLlmMaxEvaluationsPerScan: z.coerce.number().int().min(0).max(1_000).default(25)
+  scannerLlmMaxEvaluationsPerScan: z.coerce.number().int().min(0).max(1_000).default(25),
+  venueHttpTimeoutMs: z.coerce.number().int().positive().default(5_000),
+  venueHttpRetries: z.coerce.number().int().min(0).default(2),
+  venueHttpRetryDelayMs: z.coerce.number().int().min(0).default(100),
+  venueHttpVerbose: booleanFromString.default(false)
 });
 
 export type AppConfig = z.infer<typeof AppConfigSchema>;
@@ -46,7 +50,11 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     llmModel: env.LLM_MODEL,
     llmRequestTimeoutMs: env.LLM_REQUEST_TIMEOUT_MS,
     scannerLlmPromptVersion: env.SCANNER_LLM_PROMPT_VERSION,
-    scannerLlmMaxEvaluationsPerScan: env.SCANNER_LLM_MAX_EVALUATIONS_PER_SCAN
+    scannerLlmMaxEvaluationsPerScan: env.SCANNER_LLM_MAX_EVALUATIONS_PER_SCAN,
+    venueHttpTimeoutMs: env.VENUE_HTTP_TIMEOUT_MS,
+    venueHttpRetries: env.VENUE_HTTP_RETRIES,
+    venueHttpRetryDelayMs: env.VENUE_HTTP_RETRY_DELAY_MS,
+    venueHttpVerbose: env.VENUE_HTTP_VERBOSE
   });
 }
 

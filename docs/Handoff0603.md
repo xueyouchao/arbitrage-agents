@@ -636,6 +636,15 @@
   8. Fix coverage tooling and add integration tests.
   9. Harden API tests and response contracts.
   10. Only then launch production read-only analytics.
+
+  Live market-data smoke test follow-up:
+
+  - Add a separate read-only live smoke command after deterministic API acceptance coverage is stable.
+  - The smoke should start a disposable Postgres database, run migrations, run one real scanner pass against public Kalshi/Polymarket market data, start the API, and verify persisted scan/API readability.
+  - It must not expect a profitable opportunity to exist; live market conditions are nondeterministic.
+  - Minimum pass criteria should be: scanner completes without fetch/persistence failure, a scan run is persisted, API `/health` responds, `/v1/scan-runs/latest` returns the live scan, and `/v1/markets` reflects persisted live market data when venues return data.
+  - Keep this separate from `test:acceptance`, which should remain deterministic with seeded fixture data.
+  - Guardrails: read-only public APIs only; no trading, no order placement, no signing, no private/authenticated venue APIs.
 ---
 
 ## 2026-06-05 architecture cleanup / cross-review implementation update
@@ -662,7 +671,7 @@ Completed from `docs/CROSS-REVIEW-ISSUES-AND-IMPROVEMENTS.md` architecture TODOs
   - Removed the unused application compatibility re-export after import search confirmed active source/test imports use the infrastructure path.
 - [x] Fix scan timestamp correctness.
   - Scanner now uses a calculation timestamp after orderbook fetch.
-  - Successful scan `completedAt` is captured freshly rather than reusing `startedAt`.
+  - Successful scan `completedAt` is finalized through `saveCompletedScan(...)` after completed artifacts are assembled/persisted, rather than reusing `startedAt`.
 
 Deferred / still open:
 

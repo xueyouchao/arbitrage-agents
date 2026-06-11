@@ -29,8 +29,16 @@ import { WorkerScanRunner } from "./worker-scan-runner";
       useFactory: (config: AppConfig) => new Pool({ connectionString: config.databaseUrl }),
       inject: [APP_CONFIG]
     },
-    { provide: KALSHI_VENUE_CLIENT, useFactory: () => new KalshiPublicVenueClient() },
-    { provide: POLYMARKET_VENUE_CLIENT, useFactory: () => new PolymarketPublicVenueClient() },
+    {
+      provide: KALSHI_VENUE_CLIENT,
+      useFactory: (config: AppConfig) => new KalshiPublicVenueClient(undefined, venueHttpOptions(config)),
+      inject: [APP_CONFIG]
+    },
+    {
+      provide: POLYMARKET_VENUE_CLIENT,
+      useFactory: (config: AppConfig) => new PolymarketPublicVenueClient(undefined, undefined, venueHttpOptions(config)),
+      inject: [APP_CONFIG]
+    },
     PostgresScannerRepository,
     { provide: SCANNER_REPOSITORY, useExisting: PostgresScannerRepository },
     {
@@ -83,3 +91,12 @@ import { WorkerScanRunner } from "./worker-scan-runner";
   exports: [WorkerScanRunner]
 })
 export class ScannerModule {}
+
+function venueHttpOptions(config: AppConfig) {
+  return {
+    timeoutMs: config.venueHttpTimeoutMs,
+    retries: config.venueHttpRetries,
+    retryDelayMs: config.venueHttpRetryDelayMs,
+    verbose: config.venueHttpVerbose
+  };
+}
