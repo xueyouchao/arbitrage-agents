@@ -1,0 +1,49 @@
+# PR-Agent configuration.
+# Docs: https://docs.pr-agent.ai/usage-guide/changing_a_model/
+#
+# Repo policy: use free OpenRouter models. Never use a Claude model from
+# OpenRouter — the GitHub workflow also has a runtime check that fails
+# the job if a "claude" string appears in `model` or any `fallback_models`
+# entry.
+
+[config]
+# Primary reviewer: nex-agi/nex-n2-pro (free tier on OpenRouter).
+model = "openrouter/nex-agi/nex-n2-pro:free"
+
+# Fallback if the primary is rate-limited or down. Same family restriction:
+# free OpenRouter models, no Claude.
+fallback_models = [
+  "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+]
+
+# Cap output tokens; free models vary in context window.
+custom_model_max_tokens = 8000
+
+# PR-Agent runs four tools on each PR. Tweak the triggers to your taste.
+[pr_reviewer]
+# Focus the reviewer on real issues, not nitpicks.
+require_focused_review = true
+# Require at least one "key issue" before PR-Agent bothers to comment.
+num_required_app_review_comments = 1
+# Skip PRs touching only docs / config.
+exclude_globs = [
+  "**/*.md",
+  "**/docs/**",
+  "**/.github/**",
+  "**/coverage/**",
+  "**/dist/**",
+]
+
+[pr_description]
+# Auto-generate a PR description on each new PR.
+publish_description = true
+# Use the user as the description author (default behaviour).
+add_original_user_description = true
+
+[pr_questions]
+# Don't run the "questions" tool on every PR — too noisy for a small repo.
+enable = false
+
+[pr_add_docs]
+# Don't auto-add docstrings — too aggressive on a small repo.
+enable = false

@@ -1,0 +1,145 @@
+name: AI Code Review (PR-Agent, multi-model)
+
+# Runs qodo-ai/pr-agent TWICE on every PR — once per free OpenRouter model.
+# Each job posts its own review comment on the same PR, so you get two
+# independent perspectives. This is an UNDOCUMENTED usage of PR-Agent (its
+# docs only describe single-model with a fallback chain), but it works
+# because the action makes independent GitHub API calls per invocation.
+#
+# Repo policy: never use a Claude model from OpenRouter. Each job's
+# "no-Claude" pre-check fails the build if the configured model or any
+# fallback contains the string "claude".
+#
+# Pin to a tagged release (v0.36.0) so a future change to @main can't break
+# reviews; bump the tag manually after testing.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: read
+  statuses: read
+
+jobs:
+  # ---- Job 1: primary model (nex-n2-pro) ----
+  review-nex:
+    name: PR-Agent — nex-agi/nex-n2-pro
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    # Scope concurrency per model so the two jobs don't cancel each other
+    # when the PR is force-pushed.
+    concurrency:
+      group: pr-agent-nex-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Generate .pr_agent.toml (primary = nex-n2-pro)
+        # This file is generated fresh in the runner, not committed. The
+        # committed .pr_agent.toml at the repo root is overridden by this.
+        run: |
+          cat > .pr_agent.toml <<'EOF'
+          [config]
+          model = "openrouter/nex-agi/nex-n2-pro:free"
+          fallback_models = [
+            "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+          ]
+          custom_model_max_tokens = 8000
+          [pr_reviewer]
+          require_focused_review = true
+          num_required_app_review_comments = 1
+          exclude_globs = [
+            "**/*.md",
+            "**/docs/**",
+            "**/.github/**",
+            "**/coverage/**",
+            "**/dist/**",
+          ]
+          [pr_description]
+          publish_description = false
+          [pr_questions]
+          enable = false
+          [pr_add_docs]
+          enable = false
+          EOF
+          echo "--- generated .pr_agent.toml ---"
+          cat .pr_agent.toml
+          echo "---------------------------------"
+
+      - name: Fail loudly if a Claude model is configured
+        # Belt-and-suspenders: the model is set by THIS step, so this
+        # check would only fire if someone edits the heredoc above to
+        # point at a Claude model.
+        run: |
+          set -euo pipefail
+          if grep -Eiq 'claude' .pr_agent.toml; then
+            echo "::error::Repo policy forbids Claude models on OpenRouter. Refusing to run."
+            exit 1
+          fi
+
+      - name: PR Agent action step
+        uses: the-pr-agent/pr-agent@v0.36.0
+        env:
+          # Set the secret under every name PR-Agent has historically read
+          # it as. Cheap insurance.
+          openrouter__key: ${{ secrets.OPEN_ROUTER_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPEN_ROUTER_API_KEY }}
+          OPENAI_KEY: ${{ secrets.OPEN_ROUTER_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---- Job 2: secondary model (nvidia nemotron) ----
+  review-nvidia:
+    name: PR-Agent — nvidia/nemotron-3-ultra
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    concurrency:
+      group: pr-agent-nvidia-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Generate .pr_agent.toml (primary = nvidia nemotron)
+        run: |
+          cat > .pr_agent.toml <<'EOF'
+          [config]
+          model = "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
+          fallback_models = [
+            "openrouter/nex-agi/nex-n2-pro:free",
+          ]
+          custom_model_max_tokens = 8000
+          [pr_reviewer]
+          require_focused_review = true
+          num_required_app_review_comments = 1
+          exclude_globs = [
+            "**/*.md",
+            "**/docs/**",
+            "**/.github/**",
+            "**/coverage/**",
+            "**/dist/**",
+          ]
+          [pr_description]
+          publish_description = false
+          [pr_questions]
+          enable = false
+          [pr_add_docs]
+          enable = false
+          EOF
+          echo "--- generated .pr_agent.toml ---"
+          cat .pr_agent.toml
+          echo "---------------------------------"
+
+      - name: Fail loudly if a Claude model is configured
+        run: |
+          set -euo pipefail
+          if grep -Eiq 'claude' .pr_agent.toml; then
+            echo "::error::Repo policy forbids Claude models on OpenRouter. Refusing to run."
+            exit 1
+          fi
+
+      - name: PR Agent action step
+        uses: the-pr-agent/pr-agent@v0.36.0
+        env:
+          openrouter__key: ${{ secrets.OPEN_ROUTER_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPEN_ROUTER_API_KEY }}
+          OPENAI_KEY: ${{ secrets.OPEN_ROUTER_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
