@@ -46,7 +46,7 @@ export interface ScanStepRow extends ScanStepArtifact {
 
 export interface ScanStepRepository {
   saveStep(step: ScanStepArtifact): Promise<ScanStepRow>;
-  listForRun(scanRunId: string): ScanStepRow[];
-  getStep(scanRunId: string, stepName: ScanStepName): ScanStepRow | undefined;
+  listForRun(scanRunId: string): Promise<ScanStepRow[]>;
+  getStep(scanRunId: string, stepName: ScanStepName): Promise<ScanStepRow | undefined>;
   markRunHeartbeat(scanRunId: string, heartbeatAt: string): Promise<void>;
 }

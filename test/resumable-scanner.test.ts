@@ -76,7 +76,8 @@ describe("ResumableScanner", () => {
 
     expect(result.status).toBe("succeeded");
     expect(steps.byRunId.get(result.id)).toBeDefined();
-    const stepNames = steps.listForRun(result.id).map((s) => s.stepName);
+    const allSteps = await steps.listForRun(result.id);
+    const stepNames = allSteps.map((s) => s.stepName);
     expect(stepNames).toEqual([
       "fetch_markets",
       "fetch_books",
@@ -85,7 +86,7 @@ describe("ResumableScanner", () => {
       "calculate_opportunities",
       "finalize"
     ]);
-    expect(steps.listForRun(result.id).every((s) => s.status === "succeeded")).toBe(true);
+    expect(allSteps.every((s) => s.status === "succeeded")).toBe(true);
     expect(checkInClient.checkIns.map((c) => ({ slug: c.slug, status: c.status }))).toEqual([
       { slug: "arbitrage-agents-scan", status: "in_progress" },
       { slug: "arbitrage-agents-scan", status: "ok" }
@@ -117,7 +118,7 @@ describe("ResumableScanner", () => {
     expect(result.status).toBe("failed");
     expect(result.failureReason).not.toContain("secret");
     expect(checkInClient.checkIns.map((c) => c.status)).toEqual(["in_progress", "error"]);
-    expect(stepRepository.listForRun(result.id).find((s) => s.stepName === "fetch_markets")?.status).toBe("failed");
+    expect((await stepRepository.listForRun(result.id)).find((s) => s.stepName === "fetch_markets")?.status).toBe("failed");
   });
 
   it("skips already-succeeded steps on resume and does not duplicate persisted rows", async () => {
@@ -155,9 +156,10 @@ describe("ResumableScanner", () => {
     const resumed = await resumeScanner.runOnce();
 
     expect(resumed.id).toBe(resumeScanId);
-    const resumedSteps = stepRepository.listForRun(resumeScanId);
-    const rehydrated = resumedSteps.filter((s) => s.metadata?.rehydrated === true);
-    expect(rehydrated.map((s) => s.stepName).sort()).toEqual(["fetch_books", "fetch_markets", "normalize_markets"]);
+    const resumedSteps = await stepRepository.listForRun(resumeScanId);
+    const preseededStepNames = resumedSteps.slice(0, 3).map((s) => s.stepName);
+    expect(preseededStepNames).toEqual(["fetch_markets", "fetch_books", "normalize_markets"]);
+    expect(resumedSteps.filter((s) => s.metadata?.rehydrated === true)).toEqual([]);
     expect(resumed.status).toBe("succeeded");
     // The inner scanner is not invoked for the seeded steps, so the
     // repository totals are unchanged from the first run.
@@ -194,7 +196,7 @@ describe("ResumableScanner", () => {
     const resumed = await resumeScanner.runOnce();
 
     expect(resumed.status).toBe("succeeded");
-    const fetchBooks = steps.listForRun(scanRunId).filter((s) => s.stepName === "fetch_books");
+    const fetchBooks = (await steps.listForRun(scanRunId)).filter((s) => s.stepName === "fetch_books");
     expect(fetchBooks.map((s) => s.status)).toEqual(["failed", "succeeded"]);
     expect(checkInClient.checkIns.map((c) => c.status)).toEqual(["in_progress", "ok"]);
   });
@@ -205,13 +207,13 @@ describe("ResumableScanner", () => {
     const { scanner, stepRepository: steps } = buildResumableScanner(repository, stepRepository);
 
     const result = await scanner.runOnce();
-    const completed = steps.listForRun(result.id);
+    const completed = await steps.listForRun(result.id);
     const fetchMarketsRows = completed.filter((s) => s.stepName === "fetch_markets");
     expect(fetchMarketsRows).toHaveLength(1);
 
     // Re-saving the same succeeded step must not create a duplicate row.
     await stepRepository.saveStep(fetchMarketsRows[0]);
-    expect(steps.listForRun(result.id).filter((s) => s.stepName === "fetch_markets")).toHaveLength(1);
+    expect((await steps.listForRun(result.id)).filter((s) => s.stepName === "fetch_markets")).toHaveLength(1);
   });
 
   it("survives check-in client failures and still completes the scan", async () => {

@@ -24,20 +24,14 @@ export class PostgresScanStepRepository implements ScanStepRepository {
     return saveStepRow(this.pool, step);
   }
 
-  listForRun(scanRunId: string): ScanStepRow[] {
-    // The Postgres adapter is used in the worker process; the orchestrator
-    // loads the run on resume via `loadRunState(scanRunId)` (sync) so the
-    // list is materialized before step execution. The synchronous
-    // signature is intentional: the resumable orchestrator treats the
-    // step trail as already-loaded state and never re-queries mid-run.
-    void scanRunId;
-    throw new Error("PostgresScanStepRepository.listForRun requires a client; use loadRunState(pool, scanRunId) instead");
+  async listForRun(scanRunId: string): Promise<ScanStepRow[]> {
+    return loadRunSteps(this.pool, scanRunId);
   }
 
-  getStep(scanRunId: string, stepName: ScanStepName): ScanStepRow | undefined {
-    void scanRunId;
-    void stepName;
-    throw new Error("PostgresScanStepRepository.getStep requires a client; use loadRunState(pool, scanRunId).getStep(...)");
+  async getStep(scanRunId: string, stepName: ScanStepName): Promise<ScanStepRow | undefined> {
+    const steps = await this.listForRun(scanRunId);
+    const matching = steps.filter((step) => step.stepName === stepName);
+    return matching.length === 0 ? undefined : matching[matching.length - 1];
   }
 
   async markRunHeartbeat(scanRunId: string, heartbeatAt: string): Promise<void> {
@@ -52,7 +46,19 @@ export interface LoadedRunState {
 }
 
 export async function loadRunState(pool: Pool, scanRunId: string): Promise<LoadedRunState> {
-  const stepsResult = await pool.query<{
+  const [steps, heartbeatResult] = await Promise.all([
+    loadRunSteps(pool, scanRunId),
+    pool.query<{ heartbeat_at: Date | null }>(`select heartbeat_at from scan_runs where id = $1`, [scanRunId])
+  ]);
+  return {
+    scanRunId,
+    steps,
+    heartbeatAt: heartbeatResult.rows[0]?.heartbeat_at?.toISOString()
+  };
+}
+
+async function loadRunSteps(queryable: Pool | PoolClient, scanRunId: string): Promise<ScanStepRow[]> {
+  const stepsResult = await queryable.query<{
     id: string;
     step_name: ScanStepName;
     status: ScanStepStatus;
@@ -65,14 +71,10 @@ export async function loadRunState(pool: Pool, scanRunId: string): Promise<Loade
     `select id, step_name, status, started_at, completed_at, attempt, failure_reason, metadata
      from scan_steps
      where scan_run_id = $1
-     order by started_at asc`,
+     order by started_at asc, id asc`,
     [scanRunId]
   );
-  const heartbeatResult = await pool.query<{ heartbeat_at: Date | null }>(
-    `select heartbeat_at from scan_runs where id = $1`,
-    [scanRunId]
-  );
-  const steps: ScanStepRow[] = stepsResult.rows.map((r) => ({
+  return stepsResult.rows.map((r) => ({
     id: r.id,
     scanRunId,
     stepName: r.step_name,
@@ -83,11 +85,6 @@ export async function loadRunState(pool: Pool, scanRunId: string): Promise<Loade
     failureReason: r.failure_reason ?? undefined,
     metadata: r.metadata ?? {}
   }));
-  return {
-    scanRunId,
-    steps,
-    heartbeatAt: heartbeatResult.rows[0]?.heartbeat_at?.toISOString()
-  };
 }
 
 async function saveStepRow(queryable: Pool | PoolClient, step: ScanStepArtifact): Promise<ScanStepRow> {

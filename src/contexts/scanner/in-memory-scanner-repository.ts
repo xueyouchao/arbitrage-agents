@@ -98,8 +98,8 @@ export class InMemoryScanStepRepository implements ScanStepRepository {
     return row;
   }
 
-  listForRun(scanRunId: string): ScanStepRow[] {
-    return [...(this.byRunId.get(scanRunId) ?? [])];
+  listForRun(scanRunId: string): Promise<ScanStepRow[]> {
+    return Promise.resolve([...(this.byRunId.get(scanRunId) ?? [])]);
   }
 
   // Returns the most recent row for the (scanRunId, stepName) pair.
@@ -110,8 +110,8 @@ export class InMemoryScanStepRepository implements ScanStepRepository {
     return rows.length === 0 ? undefined : rows[rows.length - 1];
   }
 
-  getStep(scanRunId: string, stepName: ScanStepName): ScanStepRow | undefined {
-    return this.rows.find((r) => r.scanRunId === scanRunId && r.stepName === stepName);
+  getStep(scanRunId: string, stepName: ScanStepName): Promise<ScanStepRow | undefined> {
+    return Promise.resolve(this.latestForRun(scanRunId, stepName));
   }
 
   async markRunHeartbeat(scanRunId: string, heartbeatAt: string): Promise<void> {

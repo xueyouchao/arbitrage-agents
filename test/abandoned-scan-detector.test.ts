@@ -26,7 +26,7 @@ function buildDeps(overrides: Partial<AbandonedScanDetectorDeps> = {}): Abandone
     abandonedAfterMs: 5 * 60 * 1000,
     now: () => new Date("2026-06-04T12:00:00.000Z"),
     heartbeatOf: (run) => {
-      const steps = stepRepository.listForRun(run.id);
+      const steps = stepRepository.rows.filter((step) => step.scanRunId === run.id);
       const latest = steps.reduce<string | undefined>((acc, s) => {
         if (!s.completedAt) return acc;
         if (!acc) return s.completedAt;

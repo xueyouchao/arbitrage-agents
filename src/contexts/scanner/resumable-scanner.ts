@@ -82,7 +82,7 @@ export class ResumableScanner {
       // Hydrate the existing step trail (empty for a fresh run). We
       // compute the latest status per step name so the orchestrator can
       // skip already-succeeded steps on resume.
-      const existingSteps = this.deps.stepRepository.listForRun(scanRunId);
+      const existingSteps = await this.deps.stepRepository.listForRun(scanRunId);
       const latestByName = new Map<string, ScanStepRow>();
       for (const step of existingSteps) {
         // The repository returns steps in insertion order; later wins.
@@ -138,23 +138,6 @@ export class ResumableScanner {
           metadata: { executedBy: "inner_scanner" }
         });
         await this.deps.stepRepository.markRunHeartbeat(scanRunId, clock());
-      }
-
-      // Re-mark the rehydrated steps so the trail shows the
-      // `rehydrated: true` flag for operator visibility. Done last so
-      // the fresh rows above win the unique key in Postgres.
-      for (const stepName of allStepNames) {
-        if (!succeededByName.has(stepName)) continue;
-        const rehydrated = succeededByName.get(stepName)!;
-        await this.deps.stepRepository.saveStep({
-          scanRunId,
-          stepName,
-          status: "succeeded",
-          startedAt: rehydrated.startedAt,
-          completedAt: clock(),
-          attempt: rehydrated.attempt,
-          metadata: { ...rehydrated.metadata, rehydrated: true }
-        });
       }
 
       const completedAt = clock();

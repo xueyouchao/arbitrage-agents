@@ -853,27 +853,6 @@
         }
       },
       "indexes": {
-        "scan_steps_run_name_unique": {
-          "name": "scan_steps_run_name_unique",
-          "columns": [
-            {
-              "expression": "scan_run_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "step_name",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "scan_steps_status_idx": {
           "name": "scan_steps_status_idx",
           "columns": [
@@ -894,6 +873,33 @@
           "columns": [
             {
               "expression": "scan_run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "scan_steps_run_name_started_at_idx": {
+          "name": "scan_steps_run_name_started_at_idx",
+          "columns": [
+            {
+              "expression": "scan_run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "step_name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "started_at",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
