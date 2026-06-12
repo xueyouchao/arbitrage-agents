@@ -1,0 +1,342 @@
+name: AI Code Review (PR-Agent, multi-model)
+
+# Runs qodo-ai/pr-agent FOUR times on every PR — two free OpenRouter models
+# plus two Ollama Cloud models. Each job posts its own review comment on the
+# same PR, so you get four independent perspectives. This is an UNDOCUMENTED
+# usage of PR-Agent (its docs only describe single-model with a fallback
+# chain), but it works because the action makes independent GitHub API calls
+# per invocation.
+#
+# Provider split:
+#   - review-nex, review-nvidia  → openrouter/<vendor>/<model>:free
+#   - review-deepseek, review-glm → ollama_chat/<model> against
+#                                   https://ollama.com (Ollama Cloud direct).
+#                                   Model id is the base name with NO
+#                                   `:cloud` suffix — the suffix is only
+#                                   meaningful when local Ollama does the
+#                                   offload; calling ollama.com directly
+#                                   uses the bare name.
+#                                   Auth: OLLAMA_API_KEY env var carries
+#                                   the Ollama Cloud key (Bearer token).
+#                                   KNOWN RISK: LiteLLM's ollama_chat
+#                                   provider reads OLLAMA_API_KEY but, per
+#                                   the visible transformation code, does
+#                                   not inject an Authorization header.
+#                                   If 401s start, switch these jobs to a
+#                                   local-Ollama-in-runner setup.
+#
+# Repo policy: never use a Claude model from OpenRouter. Each job's
+# "no-Claude" pre-check fails the build if the configured model or any
+# fallback contains the string "claude". (Ollama Cloud models pass
+# trivially — none of the model ids below contain "claude".)
+#
+# Pin to a tagged release (v0.36.0) so a future change to @main can't break
+# reviews; bump the tag manually after testing.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: read
+  statuses: read
+
+jobs:
+  # ---- Job 1: primary model (nex-n2-pro) ----
+  review-nex:
+    name: PR-Agent — nex-agi/nex-n2-pro
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    # Scope concurrency per model so the two jobs don't cancel each other
+    # when the PR is force-pushed.
+    concurrency:
+      group: pr-agent-nex-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Generate .pr_agent.toml (primary = nex-n2-pro)
+        # This file is generated fresh in the runner, not committed. The
+        # committed .pr_agent.toml at the repo root is overridden by this.
+        run: |
+          cat > .pr_agent.toml <<'EOF'
+          [config]
+          model = "openrouter/nex-agi/nex-n2-pro:free"
+          fallback_models = [
+            "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+          ]
+          custom_model_max_tokens = 8000
+          [pr_reviewer]
+          require_focused_review = true
+          num_required_app_review_comments = 1
+          exclude_globs = [
+            "**/*.md",
+            "**/docs/**",
+            "**/.github/**",
+            "**/coverage/**",
+            "**/dist/**",
+          ]
+          [pr_description]
+          publish_description = false
+          [pr_questions]
+          enable = false
+          [pr_add_docs]
+          enable = false
+          EOF
+          echo "--- generated .pr_agent.toml ---"
+          cat .pr_agent.toml
+          echo "---------------------------------"
+
+      - name: Fail loudly if a Claude model is configured
+        # Belt-and-suspenders: the model is set by THIS step, so this
+        # check would only fire if someone edits the heredoc above to
+        # point at a Claude model.
+        run: |
+          set -euo pipefail
+          if grep -Eiq 'claude' .pr_agent.toml; then
+            echo "::error::Repo policy forbids Claude models on OpenRouter. Refusing to run."
+            exit 1
+          fi
+
+      - name: PR Agent action step
+        uses: the-pr-agent/pr-agent@v0.36.0
+        env:
+          # Prefer OPEN_ROUTER_API_KEY (the legacy name this repo originally
+          # used); fall back to OPENROUTER_API_KEY (OpenRouter's documented
+          # name) so anyone following the public docs also works.
+          #
+          # Note: openrouter__key (double-underscore, lowercase) is dead
+          # code under dynaconf>=3.x, which is what PR-Agent v0.36.0
+          # requires (see requirements.txt). Setting it does nothing.
+          # OPENAI_KEY is intentionally NOT set: PR-Agent's litellm
+          # handler reads OPENAI.KEY from settings and arms the OpenAI
+          # client with whatever it finds. If we populate OPENAI_KEY
+          # with the OpenRouter key, any future bare-gpt-* sub-call
+          # would attempt an OpenAI request and 401. PR-Agent's
+          # __init__ already arms the OpenAI client from
+          # OPENROUTER.KEY directly, so we don't need OPENAI_KEY here.
+          OPENROUTER_API_KEY: ${{ secrets.OPEN_ROUTER_API_KEY || secrets.OPENROUTER_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---- Job 2: secondary model (nvidia nemotron) ----
+  review-nvidia:
+    name: PR-Agent — nvidia/nemotron-3-ultra
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    concurrency:
+      group: pr-agent-nvidia-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Generate .pr_agent.toml (primary = nvidia nemotron)
+        run: |
+          cat > .pr_agent.toml <<'EOF'
+          [config]
+          model = "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
+          fallback_models = [
+            "openrouter/nex-agi/nex-n2-pro:free",
+          ]
+          custom_model_max_tokens = 8000
+          [pr_reviewer]
+          require_focused_review = true
+          num_required_app_review_comments = 1
+          exclude_globs = [
+            "**/*.md",
+            "**/docs/**",
+            "**/.github/**",
+            "**/coverage/**",
+            "**/dist/**",
+          ]
+          [pr_description]
+          publish_description = false
+          [pr_questions]
+          enable = false
+          [pr_add_docs]
+          enable = false
+          EOF
+          echo "--- generated .pr_agent.toml ---"
+          cat .pr_agent.toml
+          echo "---------------------------------"
+
+      - name: Fail loudly if a Claude model is configured
+        run: |
+          set -euo pipefail
+          if grep -Eiq 'claude' .pr_agent.toml; then
+            echo "::error::Repo policy forbids Claude models on OpenRouter. Refusing to run."
+            exit 1
+          fi
+
+      - name: PR Agent action step
+        uses: the-pr-agent/pr-agent@v0.36.0
+        env:
+          # Same fallback pattern as the review-nex job above. See that
+          # job's comment for the rationale on why openrouter__key and
+          # OPENAI_KEY are intentionally not set here.
+          OPENROUTER_API_KEY: ${{ secrets.OPEN_ROUTER_API_KEY || secrets.OPENROUTER_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---- Job 3: Ollama Cloud — deepseek-v4-flash ----
+  review-deepseek:
+    name: PR-Agent — Ollama Cloud / deepseek-v4-flash
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    concurrency:
+      group: pr-agent-deepseek-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Generate .pr_agent.toml (primary = ollama_chat/deepseek-v4-flash)
+        # Same shape as the OpenRouter jobs, but provider is ollama_chat
+        # and the model id has NO :cloud suffix (that's a local-Ollama
+        # routing tag, not a cloud-direct model name).
+        run: |
+          cat > .pr_agent.toml <<'EOF'
+          [config]
+          model = "ollama_chat/deepseek-v4-flash"
+          fallback_models = [
+            "ollama_chat/glm-5.1",
+          ]
+          custom_model_max_tokens = 8000
+          [pr_reviewer]
+          require_focused_review = true
+          num_required_app_review_comments = 1
+          exclude_globs = [
+            "**/*.md",
+            "**/docs/**",
+            "**/.github/**",
+            "**/coverage/**",
+            "**/dist/**",
+          ]
+          [pr_description]
+          publish_description = false
+          [pr_questions]
+          enable = false
+          [pr_add_docs]
+          enable = false
+          EOF
+          echo "--- generated .pr_agent.toml ---"
+          cat .pr_agent.toml
+          echo "---------------------------------"
+
+      - name: Fail loudly if a Claude model is configured
+        # Same check as the OpenRouter jobs. The Ollama Cloud models here
+        # don't contain "claude", so this is a no-op in practice — but it
+        # keeps the policy uniform across all four jobs.
+        run: |
+          set -euo pipefail
+          if grep -Eiq 'claude' .pr_agent.toml; then
+            echo "::error::Repo policy forbids Claude models on OpenRouter. Refusing to run."
+            exit 1
+          fi
+
+      - name: Ollama Cloud preflight
+        # KNOWN RISK: LiteLLM's ollama_chat provider reads OLLAMA_API_KEY
+        # from the environment but, per its visible transformation code,
+        # does not inject an Authorization: Bearer header on outgoing
+        # requests. Ollama Cloud requires that header on every call. This
+        # step does a direct curl with the same env so a 401 (vs an opaque
+        # PR-Agent failure) shows up in the CI log. If preflight returns
+        # 401, the PR-Agent step will almost certainly fail too — surface
+        # the cause, don't fail the job here (PR-Agent may still work via
+        # some other code path; let the next step be the real signal).
+        env:
+          OLLAMA_API_BASE: https://ollama.com
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+        run: |
+          set +e
+          code=$(curl -sS -o /tmp/preflight.deepseek.json -w '%{http_code}' \
+            -m 30 \
+            -H "Authorization: Bearer ${OLLAMA_API_KEY}" \
+            -H 'Content-Type: application/json' \
+            -d '{"model":"deepseek-v4-flash","stream":false,"messages":[{"role":"user","content":"ping"}]}' \
+            https://ollama.com/api/chat)
+          echo "Ollama Cloud preflight: HTTP ${code}"
+          echo "--- response body (first 500 chars) ---"
+          head -c 500 /tmp/preflight.deepseek.json || true
+          echo
+          echo "----------------------------------------"
+          # Don't fail the job on 401 — the preflight is informational. The
+          # PR-Agent step is the real canary.
+
+      - name: PR Agent action step
+        uses: the-pr-agent/pr-agent@v0.36.0
+        env:
+          # Ollama Cloud, direct. Model id has no :cloud suffix (cloud-direct
+          # uses the bare name). OLLAMA_API_KEY is the Ollama Cloud key from
+          # https://ollama.com/settings/keys. NOTE: ollama_chat may not
+          # inject this as a Bearer header — see the preflight step.
+          OLLAMA_API_BASE: https://ollama.com
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---- Job 4: Ollama Cloud — glm-5.1 ----
+  review-glm:
+    name: PR-Agent — Ollama Cloud / glm-5.1
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    concurrency:
+      group: pr-agent-glm-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Generate .pr_agent.toml (primary = ollama_chat/glm-5.1)
+        run: |
+          cat > .pr_agent.toml <<'EOF'
+          [config]
+          model = "ollama_chat/glm-5.1"
+          fallback_models = [
+            "ollama_chat/deepseek-v4-flash",
+          ]
+          custom_model_max_tokens = 8000
+          [pr_reviewer]
+          require_focused_review = true
+          num_required_app_review_comments = 1
+          exclude_globs = [
+            "**/*.md",
+            "**/docs/**",
+            "**/.github/**",
+            "**/coverage/**",
+            "**/dist/**",
+          ]
+          [pr_description]
+          publish_description = false
+          [pr_questions]
+          enable = false
+          [pr_add_docs]
+          enable = false
+          EOF
+          echo "--- generated .pr_agent.toml ---"
+          cat .pr_agent.toml
+          echo "---------------------------------"
+
+      - name: Fail loudly if a Claude model is configured
+        run: |
+          set -euo pipefail
+          if grep -Eiq 'claude' .pr_agent.toml; then
+            echo "::error::Repo policy forbids Claude models on OpenRouter. Refusing to run."
+            exit 1
+          fi
+
+      - name: Ollama Cloud preflight
+        # Same diagnostic curl as review-deepseek, against glm-5.1.
+        env:
+          OLLAMA_API_BASE: https://ollama.com
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+        run: |
+          set +e
+          code=$(curl -sS -o /tmp/preflight.glm.json -w '%{http_code}' \
+            -m 30 \
+            -H "Authorization: Bearer ${OLLAMA_API_KEY}" \
+            -H 'Content-Type: application/json' \
+            -d '{"model":"glm-5.1","stream":false,"messages":[{"role":"user","content":"ping"}]}' \
+            https://ollama.com/api/chat)
+          echo "Ollama Cloud preflight: HTTP ${code}"
+          echo "--- response body (first 500 chars) ---"
+          head -c 500 /tmp/preflight.glm.json || true
+          echo
+          echo "----------------------------------------"
+
+      - name: PR Agent action step
+        uses: the-pr-agent/pr-agent@v0.36.0
+        env:
+          OLLAMA_API_BASE: https://ollama.com
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
