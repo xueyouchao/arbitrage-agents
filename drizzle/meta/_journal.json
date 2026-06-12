@@ -43,6 +43,13 @@
       "when": 1781194198367,
       "tag": "0005_add_llm_payload_schema_version",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1781278082316,
+      "tag": "0006_overconfident_owl",
+      "breakpoints": true
     }
   ]
 }

@@ -245,9 +245,11 @@ async function saveOpportunities(
       `insert into opportunities (
         id, candidate_pair_id, kalshi_orderbook_snapshot_id, polymarket_orderbook_snapshot_id,
         long_leg, hedge_leg, combined_cost, gross_edge, estimated_fees,
-        estimated_slippage, net_edge, max_tradable_usd, equivalence_class,
-        resolution_risk, fill_risk, detected_at, last_verified_at
-      ) values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+        estimated_slippage, net_edge, max_tradable_usd, notional_edges, equivalence_class,
+        resolution_risk, fill_risk, liquidity_risk, venue_risk, equivalence_risk,
+        data_staleness_ms, opportunity_age_ms, detected_at, last_verified_at,
+        calculation_version, config_version
+      ) values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
       on conflict (id) do update set
         kalshi_orderbook_snapshot_id = excluded.kalshi_orderbook_snapshot_id,
         polymarket_orderbook_snapshot_id = excluded.polymarket_orderbook_snapshot_id,
@@ -259,10 +261,18 @@ async function saveOpportunities(
         estimated_slippage = excluded.estimated_slippage,
         net_edge = excluded.net_edge,
         max_tradable_usd = excluded.max_tradable_usd,
+        notional_edges = excluded.notional_edges,
         equivalence_class = excluded.equivalence_class,
         resolution_risk = excluded.resolution_risk,
         fill_risk = excluded.fill_risk,
-        last_verified_at = excluded.last_verified_at`,
+        liquidity_risk = excluded.liquidity_risk,
+        venue_risk = excluded.venue_risk,
+        equivalence_risk = excluded.equivalence_risk,
+        data_staleness_ms = excluded.data_staleness_ms,
+        opportunity_age_ms = greatest(0, floor(extract(epoch from (excluded.last_verified_at - opportunities.detected_at)) * 1000)::integer),
+        last_verified_at = excluded.last_verified_at,
+        calculation_version = excluded.calculation_version,
+        config_version = excluded.config_version`,
       [
         uuidFromStableKey(opportunity.id),
         persistedId(candidatePairIds, opportunity.pairId),
@@ -276,11 +286,19 @@ async function saveOpportunities(
         opportunity.estimatedSlippage,
         opportunity.netEdge,
         opportunity.maxTradableUsd,
+        JSON.stringify(opportunity.notionalEdges),
         opportunity.equivalenceClass,
         opportunity.resolutionRisk,
         opportunity.fillRisk,
+        opportunity.liquidityRisk,
+        opportunity.venueRisk,
+        opportunity.equivalenceRisk,
+        opportunity.dataStalenessMs,
+        opportunity.opportunityAgeMs,
         opportunity.detectedAt,
-        opportunity.lastVerifiedAt
+        opportunity.lastVerifiedAt,
+        opportunity.calculationVersion,
+        opportunity.configVersion
       ]
     );
   }

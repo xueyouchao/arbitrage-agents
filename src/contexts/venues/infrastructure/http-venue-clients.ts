@@ -1,15 +1,10 @@
-import { MarketBook } from "../../arbitrage/domain/opportunity";
+import { MarketBook, PriceLevel } from "../../arbitrage/domain/opportunity";
 import { VenueClient, VenueMarketSnapshot } from "../domain/venue-market";
 
 interface PublicHttpOptions {
   timeoutMs?: number;
   retries?: number;
   retryDelayMs?: number;
-}
-
-interface PriceLevel {
-  price: number;
-  size: number;
 }
 
 const DEFAULT_HTTP_OPTIONS: Required<PublicHttpOptions> = {
@@ -56,16 +51,20 @@ export class KalshiPublicVenueClient implements VenueClient {
     const noBids = parseLevels(orderbook.no_dollars ?? orderbook.no);
     const bestYesBid = bestBid(yesBids);
     const bestNoBid = bestBid(noBids);
-    const yesAsk = bestNoBid ? roundPrice(1 - bestNoBid.price) : 1;
-    const noAsk = bestYesBid ? roundPrice(1 - bestYesBid.price) : 1;
+    const yesDepth = yesAskDepthFromNoBids(noBids);
+    const noDepth = noAskDepthFromYesBids(yesBids);
+    const yesAsk = yesDepth[0]?.price ?? 1;
+    const noAsk = noDepth[0]?.price ?? 1;
 
     return {
       marketId: market.venueMarketId,
       venue: "kalshi",
       yesAsk,
       noAsk,
-      yesAvailableUsd: bestNoBid ? roundUsd(yesAsk * bestNoBid.size) : 0,
-      noAvailableUsd: bestYesBid ? roundUsd(noAsk * bestYesBid.size) : 0,
+      yesAvailableUsd: yesDepth[0] ? roundUsd(yesDepth[0].price * yesDepth[0].size) : 0,
+      noAvailableUsd: noDepth[0] ? roundUsd(noDepth[0].price * noDepth[0].size) : 0,
+      yesDepth,
+      noDepth,
       capturedAt: new Date().toISOString(),
       stale: !bestYesBid || !bestNoBid,
       rawPayload: body
@@ -118,8 +117,10 @@ export class PolymarketPublicVenueClient implements VenueClient {
         this.httpOptions
       )
     ]);
-    const yesAskLevel = bestAsk(parseObjectLevels(yesBook.asks));
-    const noAskLevel = bestAsk(parseObjectLevels(noBook.asks));
+    const yesDepth = parseObjectLevels(yesBook.asks).sort((a, b) => a.price - b.price);
+    const noDepth = parseObjectLevels(noBook.asks).sort((a, b) => a.price - b.price);
+    const yesAskLevel = bestAsk(yesDepth);
+    const noAskLevel = bestAsk(noDepth);
 
     return {
       marketId: market.venueMarketId,
@@ -128,6 +129,8 @@ export class PolymarketPublicVenueClient implements VenueClient {
       noAsk: noAskLevel?.price ?? 1,
       yesAvailableUsd: yesAskLevel ? roundUsd(yesAskLevel.price * yesAskLevel.size) : 0,
       noAvailableUsd: noAskLevel ? roundUsd(noAskLevel.price * noAskLevel.size) : 0,
+      yesDepth,
+      noDepth,
       capturedAt: new Date().toISOString(),
       stale: !yesAskLevel || !noAskLevel,
       rawPayload: { yesBook, noBook }
@@ -212,6 +215,20 @@ function bestBid(levels: PriceLevel[]): PriceLevel | undefined {
 
 function bestAsk(levels: PriceLevel[]): PriceLevel | undefined {
   return levels.reduce<PriceLevel | undefined>((best, level) => (!best || level.price < best.price ? level : best), undefined);
+}
+
+function yesAskDepthFromNoBids(noBids: PriceLevel[]): PriceLevel[] {
+  return noBids
+    .map((level) => ({ price: roundPrice(1 - level.price), size: level.size }))
+    .filter((level) => isValidLevel(level.price, level.size))
+    .sort((a, b) => a.price - b.price);
+}
+
+function noAskDepthFromYesBids(yesBids: PriceLevel[]): PriceLevel[] {
+  return yesBids
+    .map((level) => ({ price: roundPrice(1 - level.price), size: level.size }))
+    .filter((level) => isValidLevel(level.price, level.size))
+    .sort((a, b) => a.price - b.price);
 }
 
 function roundPrice(value: number): number {

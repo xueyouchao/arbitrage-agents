@@ -647,6 +647,8 @@ function toOrderbookRawPayload(book: MarketBook): Record<string, unknown> {
     noAsk: validAsk(book.noAsk),
     yesAvailableUsd: book.yesAvailableUsd,
     noAvailableUsd: book.noAvailableUsd,
+    yesDepth: book.yesDepth ?? [],
+    noDepth: book.noDepth ?? [],
     capturedAt: book.capturedAt,
     stale: book.stale ?? false
   };

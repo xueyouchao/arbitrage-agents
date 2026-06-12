@@ -10,12 +10,29 @@ export type ApiCryptoAsset = "BTC" | "ETH";
 export type ApiMarketOperator = ">" | ">=" | "<" | "<=" | "=" | "between";
 export type ApiPayoffType = "at_time" | "any_time_before" | "range" | "settlement_value";
 
+export interface ApiPriceLevel {
+  price: number;
+  size: number;
+}
+
 export interface ApiContractLeg {
   venue: ApiVenue;
   marketId: string;
   side: ApiContractSide;
   askPrice: number;
   availableUsd: number;
+  feeRate?: number;
+  slippageRate?: number;
+  depthLevels?: ApiPriceLevel[];
+}
+
+export interface NotionalEdgeReadModel {
+  targetNotionalUsd: number;
+  grossEdge: number;
+  estimatedFees: number;
+  estimatedSlippage: number;
+  netEdge: number;
+  fillable: boolean;
 }
 
 export interface OpportunityReadModel {
@@ -31,11 +48,19 @@ export interface OpportunityReadModel {
   estimatedSlippage: number;
   netEdge: number;
   maxTradableUsd: number;
+  notionalEdges: NotionalEdgeReadModel[];
   equivalenceClass: ApiEquivalenceClass;
   resolutionRisk: ApiRiskLevel;
   fillRisk: ApiRiskLevel;
+  liquidityRisk: ApiRiskLevel;
+  venueRisk: ApiRiskLevel;
+  equivalenceRisk: ApiRiskLevel;
+  dataStalenessMs: number;
+  opportunityAgeMs: number;
   detectedAt: string;
   lastVerifiedAt: string;
+  calculationVersion: string;
+  configVersion: string;
 }
 
 export interface MarketReadModel {
