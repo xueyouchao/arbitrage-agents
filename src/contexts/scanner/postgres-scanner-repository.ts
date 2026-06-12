@@ -48,6 +48,32 @@ export class PostgresScannerRepository implements ScannerRepository, OnModuleDes
       client.release();
     }
   }
+
+  // Phase 4: abandoned-scan detector reads scan_runs on every worker
+  // iteration. The query is bounded by the operator's accumulated run
+  // count; we project only the columns the detector needs (status,
+  // started_at, metrics) to keep the round-trip small.
+  async listScanRuns(): Promise<readonly ScanResult[]> {
+    const result = await this.pool.query<{
+      id: string;
+      status: string;
+      started_at: Date;
+      completed_at: Date | null;
+      metrics: Record<string, unknown>;
+    }>(
+      `select id, status, started_at, completed_at, metrics
+       from scan_runs
+       order by started_at desc
+       limit 1000`
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      status: row.status as ScanResult["status"],
+      startedAt: row.started_at.toISOString(),
+      completedAt: row.completed_at ? row.completed_at.toISOString() : undefined,
+      metrics: row.metrics as unknown as ScanResult["metrics"]
+    }));
+  }
 }
 
 async function saveScanRun(queryable: Queryable, scanRun: ScanResult): Promise<void> {

@@ -59,12 +59,16 @@ export interface MarketReadModel {
 
 export interface ScanRunReadModel {
   id: string;
-  status: "running" | "succeeded" | "failed";
+  // Phase 4: `abandoned` is a terminal status for scans whose worker
+  // died before finalize. The API surfaces it so an operator can
+  // distinguish a failed scan from one the worker simply never
+  // reported back from.
+  status: "running" | "succeeded" | "failed" | "abandoned";
   startedAt: string;
   completedAt?: string;
   marketsScanned: number;
   opportunitiesFound: number;
-  failureCategory?: "fetch" | "processing" | "persistence";
+  failureCategory?: "fetch" | "processing" | "persistence" | "abandoned";
   failureReason?: string;
 }
 

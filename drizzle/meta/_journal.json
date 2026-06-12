@@ -43,6 +43,13 @@
       "when": 1781194198367,
       "tag": "0005_add_llm_payload_schema_version",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1781281658468,
+      "tag": "0006_phase4_resumable_worker",
+      "breakpoints": true
     }
   ]
 }

@@ -237,7 +237,12 @@ function toIso(value: Date | string): string {
 }
 
 function toScanRunStatus(value: string): ScanRunReadModel["status"] {
-  return value === "succeeded" || value === "running" || value === "failed" ? value : "failed";
+  // Phase 4: the worker can now leave a scan in `abandoned` status;
+  // surface it on the read API so an operator can distinguish a
+  // failure from a worker that simply never reported back. Unknown
+  // values fall back to `failed` for forward-compatibility.
+  if (value === "succeeded" || value === "running" || value === "failed" || value === "abandoned") return value;
+  return "failed";
 }
 
 function numberFromUnknown(value: unknown): number {
@@ -245,7 +250,8 @@ function numberFromUnknown(value: unknown): number {
 }
 
 function toFailureCategory(value: unknown): ScanRunReadModel["failureCategory"] {
-  return value === "fetch" || value === "processing" || value === "persistence" ? value : undefined;
+  if (value === "fetch" || value === "processing" || value === "persistence" || value === "abandoned") return value;
+  return undefined;
 }
 
 function stringFromUnknown(value: unknown): string | undefined {

@@ -235,7 +235,7 @@ describe("ReadOnlyScanner", () => {
   });
 
   it("throws when the worker scanner result fails", async () => {
-    const scanner = {
+    const resumableScanner = {
       runOnce: vi.fn(async () => ({
         id: "scan-1",
         status: "failed" as const,
@@ -245,9 +245,17 @@ describe("ReadOnlyScanner", () => {
         failureCategory: "fetch" as const,
         failureReason: "Kalshi failed: [redacted-url]"
       }))
-    } as Pick<ReadOnlyScanner, "runOnce"> as ReadOnlyScanner;
+    };
+    const abandonedDetector = {
+      markAbandoned: vi.fn(async () => [])
+    };
 
-    await expect(new WorkerScanRunner(scanner).runOnce()).rejects.toThrow("Scan failed (fetch): Kalshi failed: [redacted-url]");
+    await expect(
+      new WorkerScanRunner(
+        resumableScanner as never,
+        abandonedDetector as never
+      ).runOnce()
+    ).rejects.toThrow("Scan failed (fetch): Kalshi failed: [redacted-url]");
   });
 
   it("fetches orderbooks only after freshly fetched markets", async () => {
