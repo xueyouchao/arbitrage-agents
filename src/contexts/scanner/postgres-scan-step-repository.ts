@@ -1,12 +1,10 @@
 // Phase 4: Postgres adapter for the resumable scanner's step trail.
 //
-// `saveStep` is an upsert keyed by (scan_run_id, step_name) — the same
-// unique index that gates the test path. Idempotency is enforced at the
-// database level: a duplicate insert on a succeeded step is silently
-// dropped (DO NOTHING) so a transient restart that double-saves the
-// final state cannot leave a tombstone. The orchestrator relies on this
-// to safely re-run a step whose success the previous worker believed
-// but never managed to persist.
+// `saveStep` appends a new history row on every call. Each row gets an
+// attempt number one greater than the current maximum for the same
+// `(scan_run_id, step_name)`. A unique index on those three columns
+// guards against duplicate attempts from concurrent workers; the insert
+// loop retries on a unique violation so transient races converge safely.
 //
 // `markRunHeartbeat` is a one-line UPDATE on `scan_runs.heartbeat_at`.
 // Heartbeats are an opportunistic best-effort signal; the abandoned-scan
@@ -71,7 +69,7 @@ async function loadRunSteps(queryable: Pool | PoolClient, scanRunId: string): Pr
     `select id, step_name, status, started_at, completed_at, attempt, failure_reason, metadata
      from scan_steps
      where scan_run_id = $1
-     order by started_at asc, id asc`,
+     order by attempt asc, started_at asc, id asc`,
     [scanRunId]
   );
   return stepsResult.rows.map((r) => ({
@@ -87,48 +85,86 @@ async function loadRunSteps(queryable: Pool | PoolClient, scanRunId: string): Pr
   }));
 }
 
+const MAX_ATTEMPT_RETRIES = 3;
+
 async function saveStepRow(queryable: Pool | PoolClient, step: ScanStepArtifact): Promise<ScanStepRow> {
   // Phase 4 keeps history: every saveStep call inserts a new row. The
   // orchestrator's latestByName map in ResumableScanner.runOnce picks
-  // the most recent row per (scan_run_id, step_name), so duplicates
+  // the most recent attempt per (scan_run_id, step_name), so duplicates
   // are tolerated and retries are visible in the trail.
-  const result = await queryable.query<{
-    id: string;
-    step_name: ScanStepName;
-    status: ScanStepStatus;
-    started_at: Date;
-    completed_at: Date | null;
-    attempt: number;
-    failure_reason: string | null;
-    metadata: Record<string, unknown>;
-  }>(
-    `insert into scan_steps (
-       scan_run_id, step_name, status, started_at, completed_at, attempt, failure_reason, metadata
-     ) values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
-     returning id, step_name, status, started_at, completed_at, attempt, failure_reason, metadata`,
-    [
-      step.scanRunId,
-      step.stepName,
-      step.status,
-      step.startedAt,
-      step.completedAt ?? null,
-      step.attempt ?? 1,
-      step.failureReason ?? null,
-      JSON.stringify(step.metadata ?? {})
-    ]
+  const suppliedAttempt = step.attempt;
+  let lastError: unknown;
+
+  for (let retry = 0; retry < MAX_ATTEMPT_RETRIES; retry += 1) {
+    try {
+      const result = await queryable.query<{
+        id: string;
+        step_name: ScanStepName;
+        status: ScanStepStatus;
+        started_at: Date;
+        completed_at: Date | null;
+        attempt: number;
+        failure_reason: string | null;
+        metadata: Record<string, unknown>;
+      }>(
+        `insert into scan_steps (
+           scan_run_id, step_name, status, started_at, completed_at, attempt, failure_reason, metadata
+         ) values (
+           $1,
+           $2,
+           $3,
+           $4,
+           $5,
+           coalesce(
+             $6,
+             (select coalesce(max(attempt), 0) + 1 from scan_steps where scan_run_id = $1 and step_name = $2)
+           ),
+           $7,
+           $8::jsonb
+         )
+         returning id, step_name, status, started_at, completed_at, attempt, failure_reason, metadata`,
+        [
+          step.scanRunId,
+          step.stepName,
+          step.status,
+          step.startedAt,
+          step.completedAt ?? null,
+          suppliedAttempt ?? null,
+          step.failureReason ?? null,
+          JSON.stringify(step.metadata ?? {})
+        ]
+      );
+      const row = result.rows[0];
+      return {
+        id: row.id,
+        scanRunId: step.scanRunId,
+        stepName: row.step_name,
+        status: row.status,
+        startedAt: row.started_at.toISOString(),
+        completedAt: row.completed_at ? row.completed_at.toISOString() : undefined,
+        attempt: row.attempt,
+        failureReason: row.failure_reason ?? undefined,
+        metadata: row.metadata ?? {}
+      };
+    } catch (error) {
+      lastError = error;
+      if (!isUniqueViolation(error)) throw error;
+      // A concurrent worker inserted the same attempt; retry so the
+      // max(attempt) subquery recomputes. If the caller supplied an
+      // explicit attempt number there is nothing to recompute, so fail
+      // fast instead of looping on a deterministic collision.
+      if (suppliedAttempt !== undefined) throw error;
+    }
+  }
+
+  throw new Error(
+    `Failed to persist scan step ${step.stepName} for run ${step.scanRunId} after ${MAX_ATTEMPT_RETRIES} attempts due to concurrent attempt collisions`,
+    { cause: lastError }
   );
-  const row = result.rows[0];
-  return {
-    id: row.id,
-    scanRunId: step.scanRunId,
-    stepName: row.step_name,
-    status: row.status,
-    startedAt: row.started_at.toISOString(),
-    completedAt: row.completed_at ? row.completed_at.toISOString() : undefined,
-    attempt: row.attempt,
-    failureReason: row.failure_reason ?? undefined,
-    metadata: row.metadata ?? {}
-  };
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "23505";
 }
 
 async function markRunHeartbeat(queryable: Pool | PoolClient, scanRunId: string, heartbeatAt: string): Promise<void> {

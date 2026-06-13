@@ -51,7 +51,7 @@ describe("migration smoke tests", () => {
     expect(Object.entries(snapshotIndexes).filter(([, index]) => index.isUnique).map(([name]) => name)).toEqual([]);
   });
 
-  it("creates scan_steps without an accidental unique index on scan_run_id and step_name", async () => {
+  it("creates scan_steps with a unique index on scan_run_id, step_name, and attempt", async () => {
     await withDisposablePostgresDatabase(async (db) => {
       await db.applyMigrations();
       const indexes = await db.query<IndexRow>(
@@ -59,7 +59,7 @@ describe("migration smoke tests", () => {
       );
 
       expect(indexes.rows.map((row) => row.indexname)).toContain("scan_steps_run_name_started_at_idx");
-      expect(indexes.rows.some((row) => /unique/i.test(row.indexdef) && row.indexdef.includes("scan_run_id") && row.indexdef.includes("step_name"))).toBe(false);
+      expect(indexes.rows.some((row) => /unique/i.test(row.indexdef) && row.indexdef.includes("scan_run_id") && row.indexdef.includes("step_name") && row.indexdef.includes("attempt"))).toBe(true);
     });
   });
 });

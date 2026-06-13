@@ -147,10 +147,11 @@ export const alerts = pgTable("alerts", {
 // orchestrator keeps history: a retried step appends a new row with
 // attempt = N+1 rather than overwriting the prior status, so an
 // operator can read the full retry trail. The latest row for
-// (scan_run_id, step_name) is the authoritative state. The composite
-// index (scan_run_id, step_name, started_at DESC) supports the
-// orchestrator's latestByName lookup and the abandoned-detector's
-// per-run history read.
+// (scan_run_id, step_name) is the authoritative state; the orchestrator
+// queries it via the highest attempt. A unique index on
+// (scan_run_id, step_name, attempt) ensures concurrent workers cannot
+// mint the same attempt number; the insert loop retries on a unique
+// violation so transient races converge safely.
 export const scanSteps = pgTable(
   "scan_steps",
   {
@@ -167,6 +168,7 @@ export const scanSteps = pgTable(
   (table) => [
     index("scan_steps_status_idx").on(table.status),
     index("scan_steps_run_idx").on(table.scanRunId),
-    index("scan_steps_run_name_started_at_idx").on(table.scanRunId, table.stepName, table.startedAt)
+    index("scan_steps_run_name_started_at_idx").on(table.scanRunId, table.stepName, table.startedAt),
+    uniqueIndex("scan_steps_run_name_attempt_unique").on(table.scanRunId, table.stepName, table.attempt)
   ]
 );

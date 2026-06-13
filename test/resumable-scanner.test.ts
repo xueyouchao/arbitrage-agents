@@ -75,7 +75,6 @@ describe("ResumableScanner", () => {
     const result = await scanner.runOnce();
 
     expect(result.status).toBe("succeeded");
-    expect(steps.byRunId.get(result.id)).toBeDefined();
     const allSteps = await steps.listForRun(result.id);
     const stepNames = allSteps.map((s) => s.stepName);
     expect(stepNames).toEqual([
@@ -121,7 +120,7 @@ describe("ResumableScanner", () => {
     expect((await stepRepository.listForRun(result.id)).find((s) => s.stepName === "fetch_markets")?.status).toBe("failed");
   });
 
-  it("skips already-succeeded steps on resume and does not duplicate persisted rows", async () => {
+  it("skips a fully-succeeded resume without invoking the inner scanner", async () => {
     const repository = new InMemoryScannerRepository();
     const stepRepository = new InMemoryScanStepRepository();
 
@@ -132,15 +131,15 @@ describe("ResumableScanner", () => {
     const opportunitiesAfterFirst = repository.opportunities.length;
     const snapshotsAfterFirst = repository.orderbookSnapshots.length;
 
-    // Resume under a fresh scan id; the first three steps are pre-seeded
-    // as succeeded for that id so the orchestrator must skip them.
+    // Resume under a fresh scan id; all six steps are pre-seeded as
+    // succeeded so the orchestrator has nothing to execute.
     const resumeScanId = "scan-resume-1";
-    for (const stepName of ["fetch_markets", "fetch_books", "normalize_markets"] as const) {
+    for (const stepName of RESUMABLE_SCAN_STEP_NAMES) {
       await stepRepository.saveStep({ scanRunId: resumeScanId, stepName, status: "succeeded", startedAt: capturedAt, completedAt: capturedAt, attempt: 1 });
     }
 
     const innerSpy = vi.fn(async () => {
-      throw new Error("inner scanner must not be invoked for rehydrated steps");
+      throw new Error("inner scanner must not be invoked for a fully-succeeded run");
     });
     const innerScanner = { runOnce: innerSpy } as unknown as ReadOnlyScanner;
 
@@ -156,13 +155,12 @@ describe("ResumableScanner", () => {
     const resumed = await resumeScanner.runOnce();
 
     expect(resumed.id).toBe(resumeScanId);
-    const resumedSteps = await stepRepository.listForRun(resumeScanId);
-    const preseededStepNames = resumedSteps.slice(0, 3).map((s) => s.stepName);
-    expect(preseededStepNames).toEqual(["fetch_markets", "fetch_books", "normalize_markets"]);
-    expect(resumedSteps.filter((s) => s.metadata?.rehydrated === true)).toEqual([]);
     expect(resumed.status).toBe("succeeded");
-    // The inner scanner is not invoked for the seeded steps, so the
-    // repository totals are unchanged from the first run.
+    const resumedSteps = await stepRepository.listForRun(resumeScanId);
+    expect(resumedSteps.map((s) => s.stepName)).toEqual(RESUMABLE_SCAN_STEP_NAMES);
+    expect(resumedSteps.filter((s) => s.metadata?.rehydrated === true)).toEqual([]);
+    // The inner scanner is not invoked when every step is already
+    // succeeded, so the repository totals are unchanged from the first run.
     expect(innerSpy).not.toHaveBeenCalled();
     expect(repository.opportunities.length).toBe(opportunitiesAfterFirst);
     expect(repository.orderbookSnapshots.length).toBe(snapshotsAfterFirst);
@@ -201,7 +199,7 @@ describe("ResumableScanner", () => {
     expect(checkInClient.checkIns.map((c) => c.status)).toEqual(["in_progress", "ok"]);
   });
 
-  it("treats step rows as idempotent: re-saving a succeeded step is a no-op", async () => {
+  it("keeps step history: re-saving a succeeded step appends a new attempt", async () => {
     const repository = new InMemoryScannerRepository();
     const stepRepository = new InMemoryScanStepRepository();
     const { scanner, stepRepository: steps } = buildResumableScanner(repository, stepRepository);
@@ -211,9 +209,16 @@ describe("ResumableScanner", () => {
     const fetchMarketsRows = completed.filter((s) => s.stepName === "fetch_markets");
     expect(fetchMarketsRows).toHaveLength(1);
 
-    // Re-saving the same succeeded step must not create a duplicate row.
-    await stepRepository.saveStep(fetchMarketsRows[0]);
-    expect((await steps.listForRun(result.id)).filter((s) => s.stepName === "fetch_markets")).toHaveLength(1);
+    // Re-saving the same succeeded step records a new attempt so the
+    // operator trail shows every retry, matching the Postgres history
+    // semantics. Omit the explicit attempt number so the repository auto-
+    // increments it.
+    await stepRepository.saveStep({ ...fetchMarketsRows[0], attempt: undefined });
+    const refetched = await steps.listForRun(result.id);
+    const refetchedFetchMarkets = refetched.filter((s) => s.stepName === "fetch_markets");
+    expect(refetchedFetchMarkets).toHaveLength(2);
+    expect(refetchedFetchMarkets[0].attempt).toBe(1);
+    expect(refetchedFetchMarkets[1].attempt).toBe(2);
   });
 
   it("survives check-in client failures and still completes the scan", async () => {

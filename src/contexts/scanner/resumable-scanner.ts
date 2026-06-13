@@ -3,19 +3,16 @@
 // The worker's view of a scan is a sequence of six persisted, idempotent
 // steps:
 //
-//   1. prepare_run         → mark the scan run started; open the Sentry
-//                            check-in; mint the scan id.
-//   2. fetch_markets       → fetch + persist venue market snapshots.
-//   3. fetch_books         → fetch + persist orderbook snapshots.
-//   4. normalize_markets   → schema-validated normalization + LLM review.
-//   5. review_pairs        → candidate pairing + LLM equivalence review.
-//   6. calculate_opportunities + finalize
-//                          → opportunity calculation + final commit.
-//   7. mark_complete       → close the Sentry check-in and emit the
-//                            final ScanResult back to the caller.
+//   1. fetch_markets       → fetch + persist venue market snapshots.
+//   2. fetch_books         → fetch + persist orderbook snapshots.
+//   3. normalize_markets   → schema-validated normalization + LLM review.
+//   4. review_pairs        → candidate pairing + LLM equivalence review.
+//   5. calculate_opportunities
+//                          → opportunity calculation.
+//   6. finalize            → final persistence/audit commit.
 //
 // The orchestrator persists each transition via ScanStepRepository. On
-// resume it inspects the LATEST row for each step:
+// resume it inspects the LATEST attempt for each step name:
 //   - succeeded → rehydrate, skip execution.
 //   - failed / running / missing → execute.
 //
@@ -28,16 +25,15 @@
 // invocation is the IMPLEMENTATION detail.
 //
 // Trail semantics:
-//   - Each step writes AT MOST ONE row per attempt: a fresh run writes
-//     one row per step. A retry appends a new row with `attempt = N`.
-//   - The orchestrator's `recordStep` does NOT write a transient
-//     "running" row; the running window is implicit in the time gap
-//     between the previous step's `completed_at` and the next's
-//     `started_at`. The Postgres contract (unique on scan_run_id,
-//     step_name) is one row per (run, step); the in-memory contract
-//     keeps history for operator visibility.
-//   - The "rehydrated" flag is merged into the existing succeeded
-//     row's metadata on resume (no new row).
+//   - Each step writes one row per attempt. A fresh run writes one row
+//     per step. A retry appends a new row with `attempt = N+1`.
+//   - The orchestrator's `latestByName` selects the row with the highest
+//     `attempt` per step name, regardless of insertion order. The
+//     repository returns rows sorted by `attempt`, then `started_at`,
+//     then `id`.
+//   - The orchestrator does NOT write a transient "running" row; the
+//     running window is implicit in the time gap between the previous
+//     step's `completed_at` and the next's `started_at`.
 //
 // Resumability invariants:
 //   1. The Sentry check-in is `start()` once and `ok()` / `error()` once;
@@ -81,13 +77,11 @@ export class ResumableScanner {
     try {
       // Hydrate the existing step trail (empty for a fresh run). We
       // compute the latest status per step name so the orchestrator can
-      // skip already-succeeded steps on resume.
+      // skip already-succeeded steps on resume. The repository returns
+      // rows sorted by attempt, started_at, id; the latest attempt is the
+      // authoritative state for each step.
       const existingSteps = await this.deps.stepRepository.listForRun(scanRunId);
-      const latestByName = new Map<string, ScanStepRow>();
-      for (const step of existingSteps) {
-        // The repository returns steps in insertion order; later wins.
-        latestByName.set(step.stepName, step);
-      }
+      const latestByName = latestStepByName(existingSteps);
       const succeededByName = new Map<string, ScanStepRow>();
       for (const [name, row] of latestByName) {
         if (row.status === "succeeded") succeededByName.set(name, row);
@@ -98,46 +92,60 @@ export class ResumableScanner {
 
       for (const stepName of allStepNames) {
         if (succeededByName.has(stepName)) continue;
-        // Skip the actual inner-scanner call when fetch_markets has
-        // already succeeded on a prior run. The inner scanner is
-        // idempotent on (venue, venue_market_id), so re-running it is
-        // safe but wasteful; skipping saves the network round-trips and
-        // keeps the trail clean.
-        if (stepName === "fetch_markets") {
+
+        if (!finalInnerResult) {
           try {
-            const innerResult = await this.deps.innerScanner.runOnce();
-            finalInnerResult = innerResult;
-            // Mark the step succeeded. Use the inner result's startedAt
-            // as the step timestamp so the trail reflects the actual
-            // execution window.
-            await this.deps.stepRepository.saveStep({
-              scanRunId,
-              stepName,
-              status: "succeeded",
-              startedAt: innerResult.startedAt,
-              completedAt: innerResult.completedAt ?? clock()
-            });
-            await this.deps.stepRepository.markRunHeartbeat(scanRunId, innerResult.completedAt ?? clock());
+            finalInnerResult = await this.deps.innerScanner.runOnce();
           } catch (error) {
             return await this.failWithCheckIn(scanRunId, startedAt, stepName, clock, checkInId, error);
           }
-          continue;
+
+          if (finalInnerResult.status !== "succeeded") {
+            const completedAt = finalInnerResult.completedAt ?? clock();
+            const failureReason = finalInnerResult.failureReason ?? `inner scanner returned ${finalInnerResult.status}`;
+            await this.deps.stepRepository.saveStep({
+              scanRunId,
+              stepName,
+              status: "failed",
+              startedAt: finalInnerResult.startedAt,
+              completedAt,
+              failureReason,
+              metadata: finalInnerResult.failureCategory ? { failureCategory: finalInnerResult.failureCategory } : undefined
+            });
+            await this.deps.stepRepository.markRunHeartbeat(scanRunId, completedAt);
+            if (checkInId) await this.deps.checkInClient.error(checkInId, new Date(completedAt)).catch(() => undefined);
+            return {
+              ...finalInnerResult,
+              id: scanRunId,
+              startedAt,
+              completedAt,
+              failureReason
+            };
+          }
         }
-        // Sub-steps 2-5 are tracked as part of the inner scanner's
-        // single execution primitive. Record them as no-op transitions
-        // so the operator-facing trail shows a complete step list. The
-        // `metadata.executedBy` marker disambiguates these markers from
-        // real sub-step invocations a future implementation might add.
-        const stepStartedAt = clock();
+
+        // The inner scanner is the single execution primitive. The first
+        // missing/failed operator-facing step above runs it once; each
+        // remaining missing step records the completed primitive so the
+        // trail converges without pretending a failed result succeeded.
+        //
+        // For the step that actually executed the inner scanner we use
+        // the inner result's real timestamps and omit the synthetic
+        // back-fill marker. All other steps are marker rows.
+        const isRealExecutionStep = stepName === "fetch_markets";
+        const stepCompletedAt = finalInnerResult.completedAt ?? clock();
+        const stepStartedAt = isRealExecutionStep ? finalInnerResult.startedAt : stepCompletedAt;
+        const stepMetadata = isRealExecutionStep ? undefined : { executedBy: "inner_scanner" };
+
         await this.deps.stepRepository.saveStep({
           scanRunId,
           stepName,
           status: "succeeded",
           startedAt: stepStartedAt,
-          completedAt: clock(),
-          metadata: { executedBy: "inner_scanner" }
+          completedAt: stepCompletedAt,
+          metadata: stepMetadata
         });
-        await this.deps.stepRepository.markRunHeartbeat(scanRunId, clock());
+        await this.deps.stepRepository.markRunHeartbeat(scanRunId, stepCompletedAt);
       }
 
       const completedAt = clock();
@@ -194,6 +202,17 @@ export class ResumableScanner {
       failureReason
     };
   }
+}
+
+function latestStepByName(steps: readonly ScanStepRow[]): Map<string, ScanStepRow> {
+  const latest = new Map<string, ScanStepRow>();
+  for (const step of steps) {
+    const current = latest.get(step.stepName);
+    if (!current || step.attempt > current.attempt) {
+      latest.set(step.stepName, step);
+    }
+  }
+  return latest;
 }
 
 function failureCategoryForStep(stepName: ScanStepName): ScanFailureCategory {
