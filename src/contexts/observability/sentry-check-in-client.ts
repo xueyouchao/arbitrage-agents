@@ -13,6 +13,12 @@
 // installed. The `FakeSentryCheckInClient` is used by tests and by the
 // worker when `SENTRY_DSN` is unset, so a misconfigured deploy cannot
 // crash the worker on a check-in call.
+//
+// The client is stateless: `start()` returns a `SentryCheckInHandle`
+// opaque object, and `ok` / `error` consume that handle. This avoids
+// the per-instance active-run state that previously produced races
+// when two `runOnce` invocations overlapped on the same Nest singleton
+// (Phase 4 review Finding #5).
 
 export type SentryCheckInStatus = "in_progress" | "ok" | "error";
 
@@ -23,14 +29,21 @@ export interface CapturedCheckIn {
   startedAt: string;
 }
 
+// Opaque handle returned by `start()`. Bundles the slug, check-in id,
+// and the original `startedAt` so `ok` / `error` can compute the
+// duration without needing to consult any instance state.
+export interface SentryCheckInHandle {
+  readonly slug: string;
+  readonly checkInId: string;
+  readonly startedAt: Date;
+}
+
 export interface SentryCheckInClient {
-  // Start a new check-in. Returns the `checkInId` that the worker must
-  // pass back to `ok` / `error`. Implementations may return a UUID that
-  // Sentry minted for the run, or a locally generated id used only for
-  // the fake/test path.
-  start(monitorSlug: string, startedAt: Date): Promise<string>;
-  ok(checkInId: string, finishedAt: Date): Promise<void>;
-  error(checkInId: string, finishedAt: Date): Promise<void>;
+  // Start a new check-in. Returns an opaque handle that the worker
+  // must pass back to `ok` / `error`.
+  start(monitorSlug: string, startedAt: Date): Promise<SentryCheckInHandle>;
+  ok(handle: SentryCheckInHandle, finishedAt: Date): Promise<void>;
+  error(handle: SentryCheckInHandle, finishedAt: Date): Promise<void>;
 }
 
 export interface SentryHttpCheckInClientOptions {
@@ -86,9 +99,6 @@ export class SentryHttpCheckInClient implements SentryCheckInClient {
   private readonly fetchImpl: typeof fetch;
   private readonly now: () => Date;
   private readonly timeoutMs: number;
-  private activeSlug: string | undefined;
-  private activeStartedAt: Date | undefined;
-  private lastCheckInId: string | undefined;
 
   constructor(options: SentryHttpCheckInClientOptions) {
     const parsed = parseSentryDsn(options.dsn);
@@ -99,7 +109,7 @@ export class SentryHttpCheckInClient implements SentryCheckInClient {
     this.timeoutMs = options.timeoutMs ?? 5_000;
   }
 
-  async start(monitorSlug: string, startedAt: Date): Promise<string> {
+  async start(monitorSlug: string, startedAt: Date): Promise<SentryCheckInHandle> {
     // Sentry's check-in protocol expects the client to mint a check_in_id
     // and Sentry will echo it on subsequent ok/error calls. We mint a
     // stable UUID locally so `ok`/`error` can be called without an extra
@@ -107,28 +117,17 @@ export class SentryHttpCheckInClient implements SentryCheckInClient {
     // we use that as the canonical id, otherwise we keep the locally
     // minted one — both are valid forms of the protocol.
     const localId = randomId();
-    this.activeSlug = monitorSlug;
-    this.activeStartedAt = startedAt;
     const responseId = await this.send(monitorSlug, localId, "in_progress", startedAt, undefined);
     const checkInId = responseId ?? localId;
-    // Re-store the id so ok/error can use it consistently. We don't need
-    // to re-send; the active record on the server uses the same id.
-    this.lastCheckInId = checkInId;
-    return checkInId;
+    return { slug: monitorSlug, checkInId, startedAt };
   }
 
-  async ok(checkInId: string, finishedAt: Date): Promise<void> {
-    if (!this.activeSlug || !this.activeStartedAt) {
-      throw new Error("SentryHttpCheckInClient.ok called without a prior start()");
-    }
-    await this.send(this.activeSlug, checkInId, "ok", this.activeStartedAt, finishedAt);
+  ok(handle: SentryCheckInHandle, finishedAt: Date): Promise<void> {
+    return this.send(handle.slug, handle.checkInId, "ok", handle.startedAt, finishedAt).then(() => undefined);
   }
 
-  async error(checkInId: string, finishedAt: Date): Promise<void> {
-    if (!this.activeSlug || !this.activeStartedAt) {
-      throw new Error("SentryHttpCheckInClient.error called without a prior start()");
-    }
-    await this.send(this.activeSlug, checkInId, "error", this.activeStartedAt, finishedAt);
+  error(handle: SentryCheckInHandle, finishedAt: Date): Promise<void> {
+    return this.send(handle.slug, handle.checkInId, "error", handle.startedAt, finishedAt).then(() => undefined);
   }
 
   // Direct send exposed so the orchestrator wrapper can pair start() and
@@ -184,48 +183,39 @@ export class SentryHttpCheckInClient implements SentryCheckInClient {
     } finally {
       clearTimeout(timer);
     }
-    void monitorSlug; // kept for symmetry with send() and future logging
   }
 }
 
 // In-process fake used by tests and by the worker when no DSN is
 // configured. Captures every check-in for later inspection and supports
-// injection of failures via `failNext()`.
+// injection of failures via `failNext()`. The fake is also stateless
+// with respect to the active run — `ok` / `error` take the handle and
+// read the slug/checkInId from it.
 export class FakeSentryCheckInClient implements SentryCheckInClient {
   readonly checkIns: CapturedCheckIn[] = [];
   private failOnce = false;
-  private activeSlug: string | undefined;
-  private activeStartedAt: Date | undefined;
 
   failNext(): void {
     this.failOnce = true;
   }
 
-  async start(monitorSlug: string, startedAt: Date): Promise<string> {
+  async start(monitorSlug: string, startedAt: Date): Promise<SentryCheckInHandle> {
     const checkInId = randomId();
-    this.activeSlug = monitorSlug;
-    this.activeStartedAt = startedAt;
     this.checkIns.push({ slug: monitorSlug, checkInId, status: "in_progress", startedAt: startedAt.toISOString() });
     if (this.failOnce) {
       this.failOnce = false;
       throw new Error("FakeSentryCheckInClient: injected failure");
     }
-    return checkInId;
+    return { slug: monitorSlug, checkInId, startedAt };
   }
 
-  async ok(checkInId: string, finishedAt: Date): Promise<void> {
-    if (!this.activeSlug || !this.activeStartedAt) {
-      throw new Error("FakeSentryCheckInClient.ok called without a prior start()");
-    }
-    const duration = Math.max(0, Math.round((finishedAt.getTime() - this.activeStartedAt.getTime()) / 1000));
-    this.checkIns.push({ slug: this.activeSlug, checkInId, status: "ok", startedAt: finishedAt.toISOString() });
-    void duration;
+  ok(handle: SentryCheckInHandle, finishedAt: Date): Promise<void> {
+    this.checkIns.push({ slug: handle.slug, checkInId: handle.checkInId, status: "ok", startedAt: finishedAt.toISOString() });
+    return Promise.resolve();
   }
 
-  async error(checkInId: string, finishedAt: Date): Promise<void> {
-    if (!this.activeSlug || !this.activeStartedAt) {
-      throw new Error("FakeSentryCheckInClient.error called without a prior start()");
-    }
-    this.checkIns.push({ slug: this.activeSlug, checkInId, status: "error", startedAt: finishedAt.toISOString() });
+  error(handle: SentryCheckInHandle, finishedAt: Date): Promise<void> {
+    this.checkIns.push({ slug: handle.slug, checkInId: handle.checkInId, status: "error", startedAt: finishedAt.toISOString() });
+    return Promise.resolve();
   }
 }
