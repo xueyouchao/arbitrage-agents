@@ -1,11 +1,16 @@
 import { sql } from "drizzle-orm";
-import { boolean, check, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, check, index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 export const scanRuns = pgTable("scan_runs", {
   id: uuid("id").primaryKey().defaultRandom(),
   status: text("status").notNull(),
   startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
+  // Phase 4: heartbeat is the latest step transition timestamp the worker
+  // has acknowledged. The abandoned-scan detector compares it against
+  // `abandonedAfterMs` from config; scans whose heartbeat is older than
+  // the threshold are flipped to `abandoned` so a fresh run can take over.
+  heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
   metrics: jsonb("metrics").notNull().default({})
 });
 
@@ -145,3 +150,31 @@ export const alerts = pgTable("alerts", {
   payload: jsonb("payload").notNull(),
   emittedAt: timestamp("emitted_at", { withTimezone: true }).notNull().defaultNow()
 });
+
+// Phase 4: per-step execution trail for resumable scans. The
+// orchestrator keeps history: a retried step appends a new row with
+// attempt = N+1 rather than overwriting the prior status, so an
+// operator can read the full retry trail. The latest row for
+// (scan_run_id, step_name) is the authoritative state. The composite
+// index (scan_run_id, step_name, started_at DESC) supports the
+// orchestrator's latestByName lookup and the abandoned-detector's
+// per-run history read.
+export const scanSteps = pgTable(
+  "scan_steps",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    scanRunId: uuid("scan_run_id").references(() => scanRuns.id, { onDelete: "cascade" }).notNull(),
+    stepName: text("step_name").notNull(),
+    status: text("status").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    attempt: integer("attempt").notNull().default(1),
+    failureReason: text("failure_reason"),
+    metadata: jsonb("metadata").notNull().default({})
+  },
+  (table) => [
+    index("scan_steps_status_idx").on(table.status),
+    index("scan_steps_run_idx").on(table.scanRunId),
+    index("scan_steps_run_name_started_at_idx").on(table.scanRunId, table.stepName, table.startedAt)
+  ]
+);

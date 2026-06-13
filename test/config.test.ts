@@ -16,7 +16,9 @@ describe("loadAppConfig", () => {
         LLM_BASE_URL: "http://127.0.0.1:11434/api/chat",
         LLM_MODEL: "kimi-k2.6:cloud",
         LLM_REQUEST_TIMEOUT_MS: "45000",
-        SCANNER_LLM_MAX_EVALUATIONS_PER_SCAN: "7"
+        SCANNER_LLM_MAX_EVALUATIONS_PER_SCAN: "7",
+        SCANNER_ABANDONED_AFTER_MS: "120000",
+        SENTRY_MONITOR_SLUG: "custom-monitor"
       })
     ).toMatchObject({
       nodeEnv: "test",
@@ -29,7 +31,9 @@ describe("loadAppConfig", () => {
       llmBaseUrl: "http://127.0.0.1:11434/api/chat",
       llmModel: "kimi-k2.6:cloud",
       llmRequestTimeoutMs: 45000,
-      scannerLlmMaxEvaluationsPerScan: 7
+      scannerLlmMaxEvaluationsPerScan: 7,
+      scannerAbandonedAfterMs: 120000,
+      sentryMonitorSlug: "custom-monitor"
     });
   });
 

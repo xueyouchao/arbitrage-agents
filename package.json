@@ -9,6 +9,7 @@
     "start:api": "node dist/main-api.js",
     "start:worker": "node dist/main-worker.js",
     "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:acceptance": "bash test/acceptance/run-api-acceptance.sh",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
@@ -31,8 +32,10 @@
     "@nestjs/testing": "^10.4.15",
     "@types/node": "^22.10.2",
     "@types/pg": "^8.20.0",
+    "@types/supertest": "^7.2.0",
     "@vitest/coverage-v8": "^2.1.8",
     "drizzle-kit": "^0.31.10",
+    "supertest": "^7.2.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
   },

@@ -945,3 +945,178 @@ Reviewer reachability:
      - `src/contexts/api/read-models.ts`
    - Suggestion: keep `opportunities` as the stable/latest projection keyed by scan-independent opportunity identity for `/v1/opportunities`, and add a separate `opportunity_observations` or `opportunity_history` table keyed by scan run plus source orderbook snapshot IDs for immutable historical provenance.
    - Rationale: putting snapshot IDs back into `opportunities.id` would reintroduce duplicate current opportunities across scans; a separate history table preserves auditability without weakening the current-opportunity de-duplication fix.
+
+---
+
+## 2026-06-12 Phase 4: resumable worker + Sentry check-ins
+
+Worktree: `.claude/worktrees/phase4-resumable-worker` (branch `phase4-resumable-worker`, forked from `main` at `7e30e00`, target PR base `main`).
+Commit: `f12457a Phase 4: resumable worker + Sentry check-ins` (24 files, +2532 / -25).
+Scope: deliver Phase 4 from the production-readiness roadmap — `Make the worker resumable and wire Sentry check-ins`. `main` was untouched (the only concurrent work on main was a separate worker's GitNexus skill edits and the staged `0006_overconfident_owl` migration; neither was modified by this branch).
+
+### Implementation summary
+
+- `scan_runs.heartbeat_at` column added so the abandoned-scan detector has a cheap freshness signal.
+- `scan_steps` table added (`id`, `scan_run_id` FK, `step_name`, `status`, `started_at`, `completed_at`, `attempt`, `failure_reason`, `metadata` jsonb) with composite index `(scan_run_id, step_name, started_at DESC)` for the orchestrator's "latest row per step" lookup. **No unique constraint** (see Finding #2 in the review below) — the orchestrator keeps history.
+- Migration: `drizzle/0006_phase4_resumable_worker.sql` (+ `drizzle/meta/0006_snapshot.json`).
+- `ResumableScanner` orchestrator (`src/contexts/scanner/resumable-scanner.ts`): six named steps (`fetch_markets`, `fetch_books`, `normalize_markets`, `review_pairs`, `calculate_opportunities`, `finalize`). On `runOnce`, the orchestrator hydrates the existing step trail, skips already-succeeded steps, and delegates the actual scan work to the inner `ReadOnlyScanner` for `fetch_markets` (the inner scanner is idempotent on `(venue, venue_market_id)` upsert keys, so re-running is safe). A Sentry cron-monitor check-in is `start()`'d at the scan boundary and `ok()`/`error()`'d at the end. The orchestrator re-marks rehydrated steps with `metadata.rehydrated: true`.
+- `AbandonedScanDetector` (`src/contexts/scanner/abandoned-scan-detector.ts`): finds scan_runs in `running` status whose most recent heartbeat is older than `scannerAbandonedAfterMs` (default 5 min), flips them to `abandoned`, and surfaces a `failureCategory: "abandoned"`. Called once per worker iteration BEFORE the new scan starts.
+- `SentryHttpCheckInClient` + `FakeSentryCheckInClient` (`src/contexts/observability/sentry-check-in-client.ts`): the real client posts to the public Sentry envelope endpoint (DSN parsed locally to avoid an `@sentry/node` dependency). The fake is used when `SENTRY_DSN` is unset, so a misconfigured deploy cannot crash the worker on a check-in call.
+- `WorkerScanRunner` (`src/contexts/scanner/worker-scan-runner.ts`) now calls `markAbandoned()` then `resumable.runOnce()`.
+- `ScannerModule` (`src/contexts/scanner/scanner.module.ts`) wires the new providers (`SCAN_STEP_REPOSITORY`, `SENTRY_CHECK_IN_CLIENT`, `ResumableScanner`, `AbandonedScanDetector`) and conditionally picks the real Sentry client or the fake based on `SENTRY_DSN`.
+- `AppConfig` gained `scannerAbandonedAfterMs` (env: `SCANNER_ABANDONED_AFTER_MS`) and `sentryMonitorSlug` (env: `SENTRY_MONITOR_SLUG`).
+- API read model (`src/contexts/api/read-models.ts`, `postgres-read-repositories.ts`) widened to surface `"abandoned"` status and `failureCategory`.
+
+### Verification (all green at `f12457a`)
+
+- `npm test` — 13 test files / 68 tests passing (was 8 / 25 before this branch).
+- `npm run typecheck` — passed.
+- `npm run build` — passed.
+- `npx drizzle-kit check` — `Everything's fine`.
+
+New tests:
+- `test/resumable-scanner.test.ts` (8 tests): full happy-path with all 6 step rows persisted, Sentry lifecycle (in_progress → ok / error), resume-skips-succeeded-steps, rerun-failed-step, idempotent step rows, transport-failure-tolerance, step name list, fake check-in lifecycle.
+- `test/abandoned-scan-detector.test.ts` (5 tests): marks stale `running` scans, leaves fresh heartbeats alone, ignores non-running scans, prefers the latest step `completed_at` as the heartbeat signal, returns the full abandoned set for re-queueing.
+- `test/sentry-check-in-client.test.ts` (6 tests): DSN parsing, envelope URL/path/body shape, `start` → `ok` / `error` paired with the right `check_in_id`, fake captures all three transitions, `FakeSentryCheckInClient` implements the interface.
+
+Updated tests:
+- `test/scanner.test.ts`: the `WorkerScanRunner` ctor is now `(resumableScanner, abandonedDetector)`; one test was updated to match.
+- `test/config.test.ts`: asserts `SCANNER_ABANDONED_AFTER_MS` and `SENTRY_MONITOR_SLUG` parse and feed through to `AppConfig`.
+
+### 2026-06-12 xhigh-recall code review of the Phase 4 diff
+
+Scope: working-tree changes on branch `phase4-resumable-worker`, commit `f12457a`. Review method: 7 independent finder angles (3 correctness + 3 cleanup + 1 altitude) at high effort, 1-vote verifier. After dedup and severity ranking, **10 distinct findings** survived. They are listed below in order from most severe to least severe. **Findings #1–#3 are blocking and must be fixed before merge** — the Phase 4 implementation as committed does not run against Postgres. Findings #4–#7 are operational risks. Findings #8–#10 are drift / cleanup.
+
+Files in scope for the review:
+
+- `drizzle/0006_phase4_resumable_worker.sql`
+- `drizzle/meta/0006_snapshot.json`
+- `src/config/app-config.ts`
+- `src/contexts/api/postgres-read-repositories.ts`
+- `src/contexts/api/read-models.ts`
+- `src/contexts/observability/sentry-check-in-client.ts`
+- `src/contexts/scanner/abandoned-scan-detector.ts`
+- `src/contexts/scanner/in-memory-scanner-repository.ts`
+- `src/contexts/scanner/postgres-scan-step-repository.ts`
+- `src/contexts/scanner/postgres-scanner-repository.ts`
+- `src/contexts/scanner/resumable-scanner.ts`
+- `src/contexts/scanner/scan-step.ts`
+- `src/contexts/scanner/scanner-repository.ts`
+- `src/contexts/scanner/scanner-result.ts`
+- `src/contexts/scanner/scanner-tokens.ts`
+- `src/contexts/scanner/scanner.module.ts`
+- `src/contexts/scanner/worker-scan-runner.ts`
+- `src/db/schema.ts`
+- `test/abandoned-scan-detector.test.ts`
+- `test/config.test.ts`
+- `test/resumable-scanner.test.ts`
+- `test/scanner.test.ts`
+- `test/sentry-check-in-client.test.ts`
+
+Findings (10, most severe first):
+
+### Blocking (must fix before merge)
+
+- [ ] **#1 — PostgresScanStepRepository.listForRun and getStep are stub throwers, but ResumableScanner.runOnce and AbandonedScanDetector.defaultHeartbeatOf both call them — worker crashes on first scan in production** (CRITICAL)
+   - Confidence: high (verbatim).
+   - Files:
+     - `src/contexts/scanner/postgres-scan-step-repository.ts:27-35`
+     - `src/contexts/scanner/abandoned-scan-detector.ts:66-68`
+     - `src/contexts/scanner/resumable-scanner.ts:85`
+   - Root cause: `listForRun` and `getStep` on the Postgres step repo throw `"PostgresScanStepRepository.listForRun requires a client; use loadRunState(pool, scanRunId) instead"`. The interface in `scan-step.ts` declares them as synchronous row-returning methods, and the orchestrator + detector call them through that interface. The free function `loadRunState` does the real work, but no caller uses it.
+   - Impact: a worker wired to the Postgres step repo (the only path NestJS DI produces from `scanner.module.ts`) throws on `markAbandoned()` before any scan executes, and on `ResumableScanner.runOnce()` before any step is written. `main-worker.ts` has no catch around `app.get(WorkerScanRunner).runOnce()`, so the process exits non-zero. Phase 4 is unusable in production.
+   - Recommendation: implement `listForRun` and `getStep` on `PostgresScanStepRepository` against `scan_steps` (the in-memory variant is the reference). Add a Nest integration test that boots the worker against a real Postgres and calls `runOnce` twice — this would have caught the stub on first commit. Alternatively, change the interface to be async (`Promise<readonly ScanStepRow[]>`) and remove `loadRunState` as a parallel API.
+
+- [ ] **#2 — Snapshot declares unique index `scan_steps_run_name_unique` on `(scan_run_id, step_name)` with `isUnique: true`, but the migration SQL and `src/db/schema.ts` both omit it — the next `drizzle-kit generate` or restored-from-snapshot DB will 23505 every resume** (CRITICAL)
+   - Confidence: high (verified at `drizzle/meta/0006_snapshot.json:855-876`, `drizzle/0006_phase4_resumable_worker.sql`, `src/db/schema.ts:144-171`).
+   - Root cause: triple divergence. SQL creates `scan_steps_status_idx`, `scan_steps_run_idx`, `scan_steps_run_name_started_at_idx` (no unique constraint). `src/db/schema.ts` declares the same three non-unique indexes. The snapshot declares an additional `scan_steps_run_name_unique` with `isUnique: true` on `(scan_run_id, step_name)`. The orchestrator's rehydration loop (Finding #3) and the in-memory merge contract both rely on there NOT being a uniqueness constraint today.
+   - Impact: the codebase is one `drizzle-kit generate` away from total breakage. The moment anyone re-runs `drizzle-kit generate` from the snapshot, regenerates the migration, or restores a DB the snapshot was applied to, every `saveStep` for an already-succeeded `(run, step)` becomes `23505 unique_violation` and the worker error-storms on every resume. The current `drizzle-kit check` passes only because it does not reconcile snapshot↔SQL drift.
+   - Recommendation: decide intent. If the unique constraint is intended (operator dashboards rely on one-row-per-step), add it to `src/db/schema.ts`, emit a fresh migration, AND fix Finding #3 first or you'll just move the breakage to runtime. If not, delete it from the snapshot so future `generate` calls don't re-introduce it.
+
+- [ ] **#3 — Rehydration loop calls `saveStep` 6 times per resume just to merge `rehydrated: true` into metadata, and the main loop already wrote the same `(scan_run_id, step_name)` row in the previous pass — duplicate writes today, 23505 under the intended unique index** (CRITICAL)
+   - Confidence: high.
+   - Files:
+     - `src/contexts/scanner/resumable-scanner.ts:113-158`
+     - `src/contexts/scanner/postgres-scan-step-repository.ts:108`
+   - Verified root cause: for every step the orchestrator's main loop wrote at lines 132/139, the rehydration loop writes again at line 149 for the SAME `(scan_run_id, step_name)`. Without the unique index (current state, per #2) this silently produces duplicate history rows that break the operator's "latest status per step" expectation, inflate `scan_steps`, and waste 6 INSERTs + 6 heartbeat UPDATEs per resume. With the unique index applied (intended state) every resume throws 23505. The `rehydrated: true` flag is trivially derivable on read (`step.attempt > 1` is the same signal).
+   - Recommendation: delete the rehydration write loop. Derive `rehydrated` at read time (e.g. in the API read model or via a derived getter on the in-memory repo). If a unique constraint is genuinely intended, switch `saveStep` to `ON CONFLICT (scan_run_id, step_name) DO UPDATE` so the data shape is enforced rather than hoped-for.
+
+### Operational (high)
+
+- [ ] **#4 — PostgresScanStepRepository does not implement `OnModuleDestroy` but shares `SCANNER_DB_POOL` with `PostgresScannerRepository`, which does and calls `pool.end()` — use-after-end on every graceful shutdown** (HIGH)
+   - Confidence: high.
+   - Files:
+     - `src/contexts/scanner/postgres-scan-step-repository.ts:20`
+     - `src/contexts/scanner/postgres-scanner-repository.ts:20-25`
+     - `src/contexts/scanner/scanner.module.ts`
+   - Root cause: both repos are constructed in `scanner.module.ts` as `@Injectable` providers bound to the same `SCANNER_DB_POOL`. Nest provider destruction order within a module is not guaranteed across siblings. When `PostgresScannerRepository.onModuleDestroy` runs first, it calls `pool.end()`; the next in-flight `saveStep` / `markRunHeartbeat` / `loadRunState` on `PostgresScanStepRepository` throws `Cannot use a pool after calling end on the pool`.
+   - Impact: half-written final-step rows, abandoned check-ins, and noisy crash logs on every redeploy. Restarts under load lose the last step's persistence state.
+   - Recommendation: move pool ownership to a dedicated provider (e.g. `ScannerDbPoolProvider`) whose `OnModuleDestroy` fires after all consumers, OR lift `pool.end()` into the module's `onApplicationShutdown` so it's ordered relative to all dependents. Neither repo should end a pool it doesn't own. This also matches review Finding #3 from the 2026-06-06 handoff ("Centralize Postgres pool ownership in shared infrastructure") which is still open.
+
+- [ ] **#5 — SentryHttpCheckInClient keeps `activeSlug` / `activeStartedAt` / `lastCheckInId` on instance state and is registered as a Nest singleton — overlapping `runOnce()` invocations race and send the wrong `monitor_slug` to Sentry** (HIGH)
+   - Confidence: high.
+   - Files:
+     - `src/contexts/observability/sentry-check-in-client.ts:70-94, 100-120`
+     - `src/contexts/scanner/scanner.module.ts:58-61`
+   - Root cause: `scanner.module.ts` registers the client via `useFactory` with no explicit scope (default Nest = singleton). `start()` unconditionally overwrites `activeSlug` / `activeStartedAt` / `lastCheckInId` on the instance. `ok()` / `error()` read those fields to build the envelope.
+   - Impact: if two `runOnce()` invocations overlap (a slow scan plus the next scheduler tick, or two adjacent cron monitors), the second `start()` clobbers the first's state, and the first `ok()` / `error()` then submits the WRONG `monitor_slug` to Sentry. Cron monitors silently flap green/red for unrelated jobs; on-call chases ghosts because the dashboard shows monitor A completing when monitor B actually ran.
+   - Recommendation: return an opaque handle from `start()` that `ok` / `fail` consume (no instance state at all), OR mark the provider `transient` / request-scoped. Add a test that interleaves two `start` / `ok` pairs and asserts each `ok()` carries the slug it started with.
+
+- [ ] **#6 — WorkerScanRunner.runOnce calls `markAbandoned()` before delegating — a long-running successful scan (>5min) gets flipped to 'abandoned' by the NEXT worker iteration and the dashboard shows a phantom incident** (HIGH)
+   - Confidence: medium-high.
+   - Files:
+     - `src/contexts/scanner/worker-scan-runner.ts:25-26`
+     - `src/contexts/scanner/abandoned-scan-detector.ts:67-75`
+   - Root cause: `runOnce` calls `markAbandoned()` then `resumable.runOnce()`. `defaultHeartbeatOf` falls back to `run.startedAt` when no step rows exist yet (and even after Finding #1 is fixed, when no step transitions have happened in the current iteration). On any scan that legitimately exceeds the abandon threshold (default 5 min, e.g. an LLM batch), the NEXT worker iteration's `markAbandoned` writes `status='abandoned'` over the still-running row; the original iteration's `saveCompletedScan` then overwrites it with `succeeded`. The operator dashboard transiently shows `abandoned` for a normal completion — alert fires, on-call paged, no actual incident.
+   - Recommendation: skip abandon-flagging for runs owned by the active worker. Add a per-worker lease / `owner_id` to `scan_runs` and only flag runs whose owner is not the caller. Add an integration test where one scan exceeds the threshold and the next iteration must NOT flip its status.
+
+### Maintenance (medium / low)
+
+- [ ] **#7 — `markAbandoned`'s `listScanRuns` reads all `scan_runs` up to `limit 1000` with no status filter and filters to 'running' in JS — once `scan_runs` has >1000 rows of any status, older 'running' rows silently fall off the page and never get marked abandoned** (MEDIUM)
+   - Confidence: high.
+   - Files:
+     - `src/contexts/scanner/postgres-scanner-repository.ts:56-68`
+     - `src/contexts/scanner/abandoned-scan-detector.ts:42-46`
+   - Root cause: query is `select ... from scan_runs order by started_at desc limit 1000` with no `WHERE` clause. The detector filters to `status='running'` in the for-loop.
+   - Impact: once `scan_runs` exceeds 1000 total rows (days, not months, in any active environment), the oldest `running` rows pushed past the 1000-row window are never seen by `markAbandoned` — they sit in `running` forever, poison dashboards, and skew abandonment metrics. Also wastes bandwidth pulling terminal rows the JS filter discards.
+   - Recommendation: push the filter into SQL: `WHERE status = 'running' ORDER BY started_at ASC LIMIT N`. Drop the JS-side status filter. Consider a composite index on `(status, started_at)` to keep this cheap.
+
+- [ ] **#8 — `sanitizeFailureReason` is a byte-for-byte duplicate of the same function in `read-only-scanner.ts:602` — two copies of a security-sensitive string scrubber will drift** (MEDIUM, security drift hazard)
+   - Confidence: high (verbatim copy).
+   - Files:
+     - `src/contexts/scanner/resumable-scanner.ts:222-229`
+     - `src/contexts/scanner/read-only-scanner.ts:602-609`
+   - Root cause: both functions apply the same `redactSensitiveText` + URL/token regex chain + 200-char slice, byte-for-byte.
+   - Impact: when the next leaked-secret pattern is discovered (a new API key prefix, an OAuth token shape, a partner credential format), the engineer adds it to whichever file they opened first. The scanner path whose copy was not updated then writes unscrubbed secrets straight into `scan_runs.failure_reason`, Sentry events, and operator logs. The class of bug this scrubber exists to prevent gets shipped to prod by inattention, not malice.
+   - Recommendation: extract to `src/contexts/observability/redaction.ts` (or a new `src/contexts/shared/sanitize-failure-reason.ts`) and import from both call sites. Add a property-based test covering each pattern so any future split is caught at PR time.
+
+- [ ] **#9 — InMemoryScanStepRepository carries three parallel stores (`rows`, `byRunId`, `heartbeats`) with a hand-maintained `refreshByRunId` invariant — a future `saveStep` path that forgets the helper silently desyncs `listForRun`** (LOW, maintainability)
+   - Confidence: high.
+   - Files:
+     - `src/contexts/scanner/in-memory-scanner-repository.ts:53-127`
+   - Root cause: `rows` is canonical; `byRunId` is a derivable filter of `rows`; `heartbeats` is a one-key map shadowing parent-class state. `refreshByRunId` must be called after every `saveStep` to keep `byRunId` consistent.
+   - Impact: a future `saveStep` variant (batch insert, retry path, partial-update helper) that forgets `refreshByRunId` leaves `byRunId` stale; unit tests that read through `byRunId` still pass because the helper is called in the existing `saveStep` path, but a new code path silently produces a divergent view. The invariant is load-bearing but unenforced.
+   - Recommendation: derive `byRunId` on read (`listForRun = rows.filter(r => r.scanRunId === id)`). Push `heartbeats` up into the parent class or store it on the step row itself so there is one source of truth per concept.
+
+- [ ] **#10 — Test helpers `market()` and `kalshiPolymarketPair()` are duplicated from `test/scanner.test.ts:14` — three lockstep copies that will drift the next time the kalshi market shape changes** (LOW, maintainability)
+    - Confidence: high.
+    - Files:
+      - `test/resumable-scanner.test.ts:11, 22`
+      - `test/scanner.test.ts:14, 21`
+      - `test/scanner-llm-review-fixes.test.ts`
+    - Impact: when the kalshi market shape changes again (twice already this year), the engineer updating tests will fix one or two files and miss the third. The stale test then either passes against new code (false confidence) or fails confusingly on a shape mismatch unrelated to the change under review (lost time, lost trust in the suite).
+    - Recommendation: extract to `test/helpers/markets.ts` (or `test/fixtures/kalshi.ts`) and import from every consumer. One source of truth for the fake market shape — let the type system catch shape drift in one place.
+
+### Verification notes
+
+- `npm test` — passed, 13 test files / 68 tests.
+- `npm run typecheck` — passed.
+- `npm run build` — passed.
+- `npx drizzle-kit check` — passed (`Everything's fine 🐶🔥`); the snapshot/SQL divergence (#2) is a runtime concern, not a `drizzle-kit check` one.
+
+### Recommended next steps before merge
+
+1. **Block merge on Findings #1, #2, #3.** They are mutually reinforcing: #1 makes the prod path throw, #2 is the trap that will explode the moment anyone regenerates the migration, and #3 is the orchestrator pattern that will produce the unique-constraint violations once #2 is corrected. The first three should be fixed together.
+2. Address Finding #4 (pool ownership) at the same time as the schema work — both touch `scanner.module.ts` and the new `PostgresScanStepRepository`.
+3. Findings #5–#7 are operational risks that should ship in a follow-up PR so the resumable worker is still reviewable as a single coherent feature cut. Findings #8–#10 can wait.
+4. Re-run `npm test` / `npm run typecheck` / `npm run build` after the fixes; add an integration test that boots the worker against a real Postgres to catch #1 going forward.

@@ -53,4 +53,11 @@ export interface CompletedScanArtifacts {
 export interface ScannerRepository {
   saveScanRun(scanRun: ScanResult): Promise<void>;
   saveCompletedScan(artifacts: CompletedScanArtifacts): Promise<CompletedScanResult>;
+  // Phase 4: the abandoned-scan detector iterates running scan runs
+  // without re-fetching the world. The repository returns a snapshot
+  // (defensive copy) so the detector can compute heartbeats safely
+  // while the worker mutates other state. Async so the Postgres adapter
+  // can perform a real query; the in-memory adapter returns synchronously
+  // wrapped in Promise.resolve.
+  listScanRuns(): Promise<readonly ScanResult[]>;
 }

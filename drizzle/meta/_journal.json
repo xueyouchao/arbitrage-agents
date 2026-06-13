@@ -50,6 +50,13 @@
       "when": 1781278082316,
       "tag": "0006_overconfident_owl",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1781281658468,
+      "tag": "0007_phase4_resumable_worker",
+      "breakpoints": true
     }
   ]
 }
