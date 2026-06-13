@@ -47,15 +47,22 @@ export class InMemoryScannerRepository implements ScannerRepository {
 }
 
 // Phase 4: in-memory implementation of `ScanStepRepository`. Mirrors the
-// Postgres history semantics so unit tests catch the same retry-trail
-// behavior the database would exhibit in production. Every `saveStep`
-// appends a new row with `attempt = max(existing attempts) + 1`.
-// `listForRun` returns rows ordered by `attempt`, then `started_at`,
-// then `id`, matching the Postgres contract. `getStep` returns the
-// latest row (highest attempt) for a step name.
+// Postgres append-only step trail so tests catch the same resumability
+// bugs the database would catch in production. `rows` is the single source
+// of truth; `byRunId` is derived on read for test/debug callers.
 export class InMemoryScanStepRepository implements ScanStepRepository {
   readonly rows: ScanStepRow[] = [];
   private readonly heartbeats: Map<string, string> = new Map();
+
+  get byRunId(): Map<string, ScanStepRow[]> {
+    const byRunId = new Map<string, ScanStepRow[]>();
+    for (const row of this.rows) {
+      const runRows = byRunId.get(row.scanRunId) ?? [];
+      runRows.push(row);
+      byRunId.set(row.scanRunId, runRows);
+    }
+    return byRunId;
+  }
 
   async saveStep(step: ScanStepArtifact): Promise<ScanStepRow> {
     const existingForStep = this.rows.filter(
@@ -77,10 +84,7 @@ export class InMemoryScanStepRepository implements ScanStepRepository {
     return row;
   }
 
-  listForRun(scanRunId: string): Promise<ScanStepRow[]> {
-    // Preserve insertion order within the same attempt so the trail
-    // mirrors the Postgres behavior when rows are sorted by attempt and
-    // then by insertion sequence (via monotonic id generation).
+  listForRun(scanRunId: string): Promise<readonly ScanStepRow[]> {
     const filtered = this.rows.filter((r) => r.scanRunId === scanRunId);
     const byAttempt = new Map<number, ScanStepRow[]>();
     for (const row of filtered) {
@@ -88,16 +92,18 @@ export class InMemoryScanStepRepository implements ScanStepRepository {
       bucket.push(row);
       byAttempt.set(row.attempt, bucket);
     }
-    const attempts = Array.from(byAttempt.keys()).sort((a, b) => a - b);
+
     const ordered: ScanStepRow[] = [];
-    for (const attempt of attempts) {
+    for (const attempt of Array.from(byAttempt.keys()).sort((a, b) => a - b)) {
       ordered.push(...byAttempt.get(attempt)!);
     }
     return Promise.resolve(ordered);
   }
 
   getStep(scanRunId: string, stepName: ScanStepName): Promise<ScanStepRow | undefined> {
-    return Promise.resolve(latestForStep(this.rows, scanRunId, stepName));
+    const rows = this.rows.filter((r) => r.scanRunId === scanRunId && r.stepName === stepName);
+    if (rows.length === 0) return Promise.resolve(undefined);
+    return Promise.resolve(rows.reduce((latest, current) => (current.attempt > latest.attempt ? current : latest)));
   }
 
   async markRunHeartbeat(scanRunId: string, heartbeatAt: string): Promise<void> {
@@ -107,12 +113,4 @@ export class InMemoryScanStepRepository implements ScanStepRepository {
   heartbeatOf(scanRunId: string): string | undefined {
     return this.heartbeats.get(scanRunId);
   }
-}
-
-function latestForStep(rows: readonly ScanStepRow[], scanRunId: string, stepName: ScanStepName): ScanStepRow | undefined {
-  const forStep = rows.filter((r) => r.scanRunId === scanRunId && r.stepName === stepName);
-  if (forStep.length === 0) return undefined;
-  return forStep.reduce((latest, current) =>
-    current.attempt > latest.attempt ? current : latest
-  );
 }

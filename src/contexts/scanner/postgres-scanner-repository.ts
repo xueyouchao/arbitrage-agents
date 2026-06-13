@@ -1,5 +1,5 @@
 import { Pool, PoolClient } from "pg";
-import { Inject, Injectable, OnModuleDestroy } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { NormalizedMarket } from "../matching/domain/normalized-market";
 import { uuidFromStableKey } from "../shared/stable-id";
 import { VenueMarketSnapshot } from "../venues/domain/venue-market";
@@ -17,12 +17,13 @@ import { ScanResult } from "./scanner-result";
 import { LlmEvaluationRecord } from "../llm/application/llm-evaluation";
 
 @Injectable()
-export class PostgresScannerRepository implements ScannerRepository, OnModuleDestroy {
+export class PostgresScannerRepository implements ScannerRepository {
+  // Phase 4: the SCANNER_DB_POOL is owned by the scanner module's
+  // `onApplicationShutdown` (see `ScannerDbPoolHolder`). The repository
+  // no longer implements `OnModuleDestroy` because that hook ran before
+  // its sibling consumers (e.g. `PostgresScanStepRepository`) and called
+  // `pool.end()`, producing use-after-end errors on graceful shutdown.
   constructor(@Inject(SCANNER_DB_POOL) private readonly pool: Pool) {}
-
-  async onModuleDestroy(): Promise<void> {
-    await this.pool.end();
-  }
 
   async saveScanRun(scanRun: ScanResult): Promise<void> {
     await saveScanRun(this.pool, scanRun);
@@ -50,9 +51,12 @@ export class PostgresScannerRepository implements ScannerRepository, OnModuleDes
   }
 
   // Phase 4: abandoned-scan detector reads scan_runs on every worker
-  // iteration. The query is bounded by the operator's accumulated run
-  // count; we project only the columns the detector needs (status,
-  // started_at, metrics) to keep the round-trip small.
+  // iteration. The query is bounded to `running` rows only; pushing the
+  // status filter into SQL (vs. fetching a 1000-row window and filtering
+  // in JS) means older `running` rows aren't dropped off the page once
+  // `scan_runs` exceeds 1000 total rows of any status. Order is ASC so
+  // the oldest stuck `running` rows are processed first when the worker
+  // is recovering after a long outage.
   async listScanRuns(): Promise<readonly ScanResult[]> {
     const result = await this.pool.query<{
       id: string;
@@ -63,7 +67,8 @@ export class PostgresScannerRepository implements ScannerRepository, OnModuleDes
     }>(
       `select id, status, started_at, completed_at, metrics
        from scan_runs
-       order by started_at desc
+       where status = 'running'
+       order by started_at asc
        limit 1000`
     );
     return result.rows.map((row) => ({

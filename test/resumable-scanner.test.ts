@@ -2,34 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import { RESUMABLE_SCAN_STEP_NAMES, ResumableScanner, ScanStepName } from "../src/contexts/scanner/resumable-scanner";
 import { InMemoryScannerRepository, InMemoryScanStepRepository } from "../src/contexts/scanner/in-memory-scanner-repository";
 import { ReadOnlyScanner } from "../src/contexts/scanner/read-only-scanner";
-import { StaticVenueClient } from "../src/contexts/venues/application/static-venue-client";
-import { VenueClient, VenueMarketSnapshot } from "../src/contexts/venues/domain/venue-market";
-import { CapturedCheckIn, FakeSentryCheckInClient } from "../src/contexts/observability/sentry-check-in-client";
+import { VenueClient } from "../src/contexts/venues/domain/venue-market";
+import { CapturedCheckIn, FakeSentryCheckInClient, SentryCheckInHandle } from "../src/contexts/observability/sentry-check-in-client";
+import { kalshiPolymarketPair as buildKalshiPolymarketPair } from "./helpers/markets";
 
 const capturedAt = "2026-06-04T12:00:00.000Z";
 
-function market(venue: "kalshi" | "polymarket", id: string, title: string, rawResolutionText = "Resolves using Coinbase BTC/USD at 2026-01-01T00:00:00Z"): VenueMarketSnapshot {
-  return {
-    venue,
-    venueMarketId: id,
-    title,
-    rawResolutionText,
-    rawPayload: { id, title },
-    capturedAt
-  };
-}
-
 function kalshiPolymarketPair(): { kalshiClient: VenueClient; polymarketClient: VenueClient } {
-  return {
-    kalshiClient: new StaticVenueClient({
-      markets: [market("kalshi", "K1", "Will Bitcoin be above $100,000 on Jan 1, 2026?")],
-      books: [{ marketId: "K1", venue: "kalshi", yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 20, noAvailableUsd: 30, capturedAt }]
-    }),
-    polymarketClient: new StaticVenueClient({
-      markets: [market("polymarket", "P1", "Will BTC be above $100,000 on Jan 1, 2026?")],
-      books: [{ marketId: "P1", venue: "polymarket", yesAsk: 0.5, noAsk: 0.51, yesAvailableUsd: 50, noAvailableUsd: 12, capturedAt }]
-    })
-  };
+  return buildKalshiPolymarketPair(capturedAt);
 }
 
 function buildResumableScanner(
@@ -117,7 +97,8 @@ describe("ResumableScanner", () => {
     expect(result.status).toBe("failed");
     expect(result.failureReason).not.toContain("secret");
     expect(checkInClient.checkIns.map((c) => c.status)).toEqual(["in_progress", "error"]);
-    expect((await stepRepository.listForRun(result.id)).find((s) => s.stepName === "fetch_markets")?.status).toBe("failed");
+    const failedSteps = await stepRepository.listForRun(result.id);
+    expect(failedSteps.find((s) => s.stepName === "fetch_markets")?.status).toBe("failed");
   });
 
   it("skips a fully-succeeded resume without invoking the inner scanner", async () => {
@@ -194,7 +175,8 @@ describe("ResumableScanner", () => {
     const resumed = await resumeScanner.runOnce();
 
     expect(resumed.status).toBe("succeeded");
-    const fetchBooks = (await steps.listForRun(scanRunId)).filter((s) => s.stepName === "fetch_books");
+    const allSteps = await steps.listForRun(scanRunId);
+    const fetchBooks = allSteps.filter((s) => s.stepName === "fetch_books");
     expect(fetchBooks.map((s) => s.status)).toEqual(["failed", "succeeded"]);
     expect(checkInClient.checkIns.map((c) => c.status)).toEqual(["in_progress", "ok"]);
   });
@@ -242,11 +224,11 @@ describe("ResumableScanner", () => {
 
   it("captures a complete check-in lifecycle in the fake", async () => {
     const fake = new FakeSentryCheckInClient();
-    const checkInId = await fake.start("monitor", new Date("2026-06-04T12:00:00Z"));
-    await fake.ok(checkInId, new Date("2026-06-04T12:00:05Z"));
+    const handle: SentryCheckInHandle = await fake.start("monitor", new Date("2026-06-04T12:00:00Z"));
+    await fake.ok(handle, new Date("2026-06-04T12:00:05Z"));
     expect(fake.checkIns).toEqual<CapturedCheckIn[]>([
-      { slug: "monitor", checkInId, status: "in_progress", startedAt: "2026-06-04T12:00:00.000Z" },
-      { slug: "monitor", checkInId, status: "ok", startedAt: "2026-06-04T12:00:05.000Z" }
+      { slug: "monitor", checkInId: handle.checkInId, status: "in_progress", startedAt: "2026-06-04T12:00:00.000Z" },
+      { slug: "monitor", checkInId: handle.checkInId, status: "ok", startedAt: "2026-06-04T12:00:05.000Z" }
     ]);
   });
 });

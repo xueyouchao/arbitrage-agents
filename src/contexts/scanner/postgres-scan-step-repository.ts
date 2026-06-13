@@ -2,18 +2,33 @@
 //
 // `saveStep` appends a new history row on every call. Each row gets an
 // attempt number one greater than the current maximum for the same
-// `(scan_run_id, step_name)`. A unique index on those three columns
-// guards against duplicate attempts from concurrent workers; the insert
-// loop retries on a unique violation so transient races converge safely.
+// `(scan_run_id, step_name)`. A unique index on those three columns guards
+// against duplicate attempts from concurrent workers; the insert loop
+// retries on a unique violation so transient races converge safely.
+//
+// `listForRun` and `getStep` query the table directly via the shared pool.
+// They are async to match the in-memory adapter and the `ScanStepRepository`
+// interface; callers always `await` the result.
 //
 // `markRunHeartbeat` is a one-line UPDATE on `scan_runs.heartbeat_at`.
 // Heartbeats are an opportunistic best-effort signal; the abandoned-scan
-// detector tolerates brief clock skew between the worker and the
-// detector by re-deriving the heartbeat from the latest `scan_steps`
-// `completed_at` when `heartbeat_at` is missing.
+// detector tolerates brief clock skew between the worker and the detector by
+// re-deriving the heartbeat from the latest `scan_steps` `completed_at` when
+// `heartbeat_at` is missing.
 
 import { Pool, PoolClient } from "pg";
 import { ScanStepArtifact, ScanStepName, ScanStepRepository, ScanStepRow, ScanStepStatus } from "./scan-step";
+
+interface StepRow {
+  id: string;
+  step_name: ScanStepName;
+  status: ScanStepStatus;
+  started_at: Date;
+  completed_at: Date | null;
+  attempt: number;
+  failure_reason: string | null;
+  metadata: Record<string, unknown>;
+}
 
 export class PostgresScanStepRepository implements ScanStepRepository {
   constructor(private readonly pool: Pool) {}
@@ -22,12 +37,12 @@ export class PostgresScanStepRepository implements ScanStepRepository {
     return saveStepRow(this.pool, step);
   }
 
-  async listForRun(scanRunId: string): Promise<ScanStepRow[]> {
-    return loadRunSteps(this.pool, scanRunId);
+  async listForRun(scanRunId: string): Promise<readonly ScanStepRow[]> {
+    return listStepsForRun(this.pool, scanRunId);
   }
 
   async getStep(scanRunId: string, stepName: ScanStepName): Promise<ScanStepRow | undefined> {
-    const steps = await this.listForRun(scanRunId);
+    const steps = await listStepsForRun(this.pool, scanRunId);
     const matching = steps.filter((step) => step.stepName === stepName);
     return matching.length === 0 ? undefined : matching[matching.length - 1];
   }
@@ -37,42 +52,22 @@ export class PostgresScanStepRepository implements ScanStepRepository {
   }
 }
 
-export interface LoadedRunState {
-  scanRunId: string;
-  steps: ScanStepRow[];
-  heartbeatAt: string | undefined;
-}
-
-export async function loadRunState(pool: Pool, scanRunId: string): Promise<LoadedRunState> {
-  const [steps, heartbeatResult] = await Promise.all([
-    loadRunSteps(pool, scanRunId),
-    pool.query<{ heartbeat_at: Date | null }>(`select heartbeat_at from scan_runs where id = $1`, [scanRunId])
-  ]);
-  return {
-    scanRunId,
-    steps,
-    heartbeatAt: heartbeatResult.rows[0]?.heartbeat_at?.toISOString()
-  };
-}
-
-async function loadRunSteps(queryable: Pool | PoolClient, scanRunId: string): Promise<ScanStepRow[]> {
-  const stepsResult = await queryable.query<{
-    id: string;
-    step_name: ScanStepName;
-    status: ScanStepStatus;
-    started_at: Date;
-    completed_at: Date | null;
-    attempt: number;
-    failure_reason: string | null;
-    metadata: Record<string, unknown>;
-  }>(
+export async function listStepsForRun(
+  queryable: Pool | PoolClient,
+  scanRunId: string
+): Promise<readonly ScanStepRow[]> {
+  const result = await queryable.query<StepRow>(
     `select id, step_name, status, started_at, completed_at, attempt, failure_reason, metadata
      from scan_steps
      where scan_run_id = $1
      order by attempt asc, started_at asc, id asc`,
     [scanRunId]
   );
-  return stepsResult.rows.map((r) => ({
+  return result.rows.map((r) => mapStepRow(scanRunId, r));
+}
+
+function mapStepRow(scanRunId: string, r: StepRow): ScanStepRow {
+  return {
     id: r.id,
     scanRunId,
     stepName: r.step_name,
@@ -82,31 +77,18 @@ async function loadRunSteps(queryable: Pool | PoolClient, scanRunId: string): Pr
     attempt: r.attempt,
     failureReason: r.failure_reason ?? undefined,
     metadata: r.metadata ?? {}
-  }));
+  };
 }
 
 const MAX_ATTEMPT_RETRIES = 3;
 
 async function saveStepRow(queryable: Pool | PoolClient, step: ScanStepArtifact): Promise<ScanStepRow> {
-  // Phase 4 keeps history: every saveStep call inserts a new row. The
-  // orchestrator's latestByName map in ResumableScanner.runOnce picks
-  // the most recent attempt per (scan_run_id, step_name), so duplicates
-  // are tolerated and retries are visible in the trail.
   const suppliedAttempt = step.attempt;
   let lastError: unknown;
 
   for (let retry = 0; retry < MAX_ATTEMPT_RETRIES; retry += 1) {
     try {
-      const result = await queryable.query<{
-        id: string;
-        step_name: ScanStepName;
-        status: ScanStepStatus;
-        started_at: Date;
-        completed_at: Date | null;
-        attempt: number;
-        failure_reason: string | null;
-        metadata: Record<string, unknown>;
-      }>(
+      const result = await queryable.query<StepRow>(
         `insert into scan_steps (
            scan_run_id, step_name, status, started_at, completed_at, attempt, failure_reason, metadata
          ) values (
@@ -134,18 +116,7 @@ async function saveStepRow(queryable: Pool | PoolClient, step: ScanStepArtifact)
           JSON.stringify(step.metadata ?? {})
         ]
       );
-      const row = result.rows[0];
-      return {
-        id: row.id,
-        scanRunId: step.scanRunId,
-        stepName: row.step_name,
-        status: row.status,
-        startedAt: row.started_at.toISOString(),
-        completedAt: row.completed_at ? row.completed_at.toISOString() : undefined,
-        attempt: row.attempt,
-        failureReason: row.failure_reason ?? undefined,
-        metadata: row.metadata ?? {}
-      };
+      return mapStepRow(step.scanRunId, result.rows[0]);
     } catch (error) {
       lastError = error;
       if (!isUniqueViolation(error)) throw error;

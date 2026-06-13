@@ -10,18 +10,12 @@ import { LlmEvaluationRecord, LlmEvaluationRequest } from "../src/contexts/llm/a
 import { PersistedLlmGateway } from "../src/contexts/llm/application/persisted-llm-gateway";
 import { buildScannerLlmValidatorRegistry } from "../src/contexts/llm/scanner-llm-validators";
 import { OllamaChatLlmProvider } from "../src/contexts/llm/infrastructure/ollama-chat-llm-provider";
+import { venueMarketSnapshot } from "./helpers/markets";
 
 const capturedAt = "2026-06-03T12:00:00.000Z";
 
-function market(venue: "kalshi" | "polymarket", id: string, title: string, rawResolutionText = "Resolves using Coinbase BTC/USD at 2026-01-01T00:00:00Z"): VenueMarketSnapshot {
-  return {
-    venue,
-    venueMarketId: id,
-    title,
-    rawResolutionText,
-    rawPayload: { id, title },
-    capturedAt
-  };
+function market(venue: "kalshi" | "polymarket", id: string, title: string, rawResolutionText?: string): VenueMarketSnapshot {
+  return venueMarketSnapshot(capturedAt, venue, id, title, rawResolutionText);
 }
 
 function scanner(llmGateway?: ReadOnlyScanner["dependencies"]["llmGateway"], deps: Partial<ReadOnlyScanner["dependencies"]> = {}): ReadOnlyScanner {

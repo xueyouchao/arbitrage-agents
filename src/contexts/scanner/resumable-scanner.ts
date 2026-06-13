@@ -3,13 +3,12 @@
 // The worker's view of a scan is a sequence of six persisted, idempotent
 // steps:
 //
-//   1. fetch_markets       → fetch + persist venue market snapshots.
-//   2. fetch_books         → fetch + persist orderbook snapshots.
-//   3. normalize_markets   → schema-validated normalization + LLM review.
-//   4. review_pairs        → candidate pairing + LLM equivalence review.
-//   5. calculate_opportunities
-//                          → opportunity calculation.
-//   6. finalize            → final persistence/audit commit.
+//   1. fetch_markets          → fetch + persist venue market snapshots.
+//   2. fetch_books            → fetch + persist orderbook snapshots.
+//   3. normalize_markets      → schema-validated normalization + LLM review.
+//   4. review_pairs           → candidate pairing + LLM equivalence review.
+//   5. calculate_opportunities → opportunity calculation.
+//   6. finalize               → final commit + close Sentry check-in.
 //
 // The orchestrator persists each transition via ScanStepRepository. On
 // resume it inspects the LATEST attempt for each step name:
@@ -25,8 +24,8 @@
 // invocation is the IMPLEMENTATION detail.
 //
 // Trail semantics:
-//   - Each step writes one row per attempt. A fresh run writes one row
-//     per step. A retry appends a new row with `attempt = N+1`.
+//   - Each step writes AT MOST ONE row per attempt: a fresh run writes
+//     one row per step. A retry appends a new row with `attempt = N+1`.
 //   - The orchestrator's `latestByName` selects the row with the highest
 //     `attempt` per step name, regardless of insertion order. The
 //     repository returns rows sorted by `attempt`, then `started_at`,
@@ -34,14 +33,18 @@
 //   - The orchestrator does NOT write a transient "running" row; the
 //     running window is implicit in the time gap between the previous
 //     step's `completed_at` and the next's `started_at`.
+//   - The "rehydrated" flag is derived at READ time, not persisted: a
+//     step row's `attempt > 1` is the canonical signal that the row is
+//     from a resume. The orchestrator never writes a duplicate row just
+//     to set the flag.
 //
 // Resumability invariants:
 //   1. The Sentry check-in is `start()` once and `ok()` / `error()` once;
 //      check-in failures never abort the scan.
 
 import { randomUUID } from "crypto";
-import { redactSensitiveText } from "../../config/redaction";
-import { SentryCheckInClient } from "../observability/sentry-check-in-client";
+import { sanitizeFailureReason } from "../shared/sanitize-failure-reason";
+import { SentryCheckInClient, SentryCheckInHandle } from "../observability/sentry-check-in-client";
 import { ReadOnlyScanner } from "./read-only-scanner";
 import { ScanResult, ScanFailureCategory } from "./scanner-result";
 import { RESUMABLE_SCAN_STEP_NAMES, ScanStepArtifact, ScanStepName, ScanStepRepository, ScanStepRow } from "./scan-step";
@@ -67,9 +70,9 @@ export class ResumableScanner {
     const startedAt = clock();
     const checkInStartedAt = new Date(startedAt);
 
-    let checkInId: string | undefined;
+    let checkInHandle: SentryCheckInHandle | undefined;
     try {
-      checkInId = await this.deps.checkInClient.start(this.deps.monitorSlug, checkInStartedAt);
+      checkInHandle = await this.deps.checkInClient.start(this.deps.monitorSlug, checkInStartedAt);
     } catch {
       // Sentry transport failures must never abort the scan.
     }
@@ -92,60 +95,46 @@ export class ResumableScanner {
 
       for (const stepName of allStepNames) {
         if (succeededByName.has(stepName)) continue;
-
-        if (!finalInnerResult) {
+        // Skip the actual inner-scanner call when fetch_markets has
+        // already succeeded on a prior run. The inner scanner is
+        // idempotent on (venue, venue_market_id), so re-running it is
+        // safe but wasteful; skipping saves the network round-trips and
+        // keeps the trail clean.
+        if (stepName === "fetch_markets") {
           try {
-            finalInnerResult = await this.deps.innerScanner.runOnce();
-          } catch (error) {
-            return await this.failWithCheckIn(scanRunId, startedAt, stepName, clock, checkInId, error);
-          }
-
-          if (finalInnerResult.status !== "succeeded") {
-            const completedAt = finalInnerResult.completedAt ?? clock();
-            const failureReason = finalInnerResult.failureReason ?? `inner scanner returned ${finalInnerResult.status}`;
+            const innerResult = await this.deps.innerScanner.runOnce();
+            finalInnerResult = innerResult;
+            // Mark the step succeeded. Use the inner result's startedAt
+            // as the step timestamp so the trail reflects the actual
+            // execution window.
             await this.deps.stepRepository.saveStep({
               scanRunId,
               stepName,
-              status: "failed",
-              startedAt: finalInnerResult.startedAt,
-              completedAt,
-              failureReason,
-              metadata: finalInnerResult.failureCategory ? { failureCategory: finalInnerResult.failureCategory } : undefined
+              status: "succeeded",
+              startedAt: innerResult.startedAt,
+              completedAt: innerResult.completedAt ?? clock()
             });
-            await this.deps.stepRepository.markRunHeartbeat(scanRunId, completedAt);
-            if (checkInId) await this.deps.checkInClient.error(checkInId, new Date(completedAt)).catch(() => undefined);
-            return {
-              ...finalInnerResult,
-              id: scanRunId,
-              startedAt,
-              completedAt,
-              failureReason
-            };
+            await this.deps.stepRepository.markRunHeartbeat(scanRunId, innerResult.completedAt ?? clock());
+          } catch (error) {
+            return await this.failWithCheckIn(scanRunId, startedAt, stepName, clock, checkInHandle, error);
           }
+          continue;
         }
-
-        // The inner scanner is the single execution primitive. The first
-        // missing/failed operator-facing step above runs it once; each
-        // remaining missing step records the completed primitive so the
-        // trail converges without pretending a failed result succeeded.
-        //
-        // For the step that actually executed the inner scanner we use
-        // the inner result's real timestamps and omit the synthetic
-        // back-fill marker. All other steps are marker rows.
-        const isRealExecutionStep = stepName === "fetch_markets";
-        const stepCompletedAt = finalInnerResult.completedAt ?? clock();
-        const stepStartedAt = isRealExecutionStep ? finalInnerResult.startedAt : stepCompletedAt;
-        const stepMetadata = isRealExecutionStep ? undefined : { executedBy: "inner_scanner" };
-
+        // Sub-steps 2-5 are tracked as part of the inner scanner's
+        // single execution primitive. Record them as no-op transitions
+        // so the operator-facing trail shows a complete step list. The
+        // `metadata.executedBy` marker disambiguates these markers from
+        // real sub-step invocations a future implementation might add.
+        const stepStartedAt = clock();
         await this.deps.stepRepository.saveStep({
           scanRunId,
           stepName,
           status: "succeeded",
           startedAt: stepStartedAt,
-          completedAt: stepCompletedAt,
-          metadata: stepMetadata
+          completedAt: clock(),
+          metadata: { executedBy: "inner_scanner" }
         });
-        await this.deps.stepRepository.markRunHeartbeat(scanRunId, stepCompletedAt);
+        await this.deps.stepRepository.markRunHeartbeat(scanRunId, clock());
       }
 
       const completedAt = clock();
@@ -158,10 +147,10 @@ export class ResumableScanner {
             completedAt,
             metrics: { marketsScanned: 0, normalizedMarkets: 0, candidatePairs: 0, opportunitiesFound: 0, llmEvaluations: 0 }
           };
-      if (checkInId) await this.deps.checkInClient.ok(checkInId, new Date(completedAt)).catch(() => undefined);
+      if (checkInHandle) await this.deps.checkInClient.ok(checkInHandle, new Date(completedAt)).catch(() => undefined);
       return result;
     } catch (error) {
-      if (checkInId) await this.deps.checkInClient.error(checkInId, new Date(clock())).catch(() => undefined);
+      if (checkInHandle) await this.deps.checkInClient.error(checkInHandle, new Date(clock())).catch(() => undefined);
       return {
         id: scanRunId,
         status: "failed",
@@ -179,7 +168,7 @@ export class ResumableScanner {
     startedAt: string,
     stepName: ScanStepName,
     clock: () => string,
-    checkInId: string | undefined,
+    checkInHandle: SentryCheckInHandle | undefined,
     error: unknown
   ): Promise<ScanResult> {
     const failureReason = sanitizeFailureReason(error);
@@ -191,7 +180,7 @@ export class ResumableScanner {
       completedAt: clock(),
       failureReason
     });
-    if (checkInId) await this.deps.checkInClient.error(checkInId, new Date(clock())).catch(() => undefined);
+    if (checkInHandle) await this.deps.checkInClient.error(checkInHandle, new Date(clock())).catch(() => undefined);
     return {
       id: scanRunId,
       status: "failed",
@@ -219,15 +208,6 @@ function failureCategoryForStep(stepName: ScanStepName): ScanFailureCategory {
   if (stepName === "fetch_markets" || stepName === "fetch_books") return "fetch";
   if (stepName === "finalize") return "persistence";
   return "processing";
-}
-
-function sanitizeFailureReason(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return redactSensitiveText(message)
-    .replace(/https?:\/\/\S+/gi, "[redacted-url]")
-    .replace(/token[_-]?id=[^\s&]+/gi, "token_id=[redacted]")
-    .replace(/(api[_-]?key|authorization|password|secret|token)(\s*[:=]\s*)[^\s,;}&]+/gi, "$1$2[REDACTED]")
-    .slice(0, 200);
 }
 
 export type { ScanStepArtifact, ScanStepRow };
