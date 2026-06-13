@@ -1,5 +1,5 @@
 import { Pool, PoolClient } from "pg";
-import { Inject, Injectable, OnModuleDestroy } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { NormalizedMarket } from "../matching/domain/normalized-market";
 import { uuidFromStableKey } from "../shared/stable-id";
 import { VenueMarketSnapshot } from "../venues/domain/venue-market";
@@ -17,12 +17,13 @@ import { ScanResult } from "./scanner-result";
 import { LlmEvaluationRecord } from "../llm/application/llm-evaluation";
 
 @Injectable()
-export class PostgresScannerRepository implements ScannerRepository, OnModuleDestroy {
+export class PostgresScannerRepository implements ScannerRepository {
+  // Phase 4: the SCANNER_DB_POOL is owned by the scanner module's
+  // `onApplicationShutdown` (see `ScannerDbPoolHolder`). The repository
+  // no longer implements `OnModuleDestroy` because that hook ran before
+  // its sibling consumers (e.g. `PostgresScanStepRepository`) and called
+  // `pool.end()`, producing use-after-end errors on graceful shutdown.
   constructor(@Inject(SCANNER_DB_POOL) private readonly pool: Pool) {}
-
-  async onModuleDestroy(): Promise<void> {
-    await this.pool.end();
-  }
 
   async saveScanRun(scanRun: ScanResult): Promise<void> {
     await saveScanRun(this.pool, scanRun);
