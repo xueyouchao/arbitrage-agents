@@ -3,9 +3,9 @@
 // The resumable worker treats a scan as a sequence of named steps. Each
 // step transition is persisted to `scan_steps` via `ScanStepRepository`,
 // which doubles as a checkpoint log: the orchestrator re-runs a step only
-// when its latest row is not `succeeded`. Steps are idempotent: re-saving
-// the same succeeded step is a no-op because the underlying upsert key
-// is `(scan_run_id, step_name)`.
+// when its latest row is not `succeeded`. Re-saving the same succeeded
+// step is idempotent, while retries append new rows so operators can see
+// the full attempt history.
 
 export const RESUMABLE_SCAN_STEP_NAMES = [
   "fetch_markets",
@@ -46,7 +46,12 @@ export interface ScanStepRow extends ScanStepArtifact {
 
 export interface ScanStepRepository {
   saveStep(step: ScanStepArtifact): Promise<ScanStepRow>;
-  listForRun(scanRunId: string): ScanStepRow[];
-  getStep(scanRunId: string, stepName: ScanStepName): ScanStepRow | undefined;
+  // Returns every step row for the run. Async so the Postgres adapter
+  // can perform a real query; the in-memory adapter returns a resolved
+  // Promise. Callers always await the result.
+  listForRun(scanRunId: string): Promise<readonly ScanStepRow[]>;
+  // Returns the most recent row for (scanRunId, stepName), or undefined
+  // if no row has ever been persisted. Async to match listForRun.
+  getStep(scanRunId: string, stepName: ScanStepName): Promise<ScanStepRow | undefined>;
   markRunHeartbeat(scanRunId: string, heartbeatAt: string): Promise<void>;
 }
