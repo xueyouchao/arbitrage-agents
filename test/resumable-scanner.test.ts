@@ -2,34 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import { RESUMABLE_SCAN_STEP_NAMES, ResumableScanner, ScanStepName } from "../src/contexts/scanner/resumable-scanner";
 import { InMemoryScannerRepository, InMemoryScanStepRepository } from "../src/contexts/scanner/in-memory-scanner-repository";
 import { ReadOnlyScanner } from "../src/contexts/scanner/read-only-scanner";
-import { StaticVenueClient } from "../src/contexts/venues/application/static-venue-client";
-import { VenueClient, VenueMarketSnapshot } from "../src/contexts/venues/domain/venue-market";
-import { CapturedCheckIn, FakeSentryCheckInClient } from "../src/contexts/observability/sentry-check-in-client";
+import { VenueClient } from "../src/contexts/venues/domain/venue-market";
+import { CapturedCheckIn, FakeSentryCheckInClient, SentryCheckInHandle } from "../src/contexts/observability/sentry-check-in-client";
+import { kalshiPolymarketPair as buildKalshiPolymarketPair } from "./helpers/markets";
 
 const capturedAt = "2026-06-04T12:00:00.000Z";
 
-function market(venue: "kalshi" | "polymarket", id: string, title: string, rawResolutionText = "Resolves using Coinbase BTC/USD at 2026-01-01T00:00:00Z"): VenueMarketSnapshot {
-  return {
-    venue,
-    venueMarketId: id,
-    title,
-    rawResolutionText,
-    rawPayload: { id, title },
-    capturedAt
-  };
-}
-
 function kalshiPolymarketPair(): { kalshiClient: VenueClient; polymarketClient: VenueClient } {
-  return {
-    kalshiClient: new StaticVenueClient({
-      markets: [market("kalshi", "K1", "Will Bitcoin be above $100,000 on Jan 1, 2026?")],
-      books: [{ marketId: "K1", venue: "kalshi", yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 20, noAvailableUsd: 30, capturedAt }]
-    }),
-    polymarketClient: new StaticVenueClient({
-      markets: [market("polymarket", "P1", "Will BTC be above $100,000 on Jan 1, 2026?")],
-      books: [{ marketId: "P1", venue: "polymarket", yesAsk: 0.5, noAsk: 0.51, yesAvailableUsd: 50, noAvailableUsd: 12, capturedAt }]
-    })
-  };
+  return buildKalshiPolymarketPair(capturedAt);
 }
 
 function buildResumableScanner(
@@ -76,7 +56,8 @@ describe("ResumableScanner", () => {
 
     expect(result.status).toBe("succeeded");
     expect(steps.byRunId.get(result.id)).toBeDefined();
-    const stepNames = steps.listForRun(result.id).map((s) => s.stepName);
+    const allSteps = await steps.listForRun(result.id);
+    const stepNames = allSteps.map((s) => s.stepName);
     expect(stepNames).toEqual([
       "fetch_markets",
       "fetch_books",
@@ -85,7 +66,7 @@ describe("ResumableScanner", () => {
       "calculate_opportunities",
       "finalize"
     ]);
-    expect(steps.listForRun(result.id).every((s) => s.status === "succeeded")).toBe(true);
+    expect(allSteps.every((s) => s.status === "succeeded")).toBe(true);
     expect(checkInClient.checkIns.map((c) => ({ slug: c.slug, status: c.status }))).toEqual([
       { slug: "arbitrage-agents-scan", status: "in_progress" },
       { slug: "arbitrage-agents-scan", status: "ok" }
@@ -117,7 +98,8 @@ describe("ResumableScanner", () => {
     expect(result.status).toBe("failed");
     expect(result.failureReason).not.toContain("secret");
     expect(checkInClient.checkIns.map((c) => c.status)).toEqual(["in_progress", "error"]);
-    expect(stepRepository.listForRun(result.id).find((s) => s.stepName === "fetch_markets")?.status).toBe("failed");
+    const failedSteps = await stepRepository.listForRun(result.id);
+    expect(failedSteps.find((s) => s.stepName === "fetch_markets")?.status).toBe("failed");
   });
 
   it("skips already-succeeded steps on resume and does not duplicate persisted rows", async () => {
@@ -155,9 +137,15 @@ describe("ResumableScanner", () => {
     const resumed = await resumeScanner.runOnce();
 
     expect(resumed.id).toBe(resumeScanId);
-    const resumedSteps = stepRepository.listForRun(resumeScanId);
-    const rehydrated = resumedSteps.filter((s) => s.metadata?.rehydrated === true);
-    expect(rehydrated.map((s) => s.stepName).sort()).toEqual(["fetch_books", "fetch_markets", "normalize_markets"]);
+    // The fix for Finding #3 is asserted here: the orchestrator MUST NOT
+    // write a duplicate row per (scanRunId, stepName) just to mark a
+    // step as rehydrated. The persisted trail has exactly one row per
+    // seeded step after the resume.
+    const resumedSteps = await stepRepository.listForRun(resumeScanId);
+    for (const stepName of ["fetch_markets", "fetch_books", "normalize_markets"] as const) {
+      const rows = resumedSteps.filter((s) => s.stepName === stepName);
+      expect(rows).toHaveLength(1);
+    }
     expect(resumed.status).toBe("succeeded");
     // The inner scanner is not invoked for the seeded steps, so the
     // repository totals are unchanged from the first run.
@@ -194,7 +182,8 @@ describe("ResumableScanner", () => {
     const resumed = await resumeScanner.runOnce();
 
     expect(resumed.status).toBe("succeeded");
-    const fetchBooks = steps.listForRun(scanRunId).filter((s) => s.stepName === "fetch_books");
+    const allSteps = await steps.listForRun(scanRunId);
+    const fetchBooks = allSteps.filter((s) => s.stepName === "fetch_books");
     expect(fetchBooks.map((s) => s.status)).toEqual(["failed", "succeeded"]);
     expect(checkInClient.checkIns.map((c) => c.status)).toEqual(["in_progress", "ok"]);
   });
@@ -205,13 +194,14 @@ describe("ResumableScanner", () => {
     const { scanner, stepRepository: steps } = buildResumableScanner(repository, stepRepository);
 
     const result = await scanner.runOnce();
-    const completed = steps.listForRun(result.id);
+    const completed = await steps.listForRun(result.id);
     const fetchMarketsRows = completed.filter((s) => s.stepName === "fetch_markets");
     expect(fetchMarketsRows).toHaveLength(1);
 
     // Re-saving the same succeeded step must not create a duplicate row.
     await stepRepository.saveStep(fetchMarketsRows[0]);
-    expect(steps.listForRun(result.id).filter((s) => s.stepName === "fetch_markets")).toHaveLength(1);
+    const after = await steps.listForRun(result.id);
+    expect(after.filter((s) => s.stepName === "fetch_markets")).toHaveLength(1);
   });
 
   it("survives check-in client failures and still completes the scan", async () => {
@@ -235,11 +225,11 @@ describe("ResumableScanner", () => {
 
   it("captures a complete check-in lifecycle in the fake", async () => {
     const fake = new FakeSentryCheckInClient();
-    const checkInId = await fake.start("monitor", new Date("2026-06-04T12:00:00Z"));
-    await fake.ok(checkInId, new Date("2026-06-04T12:00:05Z"));
+    const handle: SentryCheckInHandle = await fake.start("monitor", new Date("2026-06-04T12:00:00Z"));
+    await fake.ok(handle, new Date("2026-06-04T12:00:05Z"));
     expect(fake.checkIns).toEqual<CapturedCheckIn[]>([
-      { slug: "monitor", checkInId, status: "in_progress", startedAt: "2026-06-04T12:00:00.000Z" },
-      { slug: "monitor", checkInId, status: "ok", startedAt: "2026-06-04T12:00:05.000Z" }
+      { slug: "monitor", checkInId: handle.checkInId, status: "in_progress", startedAt: "2026-06-04T12:00:00.000Z" },
+      { slug: "monitor", checkInId: handle.checkInId, status: "ok", startedAt: "2026-06-04T12:00:05.000Z" }
     ]);
   });
 });
