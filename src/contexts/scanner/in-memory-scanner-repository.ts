@@ -48,8 +48,8 @@ export class InMemoryScannerRepository implements ScannerRepository {
 
 // Phase 4: in-memory implementation of `ScanStepRepository`. Mirrors the
 // Postgres append-only step trail so tests catch the same resumability
-// bugs the database would catch in production. `rows` is the single
-// source of truth; `byRunId` is derived on read for test/debug callers.
+// bugs the database would catch in production. `rows` is the single source
+// of truth; `byRunId` is derived on read for test/debug callers.
 export class InMemoryScanStepRepository implements ScanStepRepository {
   readonly rows: ScanStepRow[] = [];
   private readonly heartbeats: Map<string, string> = new Map();
@@ -65,20 +65,10 @@ export class InMemoryScanStepRepository implements ScanStepRepository {
   }
 
   async saveStep(step: ScanStepArtifact): Promise<ScanStepRow> {
-    const existing = this.rows.find((r) => r.scanRunId === step.scanRunId && r.stepName === step.stepName);
-    // Idempotency contract on (scan_run_id, step_name, status):
-    //   - Re-saving the SAME succeeded row is a no-op.
-    //   - Saving a NEW status (failed → succeeded, succeeded → running,
-    //     etc.) KEEPS THE PRIOR ROW IN HISTORY and appends a new row.
-    //     This mirrors the worker operator's expectation that they can
-    //     see every retry of a step in the trail. The orchestrator's
-    //     listForRun consumers should always read the most recent row
-    //     for a step name; the test that checks for `failed → succeeded`
-    //     depends on this history.
-    if (existing && existing.status === "succeeded" && step.status === "succeeded") {
-      return existing;
-    }
-    const attempt = (existing?.attempt ?? 0) + 1;
+    const existingForStep = this.rows.filter(
+      (r) => r.scanRunId === step.scanRunId && r.stepName === step.stepName
+    );
+    const nextAttempt = step.attempt ?? (existingForStep.length === 0 ? 1 : Math.max(...existingForStep.map((r) => r.attempt)) + 1);
     const row: ScanStepRow = {
       id: randomUUID(),
       scanRunId: step.scanRunId,
@@ -86,7 +76,7 @@ export class InMemoryScanStepRepository implements ScanStepRepository {
       status: step.status,
       startedAt: step.startedAt,
       completedAt: step.completedAt,
-      attempt: step.attempt ?? attempt,
+      attempt: nextAttempt,
       failureReason: step.failureReason,
       metadata: step.metadata ?? {}
     };
@@ -95,19 +85,25 @@ export class InMemoryScanStepRepository implements ScanStepRepository {
   }
 
   listForRun(scanRunId: string): Promise<readonly ScanStepRow[]> {
-    return Promise.resolve(this.rows.filter((r) => r.scanRunId === scanRunId));
-  }
+    const filtered = this.rows.filter((r) => r.scanRunId === scanRunId);
+    const byAttempt = new Map<number, ScanStepRow[]>();
+    for (const row of filtered) {
+      const bucket = byAttempt.get(row.attempt) ?? [];
+      bucket.push(row);
+      byAttempt.set(row.attempt, bucket);
+    }
 
-  // Returns the most recent row for the (scanRunId, stepName) pair.
-  // Used by the orchestrator's succeededByName map; the test suite
-  // asserts on full history via listForRun.
-  latestForRun(scanRunId: string, stepName: ScanStepName): ScanStepRow | undefined {
-    const rows = this.rows.filter((r) => r.scanRunId === scanRunId && r.stepName === stepName);
-    return rows.length === 0 ? undefined : rows[rows.length - 1];
+    const ordered: ScanStepRow[] = [];
+    for (const attempt of Array.from(byAttempt.keys()).sort((a, b) => a - b)) {
+      ordered.push(...byAttempt.get(attempt)!);
+    }
+    return Promise.resolve(ordered);
   }
 
   getStep(scanRunId: string, stepName: ScanStepName): Promise<ScanStepRow | undefined> {
-    return Promise.resolve(this.latestForRun(scanRunId, stepName));
+    const rows = this.rows.filter((r) => r.scanRunId === scanRunId && r.stepName === stepName);
+    if (rows.length === 0) return Promise.resolve(undefined);
+    return Promise.resolve(rows.reduce((latest, current) => (current.attempt > latest.attempt ? current : latest)));
   }
 
   async markRunHeartbeat(scanRunId: string, heartbeatAt: string): Promise<void> {

@@ -11,7 +11,7 @@
 //   6. finalize               → final commit + close Sentry check-in.
 //
 // The orchestrator persists each transition via ScanStepRepository. On
-// resume it inspects the LATEST row for each step:
+// resume it inspects the LATEST attempt for each step name:
 //   - succeeded → rehydrate, skip execution.
 //   - failed / running / missing → execute.
 //
@@ -26,14 +26,17 @@
 // Trail semantics:
 //   - Each step writes AT MOST ONE row per attempt: a fresh run writes
 //     one row per step. A retry appends a new row with `attempt = N+1`.
+//   - The orchestrator's `latestByName` selects the row with the highest
+//     `attempt` per step name, regardless of insertion order. The
+//     repository returns rows sorted by `attempt`, then `started_at`,
+//     then `id`.
 //   - The orchestrator does NOT write a transient "running" row; the
 //     running window is implicit in the time gap between the previous
 //     step's `completed_at` and the next's `started_at`.
 //   - The "rehydrated" flag is derived at READ time, not persisted: a
-//     step row's `attempt > 1` is the canonical signal that the row
-//     is from a resume. The orchestrator never writes a duplicate row
-//     just to set the flag — that rehydration write loop was removed
-//     in the Phase 4 review pass (Findings #1/#3).
+//     step row's `attempt > 1` is the canonical signal that the row is
+//     from a resume. The orchestrator never writes a duplicate row just
+//     to set the flag.
 //
 // Resumability invariants:
 //   1. The Sentry check-in is `start()` once and `ok()` / `error()` once;
@@ -78,13 +81,10 @@ export class ResumableScanner {
       // Hydrate the existing step trail (empty for a fresh run). We
       // compute the latest status per step name so the orchestrator can
       // skip already-succeeded steps on resume. The repository returns
-      // rows in started_at order; later rows win when we overwrite the
-      // map for the same key.
+      // rows sorted by attempt, started_at, id; the latest attempt is the
+      // authoritative state for each step.
       const existingSteps = await this.deps.stepRepository.listForRun(scanRunId);
-      const latestByName = new Map<string, ScanStepRow>();
-      for (const step of existingSteps) {
-        latestByName.set(step.stepName, step);
-      }
+      const latestByName = latestStepByName(existingSteps);
       const succeededByName = new Map<string, ScanStepRow>();
       for (const [name, row] of latestByName) {
         if (row.status === "succeeded") succeededByName.set(name, row);
@@ -191,6 +191,17 @@ export class ResumableScanner {
       failureReason
     };
   }
+}
+
+function latestStepByName(steps: readonly ScanStepRow[]): Map<string, ScanStepRow> {
+  const latest = new Map<string, ScanStepRow>();
+  for (const step of steps) {
+    const current = latest.get(step.stepName);
+    if (!current || step.attempt > current.attempt) {
+      latest.set(step.stepName, step);
+    }
+  }
+  return latest;
 }
 
 function failureCategoryForStep(stepName: ScanStepName): ScanFailureCategory {

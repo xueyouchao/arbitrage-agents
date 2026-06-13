@@ -56,7 +56,7 @@ export async function createDisposablePostgresDatabase(): Promise<DisposablePost
         await cleanupPool.query(`drop database if exists ${quoteIdent(databaseName)}`);
       } finally {
         await cleanupPool.end();
-        if (server.containerName) await removeContainer(server.containerName);
+        if (server.containerName) await removeContainer(server.containerName, server.docker);
       }
     }
   };
@@ -82,21 +82,57 @@ export async function runDrizzleMigrate(databaseUrl: string): Promise<void> {
 interface PostgresServer {
   rootDatabaseUrl: string;
   containerName?: string;
+  docker: DockerCommand;
 }
 
 async function resolvePostgresServer(): Promise<PostgresServer> {
   const configuredUrl = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
-  if (configuredUrl) return { rootDatabaseUrl: configuredUrl };
+  if (configuredUrl) {
+    // A configured database is the user's responsibility; no Docker probing.
+    return { rootDatabaseUrl: configuredUrl, docker: { command: "docker", args: [] } };
+  }
   return startDockerPostgres();
 }
 
 async function startDockerPostgres(): Promise<PostgresServer> {
   const containerName = `arb-integration-postgres-${randomUUID().slice(0, 8)}`;
+
+  // Try plain docker first. If the container command fails with a
+  // permission error, fall back to passwordless sudo. This avoids the
+  // trap where `docker version` or `docker ps` succeeds but `docker run`
+  // requires group membership / sudo.
+  let docker = await resolveDockerCommand();
+  let usedFallback = false;
+  try {
+    await runDockerPostgres(docker, containerName);
+  } catch (error) {
+    if (!usedFallback && isPermissionError(error)) {
+      usedFallback = true;
+      docker = { command: "sudo", args: ["-n", "docker"] };
+      await runDockerPostgres(docker, containerName);
+    } else {
+      throw error;
+    }
+  }
+
+  try {
+    const port = await waitForPostgresReady(docker, containerName);
+    return {
+      rootDatabaseUrl: `postgres://postgres:integration@127.0.0.1:${port}/postgres`,
+      containerName,
+      docker
+    };
+  } catch (error) {
+    await removeContainer(containerName, docker);
+    throw error;
+  }
+}
+
+async function runDockerPostgres(docker: DockerCommand, containerName: string): Promise<void> {
   await execFileAsync(
-    "sudo",
+    docker.command,
     [
-      "-n",
-      "docker",
+      ...docker.args,
       "run",
       "--rm",
       "-d",
@@ -110,33 +146,63 @@ async function startDockerPostgres(): Promise<PostgresServer> {
     ],
     { timeout: 120_000 }
   );
-
-  try {
-    for (let attempt = 0; attempt < 60; attempt += 1) {
-      try {
-        await execFileAsync("sudo", ["-n", "docker", "exec", containerName, "pg_isready", "-U", "postgres"], { timeout: 10_000 });
-        break;
-      } catch (error) {
-        if (attempt === 59) throw error;
-        await sleep(1_000);
-      }
-    }
-
-    const { stdout } = await execFileAsync("sudo", ["-n", "docker", "port", containerName, "5432/tcp"], { timeout: 10_000 });
-    const port = stdout.trim().split(":").pop();
-    if (!port) throw new Error(`Could not determine mapped Postgres port for ${containerName}`);
-    return {
-      rootDatabaseUrl: `postgres://postgres:integration@127.0.0.1:${port}/postgres`,
-      containerName
-    };
-  } catch (error) {
-    await removeContainer(containerName);
-    throw error;
-  }
 }
 
-async function removeContainer(containerName: string): Promise<void> {
-  await execFileAsync("sudo", ["-n", "docker", "rm", "-f", containerName], { timeout: 30_000 }).catch(() => undefined);
+async function waitForPostgresReady(docker: DockerCommand, containerName: string): Promise<string> {
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    try {
+      await execFileAsync(docker.command, [...docker.args, "exec", containerName, "pg_isready", "-U", "postgres"], { timeout: 10_000 });
+      break;
+    } catch (error) {
+      if (attempt === 59) throw error;
+      await sleep(1_000);
+    }
+  }
+
+  const { stdout } = await execFileAsync(docker.command, [...docker.args, "port", containerName, "5432/tcp"], { timeout: 10_000 });
+  const port = stdout.trim().split(":").pop();
+  if (!port) throw new Error(`Could not determine mapped Postgres port for ${containerName}`);
+  return port;
+}
+
+interface DockerCommand {
+  command: string;
+  args: string[];
+}
+
+async function resolveDockerCommand(): Promise<DockerCommand> {
+  async function canRun(docker: DockerCommand): Promise<boolean> {
+    try {
+      await execFileAsync(docker.command, [...docker.args, "run", "--rm", "hello-world"], { timeout: 30_000 });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  const plain: DockerCommand = { command: "docker", args: [] };
+  if (await canRun(plain)) return plain;
+
+  const sudo: DockerCommand = { command: "sudo", args: ["-n", "docker"] };
+  if (await canRun(sudo)) return sudo;
+
+  await execFileAsync("docker", ["version", "--format", "{{.Server.Version}}"], { timeout: 10_000 });
+  return plain;
+}
+
+function isPermissionError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("permission denied") ||
+    message.includes("cannot connect to the docker daemon") ||
+    message.includes("got permission denied while trying to connect")
+  );
+}
+
+async function removeContainer(containerName: string, docker?: DockerCommand): Promise<void> {
+  if (!docker) return;
+  await execFileAsync(docker.command, [...docker.args, "rm", "-f", containerName], { timeout: 30_000 }).catch(() => undefined);
 }
 
 function sleep(ms: number): Promise<void> {

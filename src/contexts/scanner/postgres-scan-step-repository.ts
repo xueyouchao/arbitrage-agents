@@ -1,22 +1,20 @@
 // Phase 4: Postgres adapter for the resumable scanner's step trail.
 //
-// `saveStep` writes a new row per call. The orchestrator's
-// `latestByName` map picks the most recent row per (scan_run_id,
-// step_name), so a retried step appends a new row with `attempt = N+1`
-// rather than overwriting the prior status. The full history is
-// preserved for operator visibility (the
-// `scan_steps_run_name_started_at_idx` composite index supports the
-// `MAX(started_at)` lookup).
+// `saveStep` appends a new history row on every call. Each row gets an
+// attempt number one greater than the current maximum for the same
+// `(scan_run_id, step_name)`. A unique index on those three columns guards
+// against duplicate attempts from concurrent workers; the insert loop
+// retries on a unique violation so transient races converge safely.
 //
-// `listForRun` and `getStep` query the table directly via the shared
-// pool. They are async to match the in-memory adapter and the
-// `ScanStepRepository` interface; callers always `await` the result.
+// `listForRun` and `getStep` query the table directly via the shared pool.
+// They are async to match the in-memory adapter and the `ScanStepRepository`
+// interface; callers always `await` the result.
 //
 // `markRunHeartbeat` is a one-line UPDATE on `scan_runs.heartbeat_at`.
 // Heartbeats are an opportunistic best-effort signal; the abandoned-scan
-// detector tolerates brief clock skew between the worker and the
-// detector by re-deriving the heartbeat from the latest `scan_steps`
-// `completed_at` when `heartbeat_at` is missing.
+// detector tolerates brief clock skew between the worker and the detector by
+// re-deriving the heartbeat from the latest `scan_steps` `completed_at` when
+// `heartbeat_at` is missing.
 
 import { Pool, PoolClient } from "pg";
 import { ScanStepArtifact, ScanStepName, ScanStepRepository, ScanStepRow, ScanStepStatus } from "./scan-step";
@@ -45,13 +43,8 @@ export class PostgresScanStepRepository implements ScanStepRepository {
 
   async getStep(scanRunId: string, stepName: ScanStepName): Promise<ScanStepRow | undefined> {
     const steps = await listStepsForRun(this.pool, scanRunId);
-    // listStepsForRun orders by started_at ASC; the most recent row is
-    // the last element of the array. We walk back-to-front so we find
-    // the latest row for the requested step name on the first hit.
-    for (let i = steps.length - 1; i >= 0; i -= 1) {
-      if (steps[i].stepName === stepName) return steps[i];
-    }
-    return undefined;
+    const matching = steps.filter((step) => step.stepName === stepName);
+    return matching.length === 0 ? undefined : matching[matching.length - 1];
   }
 
   async markRunHeartbeat(scanRunId: string, heartbeatAt: string): Promise<void> {
@@ -67,7 +60,7 @@ export async function listStepsForRun(
     `select id, step_name, status, started_at, completed_at, attempt, failure_reason, metadata
      from scan_steps
      where scan_run_id = $1
-     order by started_at asc`,
+     order by attempt asc, started_at asc, id asc`,
     [scanRunId]
   );
   return result.rows.map((r) => mapStepRow(scanRunId, r));
@@ -87,25 +80,62 @@ function mapStepRow(scanRunId: string, r: StepRow): ScanStepRow {
   };
 }
 
+const MAX_ATTEMPT_RETRIES = 3;
+
 async function saveStepRow(queryable: Pool | PoolClient, step: ScanStepArtifact): Promise<ScanStepRow> {
-  const result = await queryable.query<StepRow>(
-    `insert into scan_steps (
-       scan_run_id, step_name, status, started_at, completed_at, attempt, failure_reason, metadata
-     ) values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
-     returning id, step_name, status, started_at, completed_at, attempt, failure_reason, metadata`,
-    [
-      step.scanRunId,
-      step.stepName,
-      step.status,
-      step.startedAt,
-      step.completedAt ?? null,
-      step.attempt ?? 1,
-      step.failureReason ?? null,
-      JSON.stringify(step.metadata ?? {})
-    ]
+  const suppliedAttempt = step.attempt;
+  let lastError: unknown;
+
+  for (let retry = 0; retry < MAX_ATTEMPT_RETRIES; retry += 1) {
+    try {
+      const result = await queryable.query<StepRow>(
+        `insert into scan_steps (
+           scan_run_id, step_name, status, started_at, completed_at, attempt, failure_reason, metadata
+         ) values (
+           $1,
+           $2,
+           $3,
+           $4,
+           $5,
+           coalesce(
+             $6,
+             (select coalesce(max(attempt), 0) + 1 from scan_steps where scan_run_id = $1 and step_name = $2)
+           ),
+           $7,
+           $8::jsonb
+         )
+         returning id, step_name, status, started_at, completed_at, attempt, failure_reason, metadata`,
+        [
+          step.scanRunId,
+          step.stepName,
+          step.status,
+          step.startedAt,
+          step.completedAt ?? null,
+          suppliedAttempt ?? null,
+          step.failureReason ?? null,
+          JSON.stringify(step.metadata ?? {})
+        ]
+      );
+      return mapStepRow(step.scanRunId, result.rows[0]);
+    } catch (error) {
+      lastError = error;
+      if (!isUniqueViolation(error)) throw error;
+      // A concurrent worker inserted the same attempt; retry so the
+      // max(attempt) subquery recomputes. If the caller supplied an
+      // explicit attempt number there is nothing to recompute, so fail
+      // fast instead of looping on a deterministic collision.
+      if (suppliedAttempt !== undefined) throw error;
+    }
+  }
+
+  throw new Error(
+    `Failed to persist scan step ${step.stepName} for run ${step.scanRunId} after ${MAX_ATTEMPT_RETRIES} attempts due to concurrent attempt collisions`,
+    { cause: lastError }
   );
-  const row = result.rows[0];
-  return mapStepRow(step.scanRunId, row);
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "23505";
 }
 
 async function markRunHeartbeat(queryable: Pool | PoolClient, scanRunId: string, heartbeatAt: string): Promise<void> {

@@ -36,8 +36,12 @@ describe("migration smoke tests", () => {
   });
 
   it("keeps scan_steps SQL migration and Drizzle snapshot aligned on indexes", async () => {
-    const migrationSql = await readFile(join(process.cwd(), "drizzle/0006_phase4_resumable_worker.sql"), "utf8");
-    const snapshot = JSON.parse(await readFile(join(process.cwd(), "drizzle/meta/0006_snapshot.json"), "utf8")) as {
+    // The Phase 4 scan_steps migration was renamed from 0006 to 0007 on this branch
+    // (because Phase 3's 0006_overconfident_owl takes idx 6 here). The unique index
+    // added by the 0008_fix_scan_steps_attempt_uniqueness migration lives outside the
+    // 0007 snapshot, so the assertion below deliberately excludes it.
+    const migrationSql = await readFile(join(process.cwd(), "drizzle/0007_phase4_resumable_worker.sql"), "utf8");
+    const snapshot = JSON.parse(await readFile(join(process.cwd(), "drizzle/meta/0007_snapshot.json"), "utf8")) as {
       tables: Record<string, { indexes?: Record<string, { isUnique: boolean }> }>;
     };
 

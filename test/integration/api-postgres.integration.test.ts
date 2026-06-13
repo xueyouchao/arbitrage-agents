@@ -30,7 +30,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await app.close();
+  await app?.close();
   if (originalDatabaseUrl === undefined) {
     delete process.env.DATABASE_URL;
   } else {
@@ -41,7 +41,7 @@ afterEach(async () => {
   } else {
     process.env.NODE_ENV = originalNodeEnv;
   }
-  await db.close();
+  await db?.close();
 });
 
 describe("API + Postgres integration", () => {

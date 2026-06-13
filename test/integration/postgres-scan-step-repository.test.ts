@@ -15,8 +15,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await pool.end();
-  await db.close();
+  await pool?.end();
+  await db?.close();
 });
 
 describe("PostgresScanStepRepository integration", () => {
@@ -56,11 +56,11 @@ describe("PostgresScanStepRepository integration", () => {
     const steps = await repository.listForRun(scanRunId);
     expect(steps.map((step) => [step.stepName, step.status, step.attempt])).toEqual([
       ["fetch_markets", "failed", 1],
-      ["fetch_markets", "succeeded", 2],
-      ["fetch_books", "succeeded", 1]
+      ["fetch_books", "succeeded", 1],
+      ["fetch_markets", "succeeded", 2]
     ]);
     expect(steps[0].failureReason).toBe("venue timeout");
-    expect(steps[1].metadata).toEqual({ attemptKind: "retry" });
+    expect(steps[2].metadata).toEqual({ attemptKind: "retry" });
 
     const latestFetchMarkets = await repository.getStep(scanRunId, "fetch_markets");
     expect(latestFetchMarkets?.status).toBe("succeeded");
@@ -96,5 +96,85 @@ describe("PostgresScanStepRepository integration", () => {
 
     const result = await db.query<{ heartbeat_at: Date }>(`select heartbeat_at from scan_runs where id = $1`, [scanRunId]);
     expect(result.rows[0].heartbeat_at.toISOString()).toBe("2026-06-04T12:03:00.000Z");
+  });
+
+  it("selects the latest attempt per step when a retry has a backdated startedAt", async () => {
+    const scanRunId = "00000000-0000-4000-8000-000000000031";
+    await db.query(
+      `insert into scan_runs (id, status, started_at, metrics) values ($1, 'running', '2026-06-04T12:00:00Z', '{}'::jsonb)`,
+      [scanRunId]
+    );
+
+    // Initial attempt at 12:00:01.
+    await repository.saveStep({
+      scanRunId,
+      stepName: "fetch_markets",
+      status: "failed",
+      startedAt: "2026-06-04T12:00:01.000Z",
+      completedAt: "2026-06-04T12:00:02.000Z",
+      failureReason: "venue timeout"
+    });
+
+    // Retry at attempt 2 with an EARLIER started_at timestamp. The
+    // repository must still treat attempt 2 as the latest row.
+    await repository.saveStep({
+      scanRunId,
+      stepName: "fetch_markets",
+      status: "succeeded",
+      startedAt: "2026-06-04T11:59:00.000Z",
+      completedAt: "2026-06-04T12:01:00.000Z"
+    });
+
+    const latest = await repository.getStep(scanRunId, "fetch_markets");
+    expect(latest?.status).toBe("succeeded");
+    expect(latest?.attempt).toBe(2);
+    expect(latest?.startedAt).toBe("2026-06-04T11:59:00.000Z");
+
+    const allSteps = await repository.listForRun(scanRunId);
+    expect(allSteps.map((s) => [s.stepName, s.status, s.attempt])).toEqual([
+      ["fetch_markets", "failed", 1],
+      ["fetch_markets", "succeeded", 2]
+    ]);
+  });
+
+  it("enforces unique (scan_run_id, step_name, attempt) and retries on collisions", async () => {
+    const scanRunId = "00000000-0000-4000-8000-000000000041";
+    await db.query(
+      `insert into scan_runs (id, status, started_at, metrics) values ($1, 'running', '2026-06-04T12:00:00Z', '{}'::jsonb)`,
+      [scanRunId]
+    );
+
+    // First insert wins attempt 1.
+    await repository.saveStep({
+      scanRunId,
+      stepName: "fetch_markets",
+      status: "failed",
+      startedAt: "2026-06-04T12:00:01.000Z",
+      completedAt: "2026-06-04T12:00:02.000Z",
+      failureReason: "first"
+    });
+
+    // Explicit attempt 1 collides with the existing unique index and
+    // should be rejected.
+    await expect(
+      repository.saveStep({
+        scanRunId,
+        stepName: "fetch_markets",
+        status: "succeeded",
+        startedAt: "2026-06-04T12:00:03.000Z",
+        completedAt: "2026-06-04T12:00:04.000Z",
+        attempt: 1
+      })
+    ).rejects.toThrow();
+
+    // Auto-numbered insert recovers from the collision and mints attempt 2.
+    const retry = await repository.saveStep({
+      scanRunId,
+      stepName: "fetch_markets",
+      status: "succeeded",
+      startedAt: "2026-06-04T12:00:03.000Z",
+      completedAt: "2026-06-04T12:00:04.000Z"
+    });
+    expect(retry.attempt).toBe(2);
   });
 });
