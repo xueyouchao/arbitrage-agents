@@ -1,9 +1,9 @@
-import { BadRequestException, Controller, Get, NotFoundException, Param } from "@nestjs/common";
+import { BadRequestException, Controller, Get, Inject, NotFoundException, Param } from "@nestjs/common";
 import { OpportunityReadService } from "./read-models";
 
 @Controller("v1/opportunities")
 export class OpportunitiesController {
-  constructor(private readonly opportunities: OpportunityReadService) {}
+  constructor(@Inject(OpportunityReadService) private readonly opportunities: OpportunityReadService) {}
 
   @Get()
   list() {

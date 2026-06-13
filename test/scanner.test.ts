@@ -8,18 +8,12 @@ import { MarketBook } from "../src/contexts/arbitrage/domain/opportunity";
 import { CompletedScanArtifacts, CompletedScanResult } from "../src/contexts/scanner/scanner-repository";
 import { InMemoryLlmEvaluationRepository } from "../src/contexts/llm/application/in-memory-llm-evaluation-repository";
 import { PersistedLlmGateway } from "../src/contexts/llm/application/persisted-llm-gateway";
+import { venueMarketSnapshot } from "./helpers/markets";
 
 const capturedAt = "2026-06-03T12:00:00.000Z";
 
-function market(venue: "kalshi" | "polymarket", id: string, title: string, rawResolutionText = "Resolves using Coinbase BTC/USD at 2026-01-01T00:00:00Z"): VenueMarketSnapshot {
-  return {
-    venue,
-    venueMarketId: id,
-    title,
-    rawResolutionText,
-    rawPayload: { id, title },
-    capturedAt
-  };
+function market(venue: "kalshi" | "polymarket", id: string, title: string, rawResolutionText?: string): VenueMarketSnapshot {
+  return venueMarketSnapshot(capturedAt, venue, id, title, rawResolutionText);
 }
 
 describe("ReadOnlyScanner", () => {
@@ -235,7 +229,7 @@ describe("ReadOnlyScanner", () => {
   });
 
   it("throws when the worker scanner result fails", async () => {
-    const scanner = {
+    const resumableScanner = {
       runOnce: vi.fn(async () => ({
         id: "scan-1",
         status: "failed" as const,
@@ -245,9 +239,54 @@ describe("ReadOnlyScanner", () => {
         failureCategory: "fetch" as const,
         failureReason: "Kalshi failed: [redacted-url]"
       }))
-    } as Pick<ReadOnlyScanner, "runOnce"> as ReadOnlyScanner;
+    };
+    const abandonedDetector = {
+      markAbandoned: vi.fn(async () => [])
+    };
 
-    await expect(new WorkerScanRunner(scanner).runOnce()).rejects.toThrow("Scan failed (fetch): Kalshi failed: [redacted-url]");
+    await expect(
+      new WorkerScanRunner(
+        resumableScanner as never,
+        abandonedDetector as never
+      ).runOnce()
+    ).rejects.toThrow("Scan failed (fetch): Kalshi failed: [redacted-url]");
+  });
+
+  it("skips overlapping worker iterations while a scan is already running", async () => {
+    let releaseScan!: () => void;
+    let markScanStarted!: () => void;
+    const scanStarted = new Promise<void>((resolve) => {
+      markScanStarted = resolve;
+    });
+    const scanRelease = new Promise<void>((resolve) => {
+      releaseScan = resolve;
+    });
+    const resumableScanner = {
+      runOnce: vi.fn(async () => {
+        markScanStarted();
+        await scanRelease;
+        return {
+          id: "scan-1",
+          status: "succeeded" as const,
+          startedAt: capturedAt,
+          completedAt: capturedAt,
+          metrics: { marketsScanned: 0, normalizedMarkets: 0, candidatePairs: 0, opportunitiesFound: 0, llmEvaluations: 0 }
+        };
+      })
+    };
+    const abandonedDetector = {
+      markAbandoned: vi.fn(async () => [])
+    };
+    const runner = new WorkerScanRunner(resumableScanner as never, abandonedDetector as never);
+
+    const firstRun = runner.runOnce();
+    await scanStarted;
+    await runner.runOnce();
+    releaseScan();
+    await firstRun;
+
+    expect(abandonedDetector.markAbandoned).toHaveBeenCalledTimes(1);
+    expect(resumableScanner.runOnce).toHaveBeenCalledTimes(1);
   });
 
   it("fetches orderbooks only after freshly fetched markets", async () => {

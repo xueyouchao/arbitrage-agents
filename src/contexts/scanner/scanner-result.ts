@@ -1,4 +1,4 @@
-export type ScanFailureCategory = "fetch" | "processing" | "persistence";
+export type ScanFailureCategory = "fetch" | "processing" | "persistence" | "abandoned";
 
 export interface ScanMetrics {
   marketsScanned: number;
@@ -17,7 +17,10 @@ export interface ScanMetrics {
 
 export interface ScanResult {
   id: string;
-  status: "running" | "succeeded" | "failed";
+  // `abandoned` is a Phase 4 terminal status emitted by the
+  // AbandonedScanDetector. It marks a scan whose worker died before
+  // finalize; the next worker iteration re-queues it.
+  status: "running" | "succeeded" | "failed" | "abandoned";
   startedAt: string;
   completedAt?: string;
   metrics: ScanMetrics;
