@@ -15,6 +15,7 @@ import { PostgresScanStepRepository } from "./postgres-scan-step-repository";
 import { PostgresScannerRepository } from "./postgres-scanner-repository";
 import { ReadOnlyScanner, ScannerLlmGateway } from "./read-only-scanner";
 import { ResumableScanner } from "./resumable-scanner";
+import { ScannerDbPoolHolder } from "./scanner-db-pool-holder";
 import { ScannerRepository } from "./scanner-repository";
 import { ScanStepRepository } from "./scan-step";
 import {
@@ -48,6 +49,18 @@ import { WorkerScanRunner } from "./worker-scan-runner";
     {
       provide: SCAN_STEP_REPOSITORY,
       useFactory: (pool: Pool) => new PostgresScanStepRepository(pool),
+      inject: [SCANNER_DB_POOL]
+    },
+    // Phase 4: dedicated pool lifecycle holder. Implements
+    // `onApplicationShutdown` (which runs after every module's
+    // `onModuleDestroy`) so all in-flight consumers have finished their
+    // last query before the pool is ended. This replaces the previous
+    // `PostgresScannerRepository.onModuleDestroy` call to `pool.end()`
+    // that produced use-after-end errors on graceful shutdown when the
+    // sibling `PostgresScanStepRepository` was still flushing heartbeats.
+    {
+      provide: ScannerDbPoolHolder,
+      useFactory: (pool: Pool) => new ScannerDbPoolHolder(pool),
       inject: [SCANNER_DB_POOL]
     },
     {

@@ -47,23 +47,27 @@ export class InMemoryScannerRepository implements ScannerRepository {
 }
 
 // Phase 4: in-memory implementation of `ScanStepRepository`. Mirrors the
-// Postgres upsert key (scan_run_id, step_name) so the in-memory tests
-// catch the same idempotency bugs the database would catch in
-// production. `byRunId` is a debugging-only map exposed for tests.
+// Postgres append-only step trail so tests catch the same resumability
+// bugs the database would catch in production. `rows` is the single
+// source of truth; `byRunId` is derived on read for test/debug callers.
 export class InMemoryScanStepRepository implements ScanStepRepository {
   readonly rows: ScanStepRow[] = [];
-  readonly byRunId: Map<string, ScanStepRow[]> = new Map();
   private readonly heartbeats: Map<string, string> = new Map();
+
+  get byRunId(): Map<string, ScanStepRow[]> {
+    const byRunId = new Map<string, ScanStepRow[]>();
+    for (const row of this.rows) {
+      const runRows = byRunId.get(row.scanRunId) ?? [];
+      runRows.push(row);
+      byRunId.set(row.scanRunId, runRows);
+    }
+    return byRunId;
+  }
 
   async saveStep(step: ScanStepArtifact): Promise<ScanStepRow> {
     const existing = this.rows.find((r) => r.scanRunId === step.scanRunId && r.stepName === step.stepName);
     // Idempotency contract on (scan_run_id, step_name, status):
     //   - Re-saving the SAME succeeded row is a no-op.
-    //   - Re-saving a succeeded row with NEW metadata (e.g. the
-    //     `rehydrated: true` flag set by the orchestrator on resume)
-    //     merges the metadata into the existing row so the trail
-    //     records the skip-on-resume without losing the canonical
-    //     succeeded row.
     //   - Saving a NEW status (failed → succeeded, succeeded → running,
     //     etc.) KEEPS THE PRIOR ROW IN HISTORY and appends a new row.
     //     This mirrors the worker operator's expectation that they can
@@ -72,13 +76,6 @@ export class InMemoryScanStepRepository implements ScanStepRepository {
     //     for a step name; the test that checks for `failed → succeeded`
     //     depends on this history.
     if (existing && existing.status === "succeeded" && step.status === "succeeded") {
-      if (step.metadata) {
-        const merged: ScanStepRow = { ...existing, metadata: { ...existing.metadata, ...step.metadata } };
-        const index = this.rows.indexOf(existing);
-        this.rows[index] = merged;
-        this.refreshByRunId(step.scanRunId);
-        return merged;
-      }
       return existing;
     }
     const attempt = (existing?.attempt ?? 0) + 1;
@@ -94,12 +91,11 @@ export class InMemoryScanStepRepository implements ScanStepRepository {
       metadata: step.metadata ?? {}
     };
     this.rows.push(row);
-    this.refreshByRunId(step.scanRunId);
     return row;
   }
 
-  listForRun(scanRunId: string): Promise<ScanStepRow[]> {
-    return Promise.resolve([...(this.byRunId.get(scanRunId) ?? [])]);
+  listForRun(scanRunId: string): Promise<readonly ScanStepRow[]> {
+    return Promise.resolve(this.rows.filter((r) => r.scanRunId === scanRunId));
   }
 
   // Returns the most recent row for the (scanRunId, stepName) pair.
@@ -120,9 +116,5 @@ export class InMemoryScanStepRepository implements ScanStepRepository {
 
   heartbeatOf(scanRunId: string): string | undefined {
     return this.heartbeats.get(scanRunId);
-  }
-
-  private refreshByRunId(scanRunId: string): void {
-    this.byRunId.set(scanRunId, this.rows.filter((r) => r.scanRunId === scanRunId));
   }
 }

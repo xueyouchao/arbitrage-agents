@@ -25,8 +25,9 @@ export interface AbandonedScanDetectorDeps {
   // Derive the heartbeat timestamp for a given scan run. Default:
   // fall back to `scan_runs.started_at` (most conservative — a fresh
   // run with no step activity is NOT considered abandoned until the
-  // grace period has elapsed from `started_at`).
-  heartbeatOf?: (run: ScanResult) => string | undefined | Promise<string | undefined>;
+  // grace period has elapsed from `started_at`). Async so the
+  // implementation may query Postgres for step rows.
+  heartbeatOf?: (run: ScanResult) => Promise<string | undefined>;
 }
 
 export const ABANDONED_AFTER_MS_DEFAULT = 5 * 60 * 1000;
