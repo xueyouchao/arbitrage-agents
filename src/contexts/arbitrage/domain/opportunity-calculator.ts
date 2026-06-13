@@ -1,5 +1,5 @@
 import { CandidatePair, EquivalenceDecision } from "../../matching/domain/candidate-pair";
-import { Venue } from "../../matching/domain/normalized-market";
+import { Venue, VENUES } from "../../matching/domain/normalized-market";
 import { ContractLeg, ContractSide, CrossVenueOpportunity, MarketBook, NotionalEdge, PriceLevel, RiskLevel } from "./opportunity";
 
 export interface OpportunityCalculatorOptions {
@@ -170,10 +170,9 @@ function mergeOptions(options: Partial<OpportunityCalculatorOptions>): Opportuni
 }
 
 function mergeVenueRates(defaults: VenueFeeRates, overrides: VenueFeeRates | undefined): VenueFeeRates {
-  return {
-    kalshi: { ...defaults.kalshi, ...overrides?.kalshi },
-    polymarket: { ...defaults.polymarket, ...overrides?.polymarket }
-  };
+  return Object.fromEntries(
+    VENUES.map((venue) => [venue, { ...defaults[venue], ...overrides?.[venue] }])
+  ) as VenueFeeRates;
 }
 
 function rateFor(rates: VenueFeeRates, venue: Venue, side: ContractSide, fallback: number): number {
@@ -214,13 +213,20 @@ function simulateNotionalEdge(targetNotionalUsd: number, longLeg: ContractLeg, h
 }
 
 function simulateLegFill(leg: ContractLeg, targetNotionalUsd: number): { averagePrice: number; fillable: boolean } {
-  const levels = leg.depthLevels?.length ? leg.depthLevels : [{ price: leg.askPrice, size: leg.availableUsd / leg.askPrice }];
+  const levels = leg.depthLevels?.length
+    ? leg.depthLevels
+    : isFinitePrice(leg.askPrice) && Number.isFinite(leg.availableUsd) && leg.availableUsd > 0
+      ? [{ price: leg.askPrice, size: leg.availableUsd / leg.askPrice }]
+      : [];
+  if (levels.length === 0) return { averagePrice: 0, fillable: false };
+
   let remainingUsd = targetNotionalUsd;
   let totalCost = 0;
   let totalContracts = 0;
 
   for (const level of levels) {
     if (remainingUsd <= 0) break;
+    if (!isFinitePrice(level.price) || !Number.isFinite(level.size) || level.size <= 0) continue;
     const levelUsd = level.price * level.size;
     const spendUsd = Math.min(remainingUsd, levelUsd);
     totalCost += spendUsd;
@@ -228,8 +234,12 @@ function simulateLegFill(leg: ContractLeg, targetNotionalUsd: number): { average
     remainingUsd -= spendUsd;
   }
 
-  if (totalContracts <= 0) return { averagePrice: leg.askPrice, fillable: false };
+  if (totalContracts <= 0) return { averagePrice: isFinitePrice(leg.askPrice) ? leg.askPrice : 0, fillable: false };
   return { averagePrice: totalCost / totalContracts, fillable: remainingUsd <= 0.000001 };
+}
+
+function isFinitePrice(value: number): boolean {
+  return Number.isFinite(value) && value > 0 && value < 1;
 }
 
 function feeForLeg(leg: ContractLeg): number {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { OpportunityCalculator } from "../src/contexts/arbitrage/domain/opportunity-calculator";
 import { CandidatePair, EquivalenceDecision } from "../src/contexts/matching/domain/candidate-pair";
-import { NormalizedMarket } from "../src/contexts/matching/domain/normalized-market";
+import { NormalizedMarket, VENUES } from "../src/contexts/matching/domain/normalized-market";
 
 const kalshiMarket: NormalizedMarket = {
   id: "k-1",
@@ -217,6 +217,42 @@ describe("OpportunityCalculator", () => {
       expect.objectContaining({ targetNotionalUsd: 30, grossEdge: 0.0714, netEdge: 0.0714, fillable: true }),
       expect.objectContaining({ targetNotionalUsd: 60, grossEdge: 0.0556, netEdge: 0.0556, fillable: false })
     ]);
+  });
+
+  it("does not propagate invalid depth or NaN ask prices into fill simulation results", () => {
+    // Defensive guard: when a polymarket leg has empty availableUsd, isValidLeg filters it out,
+    // and the calculator must not produce any opportunity (and certainly no NaN/Infinity edges).
+    const calculator = new OpportunityCalculator();
+    const kalshiBook = { marketId: "K1", venue: "kalshi" as const, yesAsk: 0.4, noAsk: 0.7, yesAvailableUsd: 100, noAvailableUsd: 100, capturedAt: "2026-01-01T00:00:00.000Z" };
+    const polymarketBook = { marketId: "P1", venue: "polymarket" as const, yesAsk: 0.8, noAsk: 0.5, yesAvailableUsd: 0, noAvailableUsd: 0, capturedAt: "2026-01-01T00:00:00.000Z" };
+    const opportunities = calculator.calculate(pair, classA, kalshiBook, polymarketBook, {
+      now: "2026-01-01T00:00:00.000Z",
+      targetNotionalsUsd: [5, 25, 100]
+    });
+
+    expect(opportunities).toEqual([]);
+  });
+
+  it("merges venue-specific rates for every venue in the registry so future venues are not silently dropped", () => {
+    // VENUES is the single source of truth iterated by mergeVenueRates; adding a venue to
+    // the type must extend the registry automatically, not silently fall back to defaults.
+    expect(VENUES).toEqual(["kalshi", "polymarket"]);
+
+    const calculator = new OpportunityCalculator();
+    const kalshiBook = { marketId: "K1", venue: "kalshi" as const, yesAsk: 0.4, noAsk: 0.7, yesAvailableUsd: 100, noAvailableUsd: 100, capturedAt: "2026-01-01T00:00:00.000Z" };
+    const polymarketBook = { marketId: "P1", venue: "polymarket" as const, yesAsk: 0.8, noAsk: 0.5, yesAvailableUsd: 100, noAvailableUsd: 100, capturedAt: "2026-01-01T00:00:00.000Z" };
+
+    // Overriding one side on one venue must keep the other side at the default rate.
+    const [opportunity] = calculator.calculate(pair, classA, kalshiBook, polymarketBook, {
+      now: "2026-01-01T00:00:00.000Z",
+      venueFeeRates: { kalshi: { YES: 0.07 } },
+      venueSlippageRates: { polymarket: { NO: 0.09 } }
+    });
+
+    expect(opportunity.longLeg.feeRate).toBe(0.07);
+    expect(opportunity.longLeg.slippageRate).toBe(0.005);
+    expect(opportunity.hedgeLeg.feeRate).toBe(0.01);
+    expect(opportunity.hedgeLeg.slippageRate).toBe(0.09);
   });
 
   it("assigns isolated low, medium, and high risk levels at Phase 3 thresholds", () => {

@@ -1,4 +1,5 @@
-export type Venue = "kalshi" | "polymarket";
+export const VENUES = ["kalshi", "polymarket"] as const;
+export type Venue = (typeof VENUES)[number];
 export type Topic = "crypto" | "macro";
 export type EventType = "price_above" | "price_below" | "fed_rate_decision" | "cpi_range";
 export type CryptoAsset = "BTC" | "ETH";
