@@ -17,16 +17,24 @@ import { AbandonedScanDetector } from "./abandoned-scan-detector";
 // programming error or a misconfigured dependency graph.
 @Injectable()
 export class WorkerScanRunner {
+  private running = false;
+
   constructor(
     private readonly resumableScanner: ResumableScanner,
     private readonly abandonedDetector: AbandonedScanDetector
   ) {}
 
   async runOnce(): Promise<void> {
-    await this.abandonedDetector.markAbandoned();
-    const result = await this.resumableScanner.runOnce();
-    if (result.status === "failed") {
-      throw new Error(`Scan failed (${result.failureCategory ?? "unknown"}): ${result.failureReason ?? "unknown"}`);
+    if (this.running) return;
+    this.running = true;
+    try {
+      await this.abandonedDetector.markAbandoned();
+      const result = await this.resumableScanner.runOnce();
+      if (result.status === "failed") {
+        throw new Error(`Scan failed (${result.failureCategory ?? "unknown"}): ${result.failureReason ?? "unknown"}`);
+      }
+    } finally {
+      this.running = false;
     }
   }
 }
