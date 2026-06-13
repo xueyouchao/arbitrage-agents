@@ -1,5 +1,4 @@
 import { randomUUID } from "crypto";
-import { redactSensitiveText } from "../../config/redaction";
 import { OpportunityCalculator } from "../arbitrage/domain/opportunity-calculator";
 import { MarketBook } from "../arbitrage/domain/opportunity";
 import { LlmEvaluationRecord, LlmEvaluationRequest } from "../llm/application/llm-evaluation";
@@ -8,6 +7,7 @@ import { CandidatePairGenerator } from "../matching/domain/candidate-pair-genera
 import { DeterministicEquivalencePolicy } from "../matching/domain/equivalence-policy";
 import { CryptoMarketNormalizer } from "../matching/domain/crypto-market-normalizer";
 import { CryptoAsset, EventType, MarketOperator, NormalizedMarket, PayoffType, Topic } from "../matching/domain/normalized-market";
+import { sanitizeFailureReason } from "../shared/sanitize-failure-reason";
 import { VenueClient } from "../venues/domain/venue-market";
 import {
   OpportunityWithSourceSnapshots,
@@ -597,15 +597,6 @@ function toLlmMarketInput(market: NormalizedMarket): Record<string, unknown> {
     ambiguityFlags: market.ambiguityFlags,
     confidence: market.confidence
   };
-}
-
-function sanitizeFailureReason(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return redactSensitiveText(message)
-    .replace(/https?:\/\/\S+/gi, "[redacted-url]")
-    .replace(/token[_-]?id=[^\s&]+/gi, "token_id=[redacted]")
-    .replace(/(api[_-]?key|authorization|password|secret|token)(\s*[:=]\s*)[^\s,;}&]+/gi, "$1$2[REDACTED]")
-    .slice(0, 200);
 }
 
 function sanitizeProviderErrorMessage(error: unknown): string {
