@@ -25,8 +25,9 @@ export interface AbandonedScanDetectorDeps {
   // Derive the heartbeat timestamp for a given scan run. Default:
   // fall back to `scan_runs.started_at` (most conservative — a fresh
   // run with no step activity is NOT considered abandoned until the
-  // grace period has elapsed from `started_at`).
-  heartbeatOf?: (run: ScanResult) => string | undefined;
+  // grace period has elapsed from `started_at`). Async so the
+  // implementation may query Postgres for step rows.
+  heartbeatOf?: (run: ScanResult) => Promise<string | undefined>;
 }
 
 export const ABANDONED_AFTER_MS_DEFAULT = 5 * 60 * 1000;
@@ -43,7 +44,7 @@ export class AbandonedScanDetector {
     const runs = await this.deps.repository.listScanRuns();
     for (const run of runs) {
       if (run.status !== "running") continue;
-      const heartbeat = heartbeatOf(run);
+      const heartbeat = await heartbeatOf(run);
       if (!heartbeat) continue;
       const ageMs = now().getTime() - new Date(heartbeat).getTime();
       if (ageMs < abandonedAfterMs) continue;
@@ -63,9 +64,9 @@ export class AbandonedScanDetector {
   }
 }
 
-function defaultHeartbeatOf(stepRepository: ScanStepRepository): (run: ScanResult) => string | undefined {
-  return (run) => {
-    const steps = stepRepository.listForRun(run.id);
+function defaultHeartbeatOf(stepRepository: ScanStepRepository): (run: ScanResult) => Promise<string | undefined> {
+  return async (run) => {
+    const steps = await stepRepository.listForRun(run.id);
     const latest = steps.reduce<string | undefined>((acc, s) => {
       if (!s.completedAt) return acc;
       if (!acc) return s.completedAt;

@@ -51,9 +51,12 @@ export class PostgresScannerRepository implements ScannerRepository {
   }
 
   // Phase 4: abandoned-scan detector reads scan_runs on every worker
-  // iteration. The query is bounded by the operator's accumulated run
-  // count; we project only the columns the detector needs (status,
-  // started_at, metrics) to keep the round-trip small.
+  // iteration. The query is bounded to `running` rows only; pushing the
+  // status filter into SQL (vs. fetching a 1000-row window and filtering
+  // in JS) means older `running` rows aren't dropped off the page once
+  // `scan_runs` exceeds 1000 total rows of any status. Order is ASC so
+  // the oldest stuck `running` rows are processed first when the worker
+  // is recovering after a long outage.
   async listScanRuns(): Promise<readonly ScanResult[]> {
     const result = await this.pool.query<{
       id: string;
@@ -64,7 +67,8 @@ export class PostgresScannerRepository implements ScannerRepository {
     }>(
       `select id, status, started_at, completed_at, metrics
        from scan_runs
-       order by started_at desc
+       where status = 'running'
+       order by started_at asc
        limit 1000`
     );
     return result.rows.map((row) => ({
