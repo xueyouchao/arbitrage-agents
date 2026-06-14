@@ -29,4 +29,12 @@ describe("Phase 3 schema and migration", () => {
     expect(sql).toContain('ADD COLUMN "calculation_version" text DEFAULT \'unknown\' NOT NULL');
     expect(sql).toContain('ADD COLUMN "config_version" text DEFAULT \'unknown\' NOT NULL');
   });
+
+  it("defensively deduplicates scan_steps before creating the unique index in migration 0008", () => {
+    const sql = readFileSync(resolve(process.cwd(), "drizzle/0008_fix_scan_steps_attempt_uniqueness.sql"), "utf8");
+
+    expect(sql).toContain('DELETE FROM "scan_steps"');
+    expect(sql).toContain('PARTITION BY "scan_run_id", "step_name", "attempt"');
+    expect(sql).toContain('CREATE UNIQUE INDEX "scan_steps_run_name_attempt_unique" ON "scan_steps"');
+  });
 });
