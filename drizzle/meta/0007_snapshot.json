@@ -1,6 +1,6 @@
 {
-  "id": "e0513772-65e8-47e9-accd-b9257a9f42ef",
-  "prevId": "6debcbea-1194-42ae-84af-c1b181926ac1",
+  "id": "336e28ed-772c-451a-8424-295402e08613",
+  "prevId": "5d4f2b10-af4e-4970-8619-ec61315f45c6",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -538,6 +538,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "notional_edges": {
+          "name": "notional_edges",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
         "equivalence_class": {
           "name": "equivalence_class",
           "type": "text",
@@ -556,6 +563,41 @@
           "primaryKey": false,
           "notNull": true
         },
+        "liquidity_risk": {
+          "name": "liquidity_risk",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'high'"
+        },
+        "venue_risk": {
+          "name": "venue_risk",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'high'"
+        },
+        "equivalence_risk": {
+          "name": "equivalence_risk",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'high'"
+        },
+        "data_staleness_ms": {
+          "name": "data_staleness_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "opportunity_age_ms": {
+          "name": "opportunity_age_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
         "detected_at": {
           "name": "detected_at",
           "type": "timestamp with time zone",
@@ -567,6 +609,20 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true
+        },
+        "calculation_version": {
+          "name": "calculation_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'unknown'"
+        },
+        "config_version": {
+          "name": "config_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'unknown'"
         }
       },
       "indexes": {},
@@ -906,33 +962,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "scan_steps_run_name_attempt_unique": {
-          "name": "scan_steps_run_name_attempt_unique",
-          "columns": [
-            {
-              "expression": "scan_run_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "step_name",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "attempt",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}

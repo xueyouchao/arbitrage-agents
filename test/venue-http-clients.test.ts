@@ -13,7 +13,7 @@ describe("public venue HTTP clients", () => {
       new Response(JSON.stringify({
         orderbook_fp: {
           yes_dollars: [["0.40", "10"], ["0.42", "20"]],
-          no_dollars: [["0.35", "5"], ["0.37", "30"]]
+          no_dollars: [["0.35", "5"], ["0.37", "30"], ["0.10", "1"]]
         }
       }), { status: 200 })
     );
@@ -32,6 +32,8 @@ describe("public venue HTTP clients", () => {
         noAsk: 0.58,
         yesAvailableUsd: 18.9,
         noAvailableUsd: 11.6,
+        yesDepth: [{ price: 0.63, size: 30 }, { price: 0.65, size: 5 }, { price: 0.9, size: 1 }],
+        noDepth: [{ price: 0.58, size: 20 }, { price: 0.6, size: 10 }],
         stale: false
       })
     ]);
@@ -40,8 +42,8 @@ describe("public venue HTTP clients", () => {
   it("maps Polymarket CLOB YES/NO token asks to market book", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ asks: [{ price: "0.51", size: "100" }, { price: "0.53", size: "10" }] }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ asks: [{ price: "0.44", size: "25" }] }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ asks: [{ price: "0.53", size: "10" }, { price: "0.51", size: "100" }, { price: "bad", size: "1" }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ asks: [{ price: "0.46", size: "5" }, { price: "0.44", size: "25" }] }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
     const books = await new PolymarketPublicVenueClient("https://gamma.test", "https://clob.test", { retryDelayMs: 0 }).listOrderbooks([
@@ -58,6 +60,8 @@ describe("public venue HTTP clients", () => {
         noAsk: 0.44,
         yesAvailableUsd: 51,
         noAvailableUsd: 11,
+        yesDepth: [{ price: 0.51, size: 100 }, { price: 0.53, size: 10 }],
+        noDepth: [{ price: 0.44, size: 25 }, { price: 0.46, size: 5 }],
         stale: false
       })
     ]);
@@ -86,6 +90,107 @@ describe("public venue HTTP clients", () => {
     await expect(new KalshiPublicVenueClient("https://kalshi.test", { retries: 2, retryDelayMs: 0 }).listMarkets()).rejects.toThrow("Kalshi markets failed: 400");
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("maps Kalshi market fallback fields and stale malformed orderbook levels", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ markets: [{ id: "fallback-id", subtitle: "Fallback title", settlement_sources: "Fallback rules" }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        orderbook: {
+          yes: [["101", "10"], ["0.20"], ["bad", "5"]],
+          no: "malformed"
+        }
+      }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new KalshiPublicVenueClient("https://kalshi.test", { retryDelayMs: 0 });
+    const markets = await client.listMarkets();
+    const books = await client.listOrderbooks(markets);
+
+    expect(markets).toEqual([
+      expect.objectContaining({ venueMarketId: "fallback-id", title: "Fallback title", rawResolutionText: "Fallback rules" })
+    ]);
+    expect(books).toEqual([
+      expect.objectContaining({
+        marketId: "fallback-id",
+        yesAsk: 1,
+        noAsk: 1,
+        yesAvailableUsd: 0,
+        noAvailableUsd: 0,
+        yesDepth: [],
+        noDepth: [],
+        stale: true
+      })
+    ]);
+  });
+
+  it("maps Polymarket market fallback fields and token ID array/outcome ordering", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ id: "poly-id", title: "Fallback question", description: "Fallback description", tokenIds: ["no-token", "yes-token"], outcomes: ["No", "Yes"] }]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ asks: [{ price: "0.14", size: "2" }, { price: "0.12", size: "10" }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ asks: [{ price: "0.81", size: "5" }, { price: "0.83", size: "3" }] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new PolymarketPublicVenueClient("https://gamma.test", "https://clob.test", { retryDelayMs: 0 });
+    const markets = await client.listMarkets();
+    const books = await client.listOrderbooks(markets);
+
+    expect(markets).toEqual([
+      expect.objectContaining({ venueMarketId: "poly-id", title: "Fallback question", rawResolutionText: "Fallback description" })
+    ]);
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "https://clob.test/book?token_id=yes-token", expect.objectContaining({ method: "GET" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "https://clob.test/book?token_id=no-token", expect.objectContaining({ method: "GET" }));
+    expect(books).toEqual([expect.objectContaining({
+      yesAsk: 0.12,
+      noAsk: 0.81,
+      yesAvailableUsd: 1.2,
+      noAvailableUsd: 4.05,
+      yesDepth: [{ price: 0.12, size: 10 }, { price: 0.14, size: 2 }],
+      noDepth: [{ price: 0.81, size: 5 }, { price: 0.83, size: 3 }],
+      stale: false
+    })]);
+  });
+
+  it("drops Polymarket books with missing or malformed token IDs and marks empty CLOB books stale", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ asks: [{ price: "2", size: "10" }, { price: "0.5", size: "0" }, { notPrice: "0.4" }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ bids: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const books = await new PolymarketPublicVenueClient("https://gamma.test", "https://clob.test", { retryDelayMs: 0 }).listOrderbooks([
+      snapshot("polymarket", "missing", {}),
+      snapshot("polymarket", "malformed", { clobTokenIds: "not-json", outcomes: "not-json" }),
+      snapshot("polymarket", "empty", { clob_token_ids: JSON.stringify(["yes-token", "no-token"]) })
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(books).toEqual([
+      expect.objectContaining({
+        marketId: "empty",
+        yesAsk: 0.02,
+        noAsk: 1,
+        yesAvailableUsd: 0.2,
+        noAvailableUsd: 0,
+        yesDepth: [{ price: 0.02, size: 10 }],
+        noDepth: [],
+        stale: true
+      })
+    ]);
+  });
+
+  it("retries thrown network errors and surfaces the last failure after retry exhaustion", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("temporary network"))
+      .mockRejectedValueOnce(new Error("still down"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(new PolymarketPublicVenueClient("https://gamma.test", "https://clob.test", { retries: 1, retryDelayMs: 0 }).listMarkets()).rejects.toThrow("still down");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 

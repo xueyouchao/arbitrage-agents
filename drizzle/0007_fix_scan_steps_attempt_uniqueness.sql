@@ -1,1 +1,0 @@
-CREATE UNIQUE INDEX "scan_steps_run_name_attempt_unique" ON "scan_steps" USING btree ("scan_run_id","step_name","attempt");

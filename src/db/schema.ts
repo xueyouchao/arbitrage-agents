@@ -128,11 +128,19 @@ export const opportunities = pgTable("opportunities", {
   estimatedSlippage: numeric("estimated_slippage").notNull(),
   netEdge: numeric("net_edge").notNull(),
   maxTradableUsd: numeric("max_tradable_usd").notNull(),
+  notionalEdges: jsonb("notional_edges").notNull().default(sql`'[]'::jsonb`),
   equivalenceClass: text("equivalence_class").notNull(),
   resolutionRisk: text("resolution_risk").notNull(),
   fillRisk: text("fill_risk").notNull(),
+  liquidityRisk: text("liquidity_risk").notNull().default("high"),
+  venueRisk: text("venue_risk").notNull().default("high"),
+  equivalenceRisk: text("equivalence_risk").notNull().default("high"),
+  dataStalenessMs: integer("data_staleness_ms").notNull().default(0),
+  opportunityAgeMs: integer("opportunity_age_ms").notNull().default(0),
   detectedAt: timestamp("detected_at", { withTimezone: true }).notNull(),
-  lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }).notNull()
+  lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }).notNull(),
+  calculationVersion: text("calculation_version").notNull().default("unknown"),
+  configVersion: text("config_version").notNull().default("unknown")
 });
 
 export const alerts = pgTable("alerts", {

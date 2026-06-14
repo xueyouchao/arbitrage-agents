@@ -39,11 +39,19 @@ export class PostgresReadRepositories
              estimated_slippage,
              net_edge,
              max_tradable_usd,
+             notional_edges,
              equivalence_class,
              resolution_risk,
              fill_risk,
+             liquidity_risk,
+             venue_risk,
+             equivalence_risk,
+             data_staleness_ms,
+             opportunity_age_ms,
              detected_at,
-             last_verified_at
+             last_verified_at,
+             calculation_version,
+             config_version
       from opportunities
       order by detected_at desc
       limit 100
@@ -66,11 +74,19 @@ export class PostgresReadRepositories
              estimated_slippage,
              net_edge,
              max_tradable_usd,
+             notional_edges,
              equivalence_class,
              resolution_risk,
              fill_risk,
+             liquidity_risk,
+             venue_risk,
+             equivalence_risk,
+             data_staleness_ms,
+             opportunity_age_ms,
              detected_at,
-             last_verified_at
+             last_verified_at,
+             calculation_version,
+             config_version
       from opportunities
       where id = $1
       limit 1
@@ -155,11 +171,19 @@ interface OpportunityRow {
   estimated_slippage: string;
   net_edge: string;
   max_tradable_usd: string;
+  notional_edges: OpportunityReadModel["notionalEdges"] | string;
   equivalence_class: OpportunityReadModel["equivalenceClass"];
   resolution_risk: OpportunityReadModel["resolutionRisk"];
   fill_risk: OpportunityReadModel["fillRisk"];
+  liquidity_risk: OpportunityReadModel["liquidityRisk"];
+  venue_risk: OpportunityReadModel["venueRisk"];
+  equivalence_risk: OpportunityReadModel["equivalenceRisk"];
+  data_staleness_ms: number;
+  opportunity_age_ms: number;
   detected_at: Date | string;
   last_verified_at: Date | string;
+  calculation_version: string;
+  config_version: string;
 }
 
 interface MarketRow {
@@ -203,11 +227,19 @@ function toOpportunity(row: OpportunityRow): OpportunityReadModel {
     estimatedSlippage: Number(row.estimated_slippage),
     netEdge: Number(row.net_edge),
     maxTradableUsd: Number(row.max_tradable_usd),
+    notionalEdges: toNotionalEdges(row.notional_edges),
     equivalenceClass: row.equivalence_class,
     resolutionRisk: row.resolution_risk,
     fillRisk: row.fill_risk,
+    liquidityRisk: row.liquidity_risk,
+    venueRisk: row.venue_risk,
+    equivalenceRisk: row.equivalence_risk,
+    dataStalenessMs: Number(row.data_staleness_ms),
+    opportunityAgeMs: Number(row.opportunity_age_ms),
     detectedAt: toIso(row.detected_at),
-    lastVerifiedAt: toIso(row.last_verified_at)
+    lastVerifiedAt: toIso(row.last_verified_at),
+    calculationVersion: row.calculation_version,
+    configVersion: row.config_version
   };
 }
 
@@ -230,6 +262,40 @@ function toMarket(row: MarketRow): MarketReadModel {
     ambiguityFlags: row.ambiguity_flags,
     confidence: Number(row.confidence)
   };
+}
+
+function toNotionalEdges(value: OpportunityRow["notional_edges"]): OpportunityReadModel["notionalEdges"] {
+  const parsed = parseNotionalEdges(value);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.flatMap((edge) => {
+    if (!edge || typeof edge !== "object" || Array.isArray(edge)) return [];
+    const record = edge as Record<string, unknown>;
+    const normalized = {
+      targetNotionalUsd: Number(record.targetNotionalUsd),
+      grossEdge: Number(record.grossEdge),
+      estimatedFees: Number(record.estimatedFees),
+      estimatedSlippage: Number(record.estimatedSlippage),
+      netEdge: Number(record.netEdge),
+      fillable: record.fillable
+    };
+    return Number.isFinite(normalized.targetNotionalUsd) &&
+      Number.isFinite(normalized.grossEdge) &&
+      Number.isFinite(normalized.estimatedFees) &&
+      Number.isFinite(normalized.estimatedSlippage) &&
+      Number.isFinite(normalized.netEdge) &&
+      typeof normalized.fillable === "boolean"
+      ? [normalized as OpportunityReadModel["notionalEdges"][number]]
+      : [];
+  });
+}
+
+function parseNotionalEdges(value: OpportunityRow["notional_edges"]): unknown {
+  if (Array.isArray(value)) return value;
+  try {
+    return JSON.parse(value) as unknown;
+  } catch (_error) {
+    return [];
+  }
 }
 
 function toIso(value: Date | string): string {

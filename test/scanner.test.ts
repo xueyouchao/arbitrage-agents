@@ -472,6 +472,100 @@ describe("ReadOnlyScanner", () => {
     expect(repository.opportunities).toHaveLength(0);
   });
 
+  it("drops opportunities when a tradable pair is missing either orderbook or persisted snapshot", async () => {
+    const repository = new InMemoryScannerRepository();
+    const result = await new ReadOnlyScanner({
+      kalshiClient: new StaticVenueClient({
+        markets: [market("kalshi", "K1", "Will Bitcoin be above $100,000 on Jan 1, 2026?")],
+        books: [{ marketId: "K1", venue: "kalshi", yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 20, noAvailableUsd: 30, capturedAt }]
+      }),
+      polymarketClient: new StaticVenueClient({
+        markets: [market("polymarket", "P1", "Will BTC be above $100,000 on Jan 1, 2026?")],
+        books: []
+      }),
+      repository,
+      now: capturedAt
+    }).runOnce();
+
+    expect(result.status).toBe("succeeded");
+    expect(result.metrics).toMatchObject({ candidatePairs: 1, opportunitiesFound: 0 });
+    expect(repository.orderbookSnapshots).toHaveLength(1);
+    expect(repository.opportunities).toHaveLength(0);
+  });
+
+  it("uses deterministic calculation time and source snapshot IDs for Phase 3 opportunity wiring", async () => {
+    const repository = new InMemoryScannerRepository();
+    const result = await new ReadOnlyScanner({
+      kalshiClient: new StaticVenueClient({
+        markets: [market("kalshi", "K1", "Will Bitcoin be above $100,000 on Jan 1, 2026?")],
+        books: [{ marketId: "K1", venue: "kalshi", yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 20, noAvailableUsd: 30, capturedAt: "2026-06-03T12:00:00.000Z" }]
+      }),
+      polymarketClient: new StaticVenueClient({
+        markets: [market("polymarket", "P1", "Will BTC be above $100,000 on Jan 1, 2026?")],
+        books: [{ marketId: "P1", venue: "polymarket", yesAsk: 0.5, noAsk: 0.51, yesAvailableUsd: 50, noAvailableUsd: 12, capturedAt: "2026-06-03T12:00:00.000Z" }]
+      }),
+      repository,
+      clock: sequenceClock([
+        "2026-06-03T11:59:59.000Z",
+        "2026-06-03T12:00:30.000Z",
+        "2026-06-03T12:00:45.000Z"
+      ])
+    }).runOnce();
+
+    const kalshiSnapshot = repository.orderbookSnapshots.find((snapshot) => snapshot.venue === "kalshi");
+    const polymarketSnapshot = repository.orderbookSnapshots.find((snapshot) => snapshot.venue === "polymarket");
+    expect(result).toMatchObject({ status: "succeeded", startedAt: "2026-06-03T11:59:59.000Z", completedAt: "2026-06-03T12:00:45.000Z" });
+    expect(repository.opportunities[0]).toMatchObject({
+      kalshiOrderbookSnapshotId: kalshiSnapshot?.id,
+      polymarketOrderbookSnapshotId: polymarketSnapshot?.id,
+      opportunity: expect.objectContaining({
+        detectedAt: "2026-06-03T12:00:30.000Z",
+        lastVerifiedAt: "2026-06-03T12:00:30.000Z",
+        dataStalenessMs: 30000,
+        opportunityAgeMs: 0,
+        calculationVersion: "opportunity-calculator-v2",
+        configVersion: "phase3-conservative-v1"
+      })
+    });
+  });
+
+  it("persists orderbook raw depth defaults and filters invalid ask prices", async () => {
+    const repository = new InMemoryScannerRepository();
+    await new ReadOnlyScanner({
+      kalshiClient: new StaticVenueClient({
+        markets: [market("kalshi", "K1", "Will Bitcoin be above $100,000 on Jan 1, 2026?")],
+        books: [{
+          marketId: "K1",
+          venue: "kalshi",
+          yesAsk: Number.NaN,
+          noAsk: 0.62,
+          yesAvailableUsd: 20,
+          noAvailableUsd: 30,
+          capturedAt,
+          rawPayload: { source: "kalshi-book" },
+          yesDepth: [{ price: 0.42, size: 10 }]
+        }]
+      }),
+      polymarketClient: new StaticVenueClient({ markets: [], books: [] }),
+      repository,
+      now: capturedAt
+    }).runOnce();
+
+    expect(repository.orderbookSnapshots[0]).toMatchObject({
+      yesAsk: undefined,
+      noAsk: 0.62,
+      stale: false,
+      rawPayload: {
+        sourcePayload: { source: "kalshi-book" },
+        yesAsk: undefined,
+        noAsk: 0.62,
+        yesDepth: [{ price: 0.42, size: 10 }],
+        noDepth: [],
+        stale: false
+      }
+    });
+  });
+
 });
 
 function sequenceClock(values: string[]): () => string {
