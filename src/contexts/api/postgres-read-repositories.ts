@@ -38,6 +38,13 @@ export class PostgresReadRepositories
              estimated_fees,
              estimated_slippage,
              net_edge,
+             theoretical_combined_cost,
+             theoretical_gross_edge,
+             theoretical_net_edge,
+             executable_size_usd,
+             executable_combined_cost,
+             executable_gross_edge,
+             executable_net_edge,
              max_tradable_usd,
              notional_edges,
              equivalence_class,
@@ -73,6 +80,13 @@ export class PostgresReadRepositories
              estimated_fees,
              estimated_slippage,
              net_edge,
+             theoretical_combined_cost,
+             theoretical_gross_edge,
+             theoretical_net_edge,
+             executable_size_usd,
+             executable_combined_cost,
+             executable_gross_edge,
+             executable_net_edge,
              max_tradable_usd,
              notional_edges,
              equivalence_class,
@@ -170,6 +184,13 @@ interface OpportunityRow {
   estimated_fees: string;
   estimated_slippage: string;
   net_edge: string;
+  theoretical_combined_cost: string | null;
+  theoretical_gross_edge: string | null;
+  theoretical_net_edge: string | null;
+  executable_size_usd: string | null;
+  executable_combined_cost: string | null;
+  executable_gross_edge: string | null;
+  executable_net_edge: string | null;
   max_tradable_usd: string;
   notional_edges: OpportunityReadModel["notionalEdges"] | string;
   equivalence_class: OpportunityReadModel["equivalenceClass"];
@@ -226,6 +247,13 @@ function toOpportunity(row: OpportunityRow): OpportunityReadModel {
     estimatedFees: Number(row.estimated_fees),
     estimatedSlippage: Number(row.estimated_slippage),
     netEdge: Number(row.net_edge),
+    theoreticalCombinedCost: Number(row.theoretical_combined_cost ?? row.combined_cost),
+    theoreticalGrossEdge: Number(row.theoretical_gross_edge ?? row.gross_edge),
+    theoreticalNetEdge: Number(row.theoretical_net_edge ?? row.net_edge),
+    executableSizeUsd: Number(row.executable_size_usd ?? row.max_tradable_usd),
+    executableCombinedCost: Number(row.executable_combined_cost ?? row.combined_cost),
+    executableGrossEdge: Number(row.executable_gross_edge ?? row.gross_edge),
+    executableNetEdge: Number(row.executable_net_edge ?? row.net_edge),
     maxTradableUsd: Number(row.max_tradable_usd),
     notionalEdges: toNotionalEdges(row.notional_edges),
     equivalenceClass: row.equivalence_class,

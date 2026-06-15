@@ -125,6 +125,8 @@ export class OpportunityCalculator {
     const estimatedSlippage = round(slippageForLeg(longLeg) + slippageForLeg(hedgeLeg));
     const maxTradableUsd = roundUsd(Math.min(longLeg.availableUsd, hedgeLeg.availableUsd));
     const notionalEdges = options.targetNotionalsUsd.map((target) => simulateNotionalEdge(target, longLeg, hedgeLeg));
+    const executableSizeUsd = maxTradableUsd;
+    const executableEdge = simulateNotionalEdge(executableSizeUsd, longLeg, hedgeLeg);
     const dataStalenessMs = Math.max(...books.map((book) => bookAgeMs(book, options.now) ?? options.maxBookAgeMs + 1));
 
     return {
@@ -137,6 +139,13 @@ export class OpportunityCalculator {
       estimatedFees,
       estimatedSlippage,
       netEdge: round(grossEdge - estimatedFees - estimatedSlippage),
+      theoreticalCombinedCost: combinedCost,
+      theoreticalGrossEdge: grossEdge,
+      theoreticalNetEdge: round(grossEdge - estimatedFees - estimatedSlippage),
+      executableSizeUsd,
+      executableCombinedCost: round(1 - executableEdge.grossEdge),
+      executableGrossEdge: executableEdge.grossEdge,
+      executableNetEdge: executableEdge.netEdge,
       maxTradableUsd,
       notionalEdges,
       equivalenceClass,

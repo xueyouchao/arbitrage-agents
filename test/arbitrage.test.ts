@@ -127,9 +127,9 @@ describe("OpportunityCalculator", () => {
         venue: "kalshi",
         yesAsk: 0.4,
         noAsk: 0.7,
-        yesAvailableUsd: 10,
+        yesAvailableUsd: 5,
         noAvailableUsd: 100,
-        yesDepth: [{ price: 0.4, size: 25 }, { price: 0.6, size: 50 }],
+        yesDepth: [{ price: 0.4, size: 12.5 }, { price: 0.5, size: 20 }, { price: 0.7, size: 50 }],
         capturedAt: "2026-01-01T00:00:00.000Z"
       },
       {
@@ -138,13 +138,13 @@ describe("OpportunityCalculator", () => {
         yesAsk: 0.8,
         noAsk: 0.5,
         yesAvailableUsd: 100,
-        noAvailableUsd: 10,
-        noDepth: [{ price: 0.5, size: 20 }, { price: 0.6, size: 40 }],
+        noAvailableUsd: 5,
+        noDepth: [{ price: 0.5, size: 10 }, { price: 0.55, size: 20 }, { price: 0.75, size: 50 }],
         capturedAt: "2026-01-01T00:00:00.000Z"
       },
       {
         now: "2026-01-01T00:00:00.000Z",
-        targetNotionalsUsd: [10, 30],
+        targetNotionalsUsd: [10, 20],
         venueFeeRates: { kalshi: { YES: 0 }, polymarket: { NO: 0 } },
         venueSlippageRates: { kalshi: { YES: 0 }, polymarket: { NO: 0 } }
       }
@@ -157,14 +157,14 @@ describe("OpportunityCalculator", () => {
       theoreticalCombinedCost: 0.9,
       theoreticalGrossEdge: 0.1,
       theoreticalNetEdge: 0.1,
-      executableSizeUsd: 34,
-      executableCombinedCost: 1.087,
-      executableGrossEdge: -0.087,
-      executableNetEdge: -0.087,
-      maxTradableUsd: 10,
+      executableSizeUsd: 5,
+      executableCombinedCost: 0.9,
+      executableGrossEdge: 0.1,
+      executableNetEdge: 0.1,
+      maxTradableUsd: 5,
       notionalEdges: [
-        expect.objectContaining({ targetNotionalUsd: 10, fillable: true, netEdge: 0.1 }),
-        expect.objectContaining({ targetNotionalUsd: 30, fillable: true, netEdge: -0.0529 })
+        expect.objectContaining({ targetNotionalUsd: 10, fillable: true, netEdge: 0.0317 }),
+        expect.objectContaining({ targetNotionalUsd: 20, fillable: true, netEdge: -0.0705 })
       ]
     });
   });
