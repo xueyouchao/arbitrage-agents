@@ -17,6 +17,8 @@ export interface ContractLeg {
   availableUsd: number;
   feeRate?: number;
   slippageRate?: number;
+  feeModelVersion?: string;
+  feeModel?: { type: string; rate?: number; version?: string; feeRateBps?: number; makerFeeRateBps?: number; takerFeeRateBps?: number; orderRole?: "maker" | "taker"; operatorFeeRateBps?: number };
   depthLevels?: PriceLevel[];
 }
 

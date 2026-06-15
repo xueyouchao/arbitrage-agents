@@ -8,9 +8,11 @@ export interface OpportunityCalculatorOptions {
   now: string;
   maxBookAgeMs: number;
   minNetEdge: number;
+  profitabilityBuffer: number;
   targetNotionalsUsd: number[];
   venueFeeRates: VenueFeeRates;
   venueSlippageRates: VenueSlippageRates;
+  feeModels: FeeModels;
   calculationVersion: string;
   configVersion: string;
 }
@@ -18,6 +20,31 @@ export interface OpportunityCalculatorOptions {
 type SideRates = Partial<Record<ContractSide, number>>;
 type VenueFeeRates = Partial<Record<Venue, SideRates>>;
 type VenueSlippageRates = Partial<Record<Venue, SideRates>>;
+type FeeModels = Partial<Record<Venue, FeeModel>>;
+
+export type FeeModel = FlatFeeModel | KalshiFeeModel | PolymarketFeeModel;
+
+export interface FlatFeeModel {
+  type: "flat";
+  rate: number;
+  version?: string;
+}
+
+export interface KalshiFeeModel {
+  type: "kalshi";
+  rate: number;
+  version?: string;
+}
+
+export interface PolymarketFeeModel {
+  type: "polymarket";
+  feeRateBps?: number;
+  makerFeeRateBps?: number;
+  takerFeeRateBps?: number;
+  orderRole?: "maker" | "taker";
+  operatorFeeRateBps?: number;
+  version?: string;
+}
 
 const DEFAULT_OPTIONS: OpportunityCalculatorOptions = {
   feeRate: 0.01,
@@ -25,6 +52,7 @@ const DEFAULT_OPTIONS: OpportunityCalculatorOptions = {
   now: "",
   maxBookAgeMs: 60_000,
   minNetEdge: 0,
+  profitabilityBuffer: 0,
   targetNotionalsUsd: [5, 25, 100],
   venueFeeRates: {
     kalshi: { YES: 0.01, NO: 0.01 },
@@ -34,6 +62,7 @@ const DEFAULT_OPTIONS: OpportunityCalculatorOptions = {
     kalshi: { YES: 0.005, NO: 0.005 },
     polymarket: { YES: 0.005, NO: 0.005 }
   },
+  feeModels: {},
   calculationVersion: "opportunity-calculator-v2",
   configVersion: "phase3-conservative-v1"
 };
@@ -74,7 +103,7 @@ export class OpportunityCalculator {
     return directions
       .filter(({ longLeg, hedgeLeg }) => this.isValidLeg(longLeg) && this.isValidLeg(hedgeLeg))
       .map(({ id, longLeg, hedgeLeg }) => this.toOpportunity(pair.id, id, "A", decision, longLeg, hedgeLeg, [kalshiBook, polymarketBook], mergedOptions))
-      .filter((opportunity) => opportunity.netEdge > mergedOptions.minNetEdge);
+      .filter((opportunity) => opportunity.netEdge > mergedOptions.minNetEdge + mergedOptions.profitabilityBuffer);
   }
 
   private isUsableBook(book: MarketBook, options: OpportunityCalculatorOptions): boolean {
@@ -95,6 +124,8 @@ export class OpportunityCalculator {
       availableUsd: side === "YES" ? book.yesAvailableUsd : book.noAvailableUsd,
       feeRate: rateFor(options.venueFeeRates, book.venue, side, options.feeRate),
       slippageRate: rateFor(options.venueSlippageRates, book.venue, side, options.slippageRate),
+      feeModelVersion: feeModelFor(options, book.venue)?.version,
+      feeModel: feeModelFor(options, book.venue) as ContractLeg["feeModel"],
       depthLevels: normalizedDepthLevels(book, side)
     };
   }
@@ -163,10 +194,15 @@ function mergeOptions(options: Partial<OpportunityCalculatorOptions>): Opportuni
   return {
     ...DEFAULT_OPTIONS,
     ...options,
-    venueFeeRates: mergeVenueRates(DEFAULT_OPTIONS.venueFeeRates, options.venueFeeRates),
-    venueSlippageRates: mergeVenueRates(DEFAULT_OPTIONS.venueSlippageRates, options.venueSlippageRates),
+    venueFeeRates: mergeVenueRates(defaultVenueRates(options.feeRate ?? DEFAULT_OPTIONS.feeRate), options.venueFeeRates),
+    venueSlippageRates: mergeVenueRates(defaultVenueRates(options.slippageRate ?? DEFAULT_OPTIONS.slippageRate), options.venueSlippageRates),
+    feeModels: options.feeModels ?? {},
     targetNotionalsUsd: targetNotionalsUsd.length > 0 ? targetNotionalsUsd : DEFAULT_OPTIONS.targetNotionalsUsd
   };
+}
+
+function defaultVenueRates(rate: number): VenueFeeRates {
+  return Object.fromEntries(VENUES.map((venue) => [venue, { YES: rate, NO: rate }])) as VenueFeeRates;
 }
 
 function mergeVenueRates(defaults: VenueFeeRates, overrides: VenueFeeRates | undefined): VenueFeeRates {
@@ -177,6 +213,10 @@ function mergeVenueRates(defaults: VenueFeeRates, overrides: VenueFeeRates | und
 
 function rateFor(rates: VenueFeeRates, venue: Venue, side: ContractSide, fallback: number): number {
   return rates[venue]?.[side] ?? fallback;
+}
+
+function feeModelFor(options: OpportunityCalculatorOptions, venue: Venue): FeeModel | undefined {
+  return options.feeModels[venue];
 }
 
 function normalizedDepthLevels(book: MarketBook, side: ContractSide): PriceLevel[] {
@@ -199,7 +239,7 @@ function simulateNotionalEdge(targetNotionalUsd: number, longLeg: ContractLeg, h
   const fillable = longFill.fillable && hedgeFill.fillable;
   const combinedCost = longFill.averagePrice + hedgeFill.averagePrice;
   const grossEdge = round(1 - combinedCost);
-  const estimatedFees = round(longFill.averagePrice * (longLeg.feeRate ?? 0) + hedgeFill.averagePrice * (hedgeLeg.feeRate ?? 0));
+  const estimatedFees = round(feeForPrice(longFill.averagePrice, longLeg.feeModel, longLeg.feeRate ?? 0) + feeForPrice(hedgeFill.averagePrice, hedgeLeg.feeModel, hedgeLeg.feeRate ?? 0));
   const estimatedSlippage = round(longFill.averagePrice * (longLeg.slippageRate ?? 0) + hedgeFill.averagePrice * (hedgeLeg.slippageRate ?? 0));
 
   return {
@@ -243,7 +283,29 @@ function isFinitePrice(value: number): boolean {
 }
 
 function feeForLeg(leg: ContractLeg): number {
-  return leg.askPrice * (leg.feeRate ?? 0);
+  return feeForPrice(leg.askPrice, leg.feeModel, leg.feeRate ?? 0);
+}
+
+function feeForPrice(price: number, feeModel: ContractLeg["feeModel"], fallbackRate: number): number {
+  if (!feeModel || feeModel.type === "flat") {
+    const rate = typeof feeModel?.rate === "number" ? feeModel.rate : fallbackRate;
+    return price * rate;
+  }
+
+  if (feeModel.type === "kalshi") {
+    const rate = typeof feeModel.rate === "number" ? feeModel.rate : fallbackRate;
+    return Math.ceil(rate * price * (1 - price) * 100) / 100;
+  }
+
+  if (feeModel.type === "polymarket") {
+    const role = feeModel.orderRole === "maker" ? "maker" : "taker";
+    const roleBps = role === "maker" ? feeModel.makerFeeRateBps : feeModel.takerFeeRateBps;
+    const feeRateBps = typeof roleBps === "number" ? roleBps : typeof feeModel.feeRateBps === "number" ? feeModel.feeRateBps : fallbackRate * 10_000;
+    const operatorFeeRateBps = typeof feeModel.operatorFeeRateBps === "number" ? feeModel.operatorFeeRateBps : 0;
+    return price * ((feeRateBps + operatorFeeRateBps) / 10_000);
+  }
+
+  return price * fallbackRate;
 }
 
 function slippageForLeg(leg: ContractLeg): number {
