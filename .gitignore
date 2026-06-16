@@ -10,3 +10,4 @@ coverage/
 
 .claude/worktrees/
 .understand-anything/
+.codegraph/

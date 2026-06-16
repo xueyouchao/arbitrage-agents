@@ -653,7 +653,7 @@
   - [x] 4. Persist candidate classifications.
   - [x] 5. Integrate persisted/schema-validated LLM gateway into scanner.
   - [ ] 6. Complete opportunity risk/freshness/fee/slippage/liquidity modeling.
-  - [ ] 7. Make worker resumable and wire Sentry check-ins.
+  - [x] 7. Make worker resumable and wire Sentry check-ins.
   - [x] 8. Fix coverage tooling and add integration tests.
   - [x] 9. Harden API tests and response contracts.
   - [ ] 10. Only then launch production read-only analytics.
