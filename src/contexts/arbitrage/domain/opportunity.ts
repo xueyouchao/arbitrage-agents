@@ -80,6 +80,13 @@ export interface CrossVenueOpportunity {
   estimatedFees: number;
   estimatedSlippage: number;
   netEdge: number;
+  theoreticalCombinedCost: number;
+  theoreticalGrossEdge: number;
+  theoreticalNetEdge: number;
+  executableSizeUsd: number;
+  executableCombinedCost: number;
+  executableGrossEdge: number;
+  executableNetEdge: number;
   maxTradableUsd: number;
   notionalEdges: NotionalEdge[];
   equivalenceClass: EquivalenceClass;
