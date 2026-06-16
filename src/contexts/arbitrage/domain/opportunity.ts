@@ -3,6 +3,31 @@ import { Venue } from "../../matching/domain/normalized-market";
 
 export type ContractSide = "YES" | "NO";
 export type RiskLevel = "low" | "medium" | "high";
+export type FeeModel = FlatFeeModel | KalshiFeeModel | PolymarketFeeModel;
+export type VenueFeeModel = { kalshi: KalshiFeeModel; polymarket: PolymarketFeeModel }[Venue];
+export type FeeModels = { [V in Venue]?: VenueFeeModel | FlatFeeModel };
+
+export interface FlatFeeModel {
+  type: "flat";
+  rate: number;
+  version?: string;
+}
+
+export interface KalshiFeeModel {
+  type: "kalshi";
+  rate: number;
+  version?: string;
+}
+
+export interface PolymarketFeeModel {
+  type: "polymarket";
+  feeRateBps?: number;
+  makerFeeRateBps?: number;
+  takerFeeRateBps?: number;
+  orderRole?: "maker" | "taker";
+  operatorFeeRateBps?: number;
+  version?: string;
+}
 
 export interface PriceLevel {
   price: number;
@@ -17,6 +42,8 @@ export interface ContractLeg {
   availableUsd: number;
   feeRate?: number;
   slippageRate?: number;
+  feeModelVersion?: string;
+  feeModel?: FeeModel;
   depthLevels?: PriceLevel[];
 }
 

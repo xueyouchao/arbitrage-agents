@@ -75,6 +75,69 @@ describe("OpportunityCalculator", () => {
     });
   });
 
+  it("uses venue-specific fee models for Kalshi and Polymarket", () => {
+    const opportunities = new OpportunityCalculator().calculate(
+      pair,
+      classA,
+      {
+        marketId: "K1",
+        venue: "kalshi",
+        yesAsk: 0.4,
+        noAsk: 0.7,
+        yesAvailableUsd: 25,
+        noAvailableUsd: 100,
+        capturedAt: "2026-01-01T00:00:00.000Z"
+      },
+      {
+        marketId: "P1",
+        venue: "polymarket",
+        yesAsk: 0.8,
+        noAsk: 0.5,
+        yesAvailableUsd: 100,
+        noAvailableUsd: 25,
+        capturedAt: "2026-01-01T00:00:00.000Z"
+      },
+      {
+        now: "2026-01-01T00:00:00.000Z",
+        feeModels: {
+          kalshi: { type: "kalshi", rate: 0.07, version: "kalshi-fee-v1" },
+          polymarket: { type: "polymarket", feeRateBps: 50, orderRole: "taker", version: "polymarket-taker-v1" }
+        },
+        venueSlippageRates: { kalshi: { YES: 0 }, polymarket: { NO: 0 } },
+        targetNotionalsUsd: [10]
+      }
+    );
+
+    expect(opportunities[0]).toMatchObject({
+      estimatedFees: 0.0194,
+      netEdge: 0.0806,
+      longLeg: { feeModelVersion: "kalshi-fee-v1" },
+      hedgeLeg: { feeModelVersion: "polymarket-taker-v1" },
+      notionalEdges: [expect.objectContaining({ targetNotionalUsd: 10, estimatedFees: 0.0194, netEdge: 0.0806 })]
+    });
+  });
+
+  it("applies a profitability buffer while preserving the default fee-rate fallback", () => {
+    const calculator = new OpportunityCalculator();
+    const kalshiBook = { marketId: "K1", venue: "kalshi" as const, yesAsk: 0.49, noAsk: 0.7, yesAvailableUsd: 100, noAvailableUsd: 100, capturedAt: "2026-01-01T00:00:00.000Z" };
+    const polymarketBook = { marketId: "P1", venue: "polymarket" as const, yesAsk: 0.8, noAsk: 0.5, yesAvailableUsd: 100, noAvailableUsd: 100, capturedAt: "2026-01-01T00:00:00.000Z" };
+
+    const withoutBuffer = calculator.calculate(pair, classA, kalshiBook, polymarketBook, {
+      now: "2026-01-01T00:00:00.000Z",
+      feeRate: 0.01,
+      slippageRate: 0
+    });
+    const withBuffer = calculator.calculate(pair, classA, kalshiBook, polymarketBook, {
+      now: "2026-01-01T00:00:00.000Z",
+      feeRate: 0.01,
+      slippageRate: 0,
+      profitabilityBuffer: 0.005
+    });
+
+    expect(withoutBuffer[0]).toMatchObject({ estimatedFees: 0.0099, netEdge: 0.0001 });
+    expect(withBuffer).toEqual([]);
+  });
+
   it("models venue-specific fees, depth slippage, and edge by notional", () => {
     const opportunities = new OpportunityCalculator().calculate(
       pair,
@@ -233,9 +296,9 @@ describe("OpportunityCalculator", () => {
     expect(opportunities).toEqual([]);
   });
 
-  it("merges venue-specific rates for every venue in the registry so future venues are not silently dropped", () => {
-    // VENUES is the single source of truth iterated by mergeVenueRates; adding a venue to
-    // the type must extend the registry automatically, not silently fall back to defaults.
+  it("merges venue-specific rates for currently supported venues without creating implicit defaults for future venues", () => {
+    // Explicit defaults intentionally cover the current production venues. Adding a venue to
+    // the registry should require an explicit default/model decision instead of inheriting fees silently.
     expect(VENUES).toEqual(["kalshi", "polymarket"]);
 
     const calculator = new OpportunityCalculator();
