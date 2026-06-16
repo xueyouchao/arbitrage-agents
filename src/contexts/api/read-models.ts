@@ -65,6 +65,7 @@ export interface OpportunityReadModel {
   dataStalenessMs: number;
   opportunityAgeMs: number;
   detectedAt: string;
+  firstDetectedAt: string;
   lastVerifiedAt: string;
   calculationVersion: string;
   configVersion: string;

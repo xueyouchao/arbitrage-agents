@@ -138,6 +138,11 @@ export const opportunities = pgTable("opportunities", {
   dataStalenessMs: integer("data_staleness_ms").notNull().default(0),
   opportunityAgeMs: integer("opportunity_age_ms").notNull().default(0),
   detectedAt: timestamp("detected_at", { withTimezone: true }).notNull(),
+  // Phase 3 #6: immutable first-detection timestamp. Distinct from
+  // `detectedAt` (current scan's detection) so `opportunityAgeMs` can
+  // reflect the time since the opportunity was first ever seen, not
+  // since the most recent scan re-verified it.
+  firstDetectedAt: timestamp("first_detected_at", { withTimezone: true }).notNull(),
   lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }).notNull(),
   calculationVersion: text("calculation_version").notNull().default("unknown"),
   configVersion: text("config_version").notNull().default("unknown")
@@ -178,5 +183,36 @@ export const scanSteps = pgTable(
     index("scan_steps_run_idx").on(table.scanRunId),
     index("scan_steps_run_name_started_at_idx").on(table.scanRunId, table.stepName, table.startedAt),
     uniqueIndex("scan_steps_run_name_attempt_unique").on(table.scanRunId, table.stepName, table.attempt)
+  ]
+);
+
+// Phase 3 #6: paper-trade simulation records. The scanner runs the
+// `PaperTradeSimulator` over every emitted opportunity and persists one
+// row per target notional. The composite index on (opportunity_id,
+// simulated_at desc) supports the "latest sims for this opportunity"
+// read pattern used by operator dashboards. Cascade delete from
+// `opportunities` keeps the audit trail consistent if an opportunity
+// is ever removed.
+export const paperTradeSimulations = pgTable(
+  "paper_trade_simulations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    opportunityId: uuid("opportunity_id").references(() => opportunities.id, { onDelete: "cascade" }).notNull(),
+    simulatedAt: timestamp("simulated_at", { withTimezone: true }).notNull(),
+    targetNotionalUsd: numeric("target_notional_usd", { precision: 18, scale: 4 }).notNull(),
+    longLeg: jsonb("long_leg").notNull(),
+    hedgeLeg: jsonb("hedge_leg").notNull(),
+    adverseSelectionBps: numeric("adverse_selection_bps", { precision: 10, scale: 4 }).notNull(),
+    partialFill: boolean("partial_fill").notNull(),
+    residualExposureUsd: numeric("residual_exposure_usd", { precision: 18, scale: 4 }).notNull(),
+    combinedCost: numeric("combined_cost", { precision: 18, scale: 8 }).notNull(),
+    grossEdge: numeric("gross_edge", { precision: 18, scale: 8 }).notNull(),
+    netEdge: numeric("net_edge", { precision: 18, scale: 8 }).notNull(),
+    configVersion: text("config_version").notNull(),
+    calculationVersion: text("calculation_version").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    index("paper_trade_simulations_opportunity_simulated_at_idx").on(table.opportunityId, table.simulatedAt)
   ]
 );

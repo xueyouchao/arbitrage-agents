@@ -104,7 +104,7 @@ describe("PostgresScannerRepository", () => {
     expect(opportunityQueries[0].sql).toContain("opportunity_age_ms");
     expect(opportunityQueries[0].sql).toContain("calculation_version");
     expect(opportunityQueries[0].sql).toContain("config_version");
-    expect(opportunityQueries[0].sql).toContain("opportunity_age_ms = greatest(0, floor(extract(epoch from (excluded.last_verified_at - opportunities.detected_at)) * 1000)::integer)");
+    expect(opportunityQueries[0].sql).toContain("opportunity_age_ms = greatest(0, floor(extract(epoch from (excluded.last_verified_at - opportunities.first_detected_at)) * 1000)::integer)");
     expect(opportunityQueries[0].params).toEqual([
       uuidFromStableKey("opp-1"),
       uuidFromStableKey(pair.id),
@@ -127,6 +127,7 @@ describe("PostgresScannerRepository", () => {
       "low",
       500,
       0,
+      capturedAt,
       capturedAt,
       capturedAt,
       "opportunity-calculator-v2",
@@ -238,7 +239,8 @@ function artifacts(options: { missingOrderbookMarket?: boolean } = {}): Complete
         stale: false
       }
     ],
-    opportunities: [{ opportunity, kalshiOrderbookSnapshotId: kalshiSnapshotId, polymarketOrderbookSnapshotId: polymarketSnapshotId }]
+    opportunities: [{ opportunity, kalshiOrderbookSnapshotId: kalshiSnapshotId, polymarketOrderbookSnapshotId: polymarketSnapshotId }],
+    paperTradeSimulations: []
   };
 }
 

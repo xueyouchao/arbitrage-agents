@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { OpportunityCalculator } from "../arbitrage/domain/opportunity-calculator";
 import { MarketBook } from "../arbitrage/domain/opportunity";
+import { PaperTradeSimulation, PaperTradeSimulator } from "../arbitrage/domain/paper-trade-simulator";
 import { LlmEvaluationRecord, LlmEvaluationRequest } from "../llm/application/llm-evaluation";
 import { CandidatePair, EquivalenceDecision } from "../matching/domain/candidate-pair";
 import { CandidatePairGenerator } from "../matching/domain/candidate-pair-generator";
@@ -26,6 +27,11 @@ export interface ReadOnlyScannerDependencies {
   llmPromptVersion?: string;
   llmModel?: string;
   scannerLlmMaxEvaluationsPerScan?: number;
+  // Phase 3 #6: optional paper-trade simulator. When absent, the scan
+  // emits zero sims and the scanner continues unaffected. The simulator
+  // is wrapped in try/catch so a single malformed opportunity can never
+  // fail the scan.
+  paperTradeSimulator?: PaperTradeSimulator;
   now?: string;
   clock?: () => string;
 }
@@ -165,7 +171,8 @@ export class ReadOnlyScanner {
         normalizedMarkets: normalizedMarketReviews,
         candidatePairs: reviewedCandidatePairs,
         orderbookSnapshots,
-        opportunities
+        opportunities,
+        paperTradeSimulations: this.simulateOpportunities(opportunities)
       });
     } catch (_error) {
       const failed = failedScanResult(scanId, startedAt, now(), result.metrics, "persistence", _error);
@@ -295,6 +302,30 @@ export class ReadOnlyScanner {
     budget.estimatedCostUsd += record.estimatedCostUsd;
     budget.latencyMs += record.latencyMs;
     return record;
+  }
+
+  // Phase 3 #6: invoke the optional paper-trade simulator for each
+  // emitted opportunity. A throw from the simulator is isolated per
+  // opportunity so one bad record cannot drop the rest of the scan's
+  // sims or fail the scan itself. Returns an empty list when the
+  // simulator dependency is not wired (the default).
+  private simulateOpportunities(opportunities: readonly OpportunityWithSourceSnapshots[]): PaperTradeSimulation[] {
+    const simulator = this.dependencies.paperTradeSimulator;
+    if (!simulator) return [];
+    const sims: PaperTradeSimulation[] = [];
+    for (const { opportunity } of opportunities) {
+      try {
+        for (const sim of simulator.simulate(opportunity)) {
+          sims.push(sim);
+        }
+      } catch (_error) {
+        // Defensive: a malformed opportunity should never fail the
+        // scan. The simulator contract is to degrade to a partial-fill
+        // record, so reaching this catch indicates a bug in the
+        // simulator; we drop the sims for this opportunity and continue.
+      }
+    }
+    return sims;
   }
 }
 
