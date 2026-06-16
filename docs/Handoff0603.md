@@ -489,7 +489,8 @@
   - [ ] complete risk fields
   - [x] venue-specific fee models
     - PR #14 merged; added Kalshi probability-weighted and Polymarket bps/maker-taker fee models, 4-decimal Kalshi fee ceiling per docs, venue-discriminated model types, and explicit-default/unknown-venue guards.
-  - [ ] depth-aware slippage/liquidity
+  - [x] depth-aware slippage/liquidity
+    - PR #13 merged; added executable depth-edge calculation, multi-level orderbook fill simulation, and `notionalEdges` by target notional.
   - [x] source snapshot IDs
   - [ ] paper-trade simulation records
   - [ ] calculation version/config version
