@@ -1,6 +1,6 @@
 import { CandidatePair, EquivalenceDecision } from "../../matching/domain/candidate-pair";
 import { Venue, VENUES } from "../../matching/domain/normalized-market";
-import { ContractLeg, ContractSide, CrossVenueOpportunity, FeeModel, MarketBook, NotionalEdge, PriceLevel, RiskLevel } from "./opportunity";
+import { ContractLeg, ContractSide, CrossVenueOpportunity, FeeModel, FeeModels, MarketBook, NotionalEdge, PriceLevel, RiskLevel } from "./opportunity";
 
 export interface OpportunityCalculatorOptions {
   feeRate: number;
@@ -20,7 +20,6 @@ export interface OpportunityCalculatorOptions {
 type SideRates = Partial<Record<ContractSide, number>>;
 type VenueFeeRates = Partial<Record<Venue, SideRates>>;
 type VenueSlippageRates = Partial<Record<Venue, SideRates>>;
-type FeeModels = Partial<Record<Venue, FeeModel>>;
 
 type KnownVenue = Extract<Venue, "kalshi" | "polymarket">;
 type AssertNoUnhandledDefaultVenue<T extends never> = T;
@@ -184,25 +183,30 @@ function mergeOptions(options: Partial<OpportunityCalculatorOptions>): Opportuni
 }
 
 function defaultVenueRates(rate: number): VenueFeeRates {
-  return Object.fromEntries(KNOWN_VENUES.map((venue) => [venue, { YES: rate, NO: rate }])) as VenueFeeRates;
+  const entries = VENUES.map((venue) => [
+    venue,
+    KNOWN_VENUES.includes(venue as KnownVenue) ? { YES: rate, NO: rate } : {}
+  ]) as [Venue, SideRates][];
+  return Object.fromEntries(entries) as VenueFeeRates;
 }
 
 function mergeVenueRates(defaults: VenueFeeRates, overrides: VenueFeeRates | undefined): VenueFeeRates {
-  const venues = uniqueVenues([...KNOWN_VENUES, ...Object.keys(overrides ?? {}) as Venue[]]);
-  return Object.fromEntries(venues.map((venue) => [venue, { ...defaults[venue], ...overrides?.[venue] }])) as VenueFeeRates;
-}
-
-function uniqueVenues(venues: Venue[]): Venue[] {
-  const known = new Set<Venue>(VENUES);
-  return [...new Set(venues)].filter((venue) => known.has(venue));
+  return Object.fromEntries(
+    VENUES.map((venue) => [venue, { ...defaults[venue], ...overrides?.[venue] }])
+  ) as VenueFeeRates;
 }
 
 function rateFor(rates: VenueFeeRates, venue: Venue, side: ContractSide, fallback: number): number {
+  if (!VENUES.includes(venue)) throw new Error(`Unknown venue ${venue}; no rate configured`);
   return rates[venue]?.[side] ?? fallback;
 }
 
 function feeModelFor(options: OpportunityCalculatorOptions, venue: Venue): FeeModel | undefined {
-  return options.feeModels[venue];
+  const model = options.feeModels?.[venue];
+  if (!model) return undefined;
+  if (model.type === "kalshi" && venue !== "kalshi") throw new Error(`Kalshi fee model applied to ${venue}`);
+  if (model.type === "polymarket" && venue !== "polymarket") throw new Error(`Polymarket fee model applied to ${venue}`);
+  return model;
 }
 
 function normalizedDepthLevels(book: MarketBook, side: ContractSide): PriceLevel[] {
@@ -280,7 +284,7 @@ function feeForPrice(price: number, feeModel: FeeModel | undefined, fallbackRate
 
   if (feeModel.type === "kalshi") {
     const rate = typeof feeModel.rate === "number" ? feeModel.rate : fallbackRate;
-    return round(rate * price * (1 - price));
+    return ceil4(rate * price * (1 - price));
   }
 
   if (feeModel.type === "polymarket") {
@@ -342,6 +346,10 @@ function venueRisk(dataStalenessMs: number, maxBookAgeMs: number): RiskLevel {
 
 function round(value: number): number {
   return Math.round(value * 10000) / 10000;
+}
+
+function ceil4(value: number): number {
+  return Math.ceil(value * 10000) / 10000;
 }
 
 function roundUsd(value: number): number {

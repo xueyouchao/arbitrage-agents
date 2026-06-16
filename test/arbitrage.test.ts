@@ -109,11 +109,11 @@ describe("OpportunityCalculator", () => {
     );
 
     expect(opportunities[0]).toMatchObject({
-      estimatedFees: 0.0193,
-      netEdge: 0.0807,
+      estimatedFees: 0.0194,
+      netEdge: 0.0806,
       longLeg: { feeModelVersion: "kalshi-fee-v1" },
       hedgeLeg: { feeModelVersion: "polymarket-taker-v1" },
-      notionalEdges: [expect.objectContaining({ targetNotionalUsd: 10, estimatedFees: 0.0193, netEdge: 0.0807 })]
+      notionalEdges: [expect.objectContaining({ targetNotionalUsd: 10, estimatedFees: 0.0194, netEdge: 0.0806 })]
     });
   });
 

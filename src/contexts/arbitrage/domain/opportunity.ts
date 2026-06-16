@@ -4,6 +4,8 @@ import { Venue } from "../../matching/domain/normalized-market";
 export type ContractSide = "YES" | "NO";
 export type RiskLevel = "low" | "medium" | "high";
 export type FeeModel = FlatFeeModel | KalshiFeeModel | PolymarketFeeModel;
+export type VenueFeeModel = { kalshi: KalshiFeeModel; polymarket: PolymarketFeeModel }[Venue];
+export type FeeModels = { [V in Venue]?: VenueFeeModel | FlatFeeModel };
 
 export interface FlatFeeModel {
   type: "flat";
