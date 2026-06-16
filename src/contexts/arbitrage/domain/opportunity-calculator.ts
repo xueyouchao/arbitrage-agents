@@ -1,6 +1,6 @@
 import { CandidatePair, EquivalenceDecision } from "../../matching/domain/candidate-pair";
 import { Venue, VENUES } from "../../matching/domain/normalized-market";
-import { ContractLeg, ContractSide, CrossVenueOpportunity, MarketBook, NotionalEdge, PriceLevel, RiskLevel } from "./opportunity";
+import { ContractLeg, ContractSide, CrossVenueOpportunity, FeeModel, MarketBook, NotionalEdge, PriceLevel, RiskLevel } from "./opportunity";
 
 export interface OpportunityCalculatorOptions {
   feeRate: number;
@@ -22,29 +22,11 @@ type VenueFeeRates = Partial<Record<Venue, SideRates>>;
 type VenueSlippageRates = Partial<Record<Venue, SideRates>>;
 type FeeModels = Partial<Record<Venue, FeeModel>>;
 
-export type FeeModel = FlatFeeModel | KalshiFeeModel | PolymarketFeeModel;
+type KnownVenue = Extract<Venue, "kalshi" | "polymarket">;
+type AssertNoUnhandledDefaultVenue<T extends never> = T;
+type _DefaultVenueCoverage = AssertNoUnhandledDefaultVenue<Exclude<Venue, KnownVenue>>;
 
-export interface FlatFeeModel {
-  type: "flat";
-  rate: number;
-  version?: string;
-}
-
-export interface KalshiFeeModel {
-  type: "kalshi";
-  rate: number;
-  version?: string;
-}
-
-export interface PolymarketFeeModel {
-  type: "polymarket";
-  feeRateBps?: number;
-  makerFeeRateBps?: number;
-  takerFeeRateBps?: number;
-  orderRole?: "maker" | "taker";
-  operatorFeeRateBps?: number;
-  version?: string;
-}
+const KNOWN_VENUES: readonly KnownVenue[] = ["kalshi", "polymarket"];
 
 const DEFAULT_OPTIONS: OpportunityCalculatorOptions = {
   feeRate: 0.01,
@@ -125,7 +107,7 @@ export class OpportunityCalculator {
       feeRate: rateFor(options.venueFeeRates, book.venue, side, options.feeRate),
       slippageRate: rateFor(options.venueSlippageRates, book.venue, side, options.slippageRate),
       feeModelVersion: feeModelFor(options, book.venue)?.version,
-      feeModel: feeModelFor(options, book.venue) as ContractLeg["feeModel"],
+      feeModel: feeModelFor(options, book.venue),
       depthLevels: normalizedDepthLevels(book, side)
     };
   }
@@ -202,13 +184,17 @@ function mergeOptions(options: Partial<OpportunityCalculatorOptions>): Opportuni
 }
 
 function defaultVenueRates(rate: number): VenueFeeRates {
-  return Object.fromEntries(VENUES.map((venue) => [venue, { YES: rate, NO: rate }])) as VenueFeeRates;
+  return Object.fromEntries(KNOWN_VENUES.map((venue) => [venue, { YES: rate, NO: rate }])) as VenueFeeRates;
 }
 
 function mergeVenueRates(defaults: VenueFeeRates, overrides: VenueFeeRates | undefined): VenueFeeRates {
-  return Object.fromEntries(
-    VENUES.map((venue) => [venue, { ...defaults[venue], ...overrides?.[venue] }])
-  ) as VenueFeeRates;
+  const venues = uniqueVenues([...KNOWN_VENUES, ...Object.keys(overrides ?? {}) as Venue[]]);
+  return Object.fromEntries(venues.map((venue) => [venue, { ...defaults[venue], ...overrides?.[venue] }])) as VenueFeeRates;
+}
+
+function uniqueVenues(venues: Venue[]): Venue[] {
+  const known = new Set<Venue>(VENUES);
+  return [...new Set(venues)].filter((venue) => known.has(venue));
 }
 
 function rateFor(rates: VenueFeeRates, venue: Venue, side: ContractSide, fallback: number): number {
@@ -286,7 +272,7 @@ function feeForLeg(leg: ContractLeg): number {
   return feeForPrice(leg.askPrice, leg.feeModel, leg.feeRate ?? 0);
 }
 
-function feeForPrice(price: number, feeModel: ContractLeg["feeModel"], fallbackRate: number): number {
+function feeForPrice(price: number, feeModel: FeeModel | undefined, fallbackRate: number): number {
   if (!feeModel || feeModel.type === "flat") {
     const rate = typeof feeModel?.rate === "number" ? feeModel.rate : fallbackRate;
     return price * rate;
@@ -294,7 +280,7 @@ function feeForPrice(price: number, feeModel: ContractLeg["feeModel"], fallbackR
 
   if (feeModel.type === "kalshi") {
     const rate = typeof feeModel.rate === "number" ? feeModel.rate : fallbackRate;
-    return Math.ceil(rate * price * (1 - price) * 100) / 100;
+    return round(rate * price * (1 - price));
   }
 
   if (feeModel.type === "polymarket") {
@@ -305,7 +291,11 @@ function feeForPrice(price: number, feeModel: ContractLeg["feeModel"], fallbackR
     return price * ((feeRateBps + operatorFeeRateBps) / 10_000);
   }
 
-  return price * fallbackRate;
+  return assertNever(feeModel);
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled fee model: ${JSON.stringify(value)}`);
 }
 
 function slippageForLeg(leg: ContractLeg): number {

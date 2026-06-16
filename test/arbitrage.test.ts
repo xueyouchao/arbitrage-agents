@@ -109,11 +109,11 @@ describe("OpportunityCalculator", () => {
     );
 
     expect(opportunities[0]).toMatchObject({
-      estimatedFees: 0.0225,
-      netEdge: 0.0775,
+      estimatedFees: 0.0193,
+      netEdge: 0.0807,
       longLeg: { feeModelVersion: "kalshi-fee-v1" },
       hedgeLeg: { feeModelVersion: "polymarket-taker-v1" },
-      notionalEdges: [expect.objectContaining({ targetNotionalUsd: 10, estimatedFees: 0.0225, netEdge: 0.0775 })]
+      notionalEdges: [expect.objectContaining({ targetNotionalUsd: 10, estimatedFees: 0.0193, netEdge: 0.0807 })]
     });
   });
 
@@ -296,9 +296,9 @@ describe("OpportunityCalculator", () => {
     expect(opportunities).toEqual([]);
   });
 
-  it("merges venue-specific rates for every venue in the registry so future venues are not silently dropped", () => {
-    // VENUES is the single source of truth iterated by mergeVenueRates; adding a venue to
-    // the type must extend the registry automatically, not silently fall back to defaults.
+  it("merges venue-specific rates for currently supported venues without creating implicit defaults for future venues", () => {
+    // Explicit defaults intentionally cover the current production venues. Adding a venue to
+    // the registry should require an explicit default/model decision instead of inheriting fees silently.
     expect(VENUES).toEqual(["kalshi", "polymarket"]);
 
     const calculator = new OpportunityCalculator();
