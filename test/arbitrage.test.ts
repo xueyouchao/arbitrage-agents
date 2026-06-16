@@ -232,6 +232,59 @@ describe("OpportunityCalculator", () => {
     });
   });
 
+  it("derives firstDetectedAt and opportunityAgeMs from previousDetectedAt when provided", () => {
+    const now = "2026-01-01T00:01:00.000Z";
+    const previousDetectedAt = "2026-01-01T00:00:00.000Z"; // 1 minute earlier
+    const opportunities = new OpportunityCalculator().calculate(
+      pair,
+      classA,
+      { marketId: "K1", venue: "kalshi", yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 20, noAvailableUsd: 30, capturedAt: "2026-01-01T00:00:30.000Z" },
+      { marketId: "P1", venue: "polymarket", yesAsk: 0.5, noAsk: 0.51, yesAvailableUsd: 50, noAvailableUsd: 12, capturedAt: "2026-01-01T00:00:30.000Z" },
+      { now, previousDetectedAt, maxBookAgeMs: 60_000 }
+    );
+
+    expect(opportunities).toHaveLength(1);
+    expect(opportunities[0]).toMatchObject({
+      firstDetectedAt: previousDetectedAt,
+      opportunityAgeMs: 60_000,
+      detectedAt: now
+    });
+  });
+
+  it("sets firstDetectedAt to now and opportunityAgeMs to zero on first detection", () => {
+    const now = "2026-01-01T00:00:00.000Z";
+    const opportunities = new OpportunityCalculator().calculate(
+      pair,
+      classA,
+      { marketId: "K1", venue: "kalshi", yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 20, noAvailableUsd: 30, capturedAt: now },
+      { marketId: "P1", venue: "polymarket", yesAsk: 0.5, noAsk: 0.51, yesAvailableUsd: 50, noAvailableUsd: 12, capturedAt: now },
+      { now } // no previousDetectedAt
+    );
+
+    expect(opportunities).toHaveLength(1);
+    expect(opportunities[0]).toMatchObject({
+      firstDetectedAt: now,
+      opportunityAgeMs: 0,
+      detectedAt: now
+    });
+  });
+
+  it("clamps opportunityAgeMs to zero when previousDetectedAt is in the future (clock skew)", () => {
+    const now = "2026-01-01T00:00:00.000Z";
+    const futureDetectedAt = "2026-01-01T00:10:00.000Z"; // 10 minutes AFTER now
+    const opportunities = new OpportunityCalculator().calculate(
+      pair,
+      classA,
+      { marketId: "K1", venue: "kalshi", yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 20, noAvailableUsd: 30, capturedAt: now },
+      { marketId: "P1", venue: "polymarket", yesAsk: 0.5, noAsk: 0.51, yesAvailableUsd: 50, noAvailableUsd: 12, capturedAt: now },
+      { now, previousDetectedAt: futureDetectedAt }
+    );
+
+    expect(opportunities).toHaveLength(1);
+    expect(opportunities[0].opportunityAgeMs).toBe(0);
+    expect(opportunities[0].firstDetectedAt).toBe(futureDetectedAt);
+  });
+
   it("uses current time when no calculation time is supplied", () => {
     const capturedAt = new Date().toISOString();
     const opportunities = new OpportunityCalculator().calculate(

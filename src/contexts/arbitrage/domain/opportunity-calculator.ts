@@ -15,6 +15,7 @@ export interface OpportunityCalculatorOptions {
   feeModels: FeeModels;
   calculationVersion: string;
   configVersion: string;
+  previousDetectedAt?: string;
 }
 
 type SideRates = Partial<Record<ContractSide, number>>;
@@ -167,8 +168,9 @@ export class OpportunityCalculator {
       venueRisk: venueRisk(dataStalenessMs, options.maxBookAgeMs),
       equivalenceRisk: equivalenceRisk(decision),
       dataStalenessMs,
-      opportunityAgeMs: 0,
+      opportunityAgeMs: opportunityAgeMs(options.previousDetectedAt, options.now),
       detectedAt: options.now,
+      firstDetectedAt: options.previousDetectedAt ?? options.now,
       lastVerifiedAt: options.now,
       calculationVersion: options.calculationVersion,
       configVersion: options.configVersion
@@ -320,6 +322,14 @@ function bookAgeMs(book: MarketBook, nowIso: string): number | undefined {
   const now = new Date(nowIso).getTime();
   if (!Number.isFinite(capturedAt) || !Number.isFinite(now)) return undefined;
   return now - capturedAt;
+}
+
+function opportunityAgeMs(previousDetectedAt: string | undefined, nowIso: string): number {
+  if (!previousDetectedAt) return 0;
+  const previous = new Date(previousDetectedAt).getTime();
+  const now = new Date(nowIso).getTime();
+  if (!Number.isFinite(previous) || !Number.isFinite(now)) return 0;
+  return Math.max(0, now - previous);
 }
 
 function resolutionRisk(decision: EquivalenceDecision): RiskLevel {
