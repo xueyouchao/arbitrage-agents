@@ -1015,7 +1015,7 @@ Scope: deliver Phase 4 from the production-readiness roadmap — `Make the worke
 - `SentryHttpCheckInClient` + `FakeSentryCheckInClient` (`src/contexts/observability/sentry-check-in-client.ts`): the real client posts to the public Sentry envelope endpoint (DSN parsed locally to avoid an `@sentry/node` dependency). The fake is used when `SENTRY_DSN` is unset, so a misconfigured deploy cannot crash the worker on a check-in call.
 - `WorkerScanRunner` (`src/contexts/scanner/worker-scan-runner.ts`) now calls `markAbandoned()` then `resumable.runOnce()`.
 - `ScannerModule` (`src/contexts/scanner/scanner.module.ts`) wires the new providers (`SCAN_STEP_REPOSITORY`, `SENTRY_CHECK_IN_CLIENT`, `ResumableScanner`, `AbandonedScanDetector`) and conditionally picks the real Sentry client or the fake based on `SENTRY_DSN`.
-- `AppConfig` gained `scannerAbandonedAfterMs` (env: `SCANNER_ABANDONED_AFTER_MS`) and `sentryMonitorSlug` (env: `SENTRY_MONITOR_SLUG`).
+- `AppConfig` gained `scannerAbandonedAfterMs` (env: `SCANNER_ABANDONED_AFTER_MS`) and `sentryMonitorSlug` (env: `SENTRY_MONITOR_SLUG`). Deployed workers must set both `SENTRY_DSN` and `SENTRY_MONITOR_SLUG`; run `npm run build && npm run smoke:sentry-monitor` to send a live in_progress/ok pair and confirm the cron monitor appears in Sentry.
 - API read model (`src/contexts/api/read-models.ts`, `postgres-read-repositories.ts`) widened to surface `"abandoned"` status and `failureCategory`.
 
 ### Verification (all green at `f12457a`)

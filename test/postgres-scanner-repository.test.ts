@@ -167,13 +167,6 @@ const opportunity: CrossVenueOpportunity = {
   executableGrossEdge: 0.07,
   executableNetEdge: 0.0561,
   maxTradableUsd: 12,
-  theoreticalCombinedCost: 0.93,
-  theoreticalGrossEdge: 0.07,
-  theoreticalNetEdge: 0.0561,
-  executableSizeUsd: 12,
-  executableCombinedCost: 0.93,
-  executableGrossEdge: 0.07,
-  executableNetEdge: 0.0561,
   notionalEdges: [
     { targetNotionalUsd: 5, grossEdge: 0.07, estimatedFees: 0.0093, estimatedSlippage: 0.0046, netEdge: 0.0561, fillable: true },
     { targetNotionalUsd: 25, grossEdge: 0.07, estimatedFees: 0.0093, estimatedSlippage: 0.0046, netEdge: 0.0561, fillable: false }
