@@ -202,6 +202,7 @@ interface OpportunityRow {
   data_staleness_ms: number;
   opportunity_age_ms: number;
   detected_at: Date | string;
+  first_detected_at: Date | string | null;
   last_verified_at: Date | string;
   calculation_version: string;
   config_version: string;
@@ -265,6 +266,7 @@ function toOpportunity(row: OpportunityRow): OpportunityReadModel {
     dataStalenessMs: Number(row.data_staleness_ms),
     opportunityAgeMs: Number(row.opportunity_age_ms),
     detectedAt: toIso(row.detected_at),
+    firstDetectedAt: toIso(row.first_detected_at ?? row.detected_at),
     lastVerifiedAt: toIso(row.last_verified_at),
     calculationVersion: row.calculation_version,
     configVersion: row.config_version

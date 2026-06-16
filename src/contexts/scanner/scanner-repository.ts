@@ -1,4 +1,5 @@
 import { CrossVenueOpportunity } from "../arbitrage/domain/opportunity";
+import { PaperTradeSimulation } from "../arbitrage/domain/paper-trade-simulator";
 import { LlmEvaluationRecord } from "../llm/application/llm-evaluation";
 import { CandidatePair, EquivalenceDecision } from "../matching/domain/candidate-pair";
 import { NormalizedMarket, Venue } from "../matching/domain/normalized-market";
@@ -48,6 +49,13 @@ export interface CompletedScanArtifacts {
   candidatePairs: ReviewedCandidatePair[];
   orderbookSnapshots: OrderbookSnapshotArtifact[];
   opportunities: OpportunityWithSourceSnapshots[];
+  // Phase 3 #6: paper-trade simulations produced for each emitted
+  // opportunity. Empty when the simulator is disabled or every call
+  // degraded to a no-op. Persisted alongside the opportunity so an
+  // operator can compare apparent edge (the canonical netEdge) to
+  // actionable edge (the simulator's netEdge after partial fills and
+  // adverse selection).
+  paperTradeSimulations: PaperTradeSimulation[];
 }
 
 export interface ScannerRepository {

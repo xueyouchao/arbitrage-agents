@@ -104,7 +104,7 @@ describe("PostgresScannerRepository", () => {
     expect(opportunityQueries[0].sql).toContain("opportunity_age_ms");
     expect(opportunityQueries[0].sql).toContain("calculation_version");
     expect(opportunityQueries[0].sql).toContain("config_version");
-    expect(opportunityQueries[0].sql).toContain("opportunity_age_ms = greatest(0, floor(extract(epoch from (excluded.last_verified_at - opportunities.detected_at)) * 1000)::integer)");
+    expect(opportunityQueries[0].sql).toContain("opportunity_age_ms = greatest(0, floor(extract(epoch from (excluded.last_verified_at - opportunities.first_detected_at)) * 1000)::integer)");
     expect(opportunityQueries[0].params).toEqual([
       uuidFromStableKey("opp-1"),
       uuidFromStableKey(pair.id),
@@ -127,6 +127,7 @@ describe("PostgresScannerRepository", () => {
       "low",
       500,
       0,
+      capturedAt,
       capturedAt,
       capturedAt,
       "opportunity-calculator-v2",
@@ -159,6 +160,13 @@ const opportunity: CrossVenueOpportunity = {
   estimatedSlippage: 0.0046,
   netEdge: 0.0561,
   maxTradableUsd: 12,
+  theoreticalCombinedCost: 0.93,
+  theoreticalGrossEdge: 0.07,
+  theoreticalNetEdge: 0.0561,
+  executableSizeUsd: 12,
+  executableCombinedCost: 0.93,
+  executableGrossEdge: 0.07,
+  executableNetEdge: 0.0561,
   notionalEdges: [
     { targetNotionalUsd: 5, grossEdge: 0.07, estimatedFees: 0.0093, estimatedSlippage: 0.0046, netEdge: 0.0561, fillable: true },
     { targetNotionalUsd: 25, grossEdge: 0.07, estimatedFees: 0.0093, estimatedSlippage: 0.0046, netEdge: 0.0561, fillable: false }
@@ -172,6 +180,7 @@ const opportunity: CrossVenueOpportunity = {
   dataStalenessMs: 500,
   opportunityAgeMs: 0,
   detectedAt: capturedAt,
+  firstDetectedAt: capturedAt,
   lastVerifiedAt: capturedAt,
   calculationVersion: "opportunity-calculator-v2",
   configVersion: "phase3-conservative-v1"
@@ -230,7 +239,8 @@ function artifacts(options: { missingOrderbookMarket?: boolean } = {}): Complete
         stale: false
       }
     ],
-    opportunities: [{ opportunity, kalshiOrderbookSnapshotId: kalshiSnapshotId, polymarketOrderbookSnapshotId: polymarketSnapshotId }]
+    opportunities: [{ opportunity, kalshiOrderbookSnapshotId: kalshiSnapshotId, polymarketOrderbookSnapshotId: polymarketSnapshotId }],
+    paperTradeSimulations: []
   };
 }
 

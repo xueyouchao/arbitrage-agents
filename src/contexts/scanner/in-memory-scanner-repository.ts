@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { PaperTradeSimulation } from "../arbitrage/domain/paper-trade-simulator";
 import { NormalizedMarket } from "../matching/domain/normalized-market";
 import { VenueMarketSnapshot } from "../venues/domain/venue-market";
 import {
@@ -19,6 +20,9 @@ export class InMemoryScannerRepository implements ScannerRepository {
   readonly candidatePairs: ReviewedCandidatePair[] = [];
   readonly orderbookSnapshots: OrderbookSnapshotArtifact[] = [];
   readonly opportunities: OpportunityWithSourceSnapshots[] = [];
+  // Phase 3 #6: collected by saveCompletedScan; exposed for test assertions
+  // and operator diagnostics on the in-memory adapter.
+  readonly paperTradeSimulations: PaperTradeSimulation[] = [];
 
   saveScanRun(scanRun: ScanResult): Promise<void> {
     const index = this.scanRuns.findIndex((existing) => existing.id === scanRun.id);
@@ -37,6 +41,7 @@ export class InMemoryScannerRepository implements ScannerRepository {
     this.candidatePairs.push(...artifacts.candidatePairs);
     this.orderbookSnapshots.push(...artifacts.orderbookSnapshots);
     this.opportunities.push(...artifacts.opportunities);
+    this.paperTradeSimulations.push(...artifacts.paperTradeSimulations);
     this.scanRuns.push(completedScanRun);
     return Promise.resolve(completedScanRun);
   }
