@@ -11,8 +11,8 @@
 // The transport is intentionally small and dependency-free: the worker
 // must be able to ship a check-in even when the full Sentry SDK is not
 // installed. The `FakeSentryCheckInClient` is used by tests and by the
-// worker when `SENTRY_DSN` is unset, so a misconfigured deploy cannot
-// crash the worker on a check-in call.
+// worker when `SENTRY_DSN` is unset, so local/test runs do not need live
+// Sentry credentials.
 //
 // The client is stateless: `start()` returns a `SentryCheckInHandle`
 // opaque object, and `ok` / `error` consume that handle. This avoids
@@ -186,7 +186,7 @@ export class SentryHttpCheckInClient implements SentryCheckInClient {
   }
 }
 
-// In-process fake used by tests and by the worker when no DSN is
+// In-process fake used by tests and by local worker runs when no DSN is
 // configured. Captures every check-in for later inspection and supports
 // injection of failures via `failNext()`. The fake is also stateless
 // with respect to the active run — `ok` / `error` take the handle and
