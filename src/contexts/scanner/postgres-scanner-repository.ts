@@ -1,5 +1,6 @@
 import { Pool, PoolClient } from "pg";
 import { Inject, Injectable } from "@nestjs/common";
+import { PaperTradeSimulation } from "../arbitrage/domain/paper-trade-simulator";
 import { NormalizedMarket } from "../matching/domain/normalized-market";
 import { uuidFromStableKey } from "../shared/stable-id";
 import { VenueMarketSnapshot } from "../venues/domain/venue-market";
@@ -37,7 +38,8 @@ export class PostgresScannerRepository implements ScannerRepository {
       const marketIds = await saveNormalizedMarkets(client, artifacts.normalizedMarkets);
       const candidatePairIds = await saveCandidatePairs(client, artifacts.candidatePairs, marketIds);
       await saveOrderbookSnapshots(client, artifacts.orderbookSnapshots, marketIds);
-      await saveOpportunities(client, artifacts.opportunities, candidatePairIds);
+      const opportunityIdsByKey = await saveOpportunities(client, artifacts.opportunities, candidatePairIds);
+      await savePaperTradeSimulations(client, artifacts.paperTradeSimulations, opportunityIdsByKey);
       const completedScanRun = artifacts.completeScanRun(artifacts.scanRun);
       await saveScanRun(client, completedScanRun);
       await client.query("commit");
@@ -270,7 +272,8 @@ async function saveOpportunities(
   queryable: Queryable,
   opportunities: OpportunityWithSourceSnapshots[],
   candidatePairIds: Map<string, string>
-): Promise<void> {
+): Promise<Map<string, string>> {
+  const idsByOpportunityKey = new Map<string, string>();
   for (const { opportunity, kalshiOrderbookSnapshotId, polymarketOrderbookSnapshotId } of opportunities) {
     await queryable.query(
       `insert into opportunities (
@@ -278,9 +281,9 @@ async function saveOpportunities(
         long_leg, hedge_leg, combined_cost, gross_edge, estimated_fees,
         estimated_slippage, net_edge, max_tradable_usd, notional_edges, equivalence_class,
         resolution_risk, fill_risk, liquidity_risk, venue_risk, equivalence_risk,
-        data_staleness_ms, opportunity_age_ms, detected_at, last_verified_at,
+        data_staleness_ms, opportunity_age_ms, detected_at, first_detected_at, last_verified_at,
         calculation_version, config_version
-      ) values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+      ) values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
       on conflict (id) do update set
         kalshi_orderbook_snapshot_id = excluded.kalshi_orderbook_snapshot_id,
         polymarket_orderbook_snapshot_id = excluded.polymarket_orderbook_snapshot_id,
@@ -300,7 +303,12 @@ async function saveOpportunities(
         venue_risk = excluded.venue_risk,
         equivalence_risk = excluded.equivalence_risk,
         data_staleness_ms = excluded.data_staleness_ms,
-        opportunity_age_ms = greatest(0, floor(extract(epoch from (excluded.last_verified_at - opportunities.detected_at)) * 1000)::integer),
+        -- Phase 3 #6: first_detected_at is immutable across scans;
+        -- preserve the prior value on update. opportunity_age_ms is
+        -- now derived from the immutable first detection timestamp,
+        -- not from the current scan's detected_at.
+        first_detected_at = opportunities.first_detected_at,
+        opportunity_age_ms = greatest(0, floor(extract(epoch from (excluded.last_verified_at - opportunities.first_detected_at)) * 1000)::integer),
         last_verified_at = excluded.last_verified_at,
         calculation_version = excluded.calculation_version,
         config_version = excluded.config_version`,
@@ -327,9 +335,57 @@ async function saveOpportunities(
         opportunity.dataStalenessMs,
         opportunity.opportunityAgeMs,
         opportunity.detectedAt,
+        opportunity.firstDetectedAt,
         opportunity.lastVerifiedAt,
         opportunity.calculationVersion,
         opportunity.configVersion
+      ]
+    );
+    idsByOpportunityKey.set(opportunity.id, uuidFromStableKey(opportunity.id));
+  }
+  return idsByOpportunityKey;
+}
+
+// Phase 3 #6: persist paper-trade simulation records in the same
+// transaction as the opportunities. Each sim references its parent
+// opportunity by the scan-independent stable id. We use an explicit
+// `RETURNING id` lookup is unnecessary because the parent id is
+// deterministic; the FK is enforced by Postgres.
+async function savePaperTradeSimulations(
+  queryable: Queryable,
+  simulations: PaperTradeSimulation[],
+  opportunityIdsByKey: Map<string, string>
+): Promise<void> {
+  for (const sim of simulations) {
+    const opportunityId = opportunityIdsByKey.get(sim.opportunityId);
+    if (!opportunityId) {
+      // Defensive: a sim whose parent opportunity didn't persist should
+      // not silently insert a dangling row. Skip with no side effect;
+      // the scan-level metrics will already reflect a smaller sim count.
+      continue;
+    }
+    await queryable.query(
+      `insert into paper_trade_simulations (
+        id, opportunity_id, simulated_at, target_notional_usd,
+        long_leg, hedge_leg, adverse_selection_bps, partial_fill,
+        residual_exposure_usd, combined_cost, gross_edge, net_edge,
+        config_version, calculation_version
+      ) values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12, $13, $14)`,
+      [
+        uuidFromStableKey(sim.id),
+        opportunityId,
+        sim.simulatedAt,
+        sim.targetNotionalUsd,
+        JSON.stringify(sim.longLegFill),
+        JSON.stringify(sim.hedgeLegFill),
+        sim.adverseSelectionBps,
+        sim.partialFill,
+        sim.residualExposureUsd,
+        sim.combinedCost,
+        sim.grossEdge,
+        sim.netEdge,
+        sim.configVersion,
+        sim.calculationVersion
       ]
     );
   }
