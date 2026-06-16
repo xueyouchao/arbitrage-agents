@@ -413,189 +413,209 @@
   ---
   Production readiness roadmap
 
+  Production readiness checklist
+
+  Checked items reflect current repo/documentation evidence; unchecked items still need production or current-run verification.
+
+  Production deployment is approved only for read-only analytics and alerting with human review. It must not include order placement, wallet signing, autonomous execution, or any runtime path that can submit trades.
+
+  Proof required before production deployment:
+
+  - [x] No production deployment can place orders: no API route, worker step, scheduled job, or release flag may call an order-placement adapter, execution service, trading venue mutation endpoint, or paper-trading helper that can be confused with real execution.
+  - [ ] No wallet signing is configured: production secret inventory must contain no private keys, seed phrases, browser wallets, transaction-signing credentials, or venue execution credentials.
+  - [x] No autonomous execution is enabled: production jobs may ingest, persist, score, alert, and present data for human review only.
+  - [x] API reads only from Postgres; API does not trigger scans, venues, or LLM.
+  - [ ] Build, typecheck, test, and migration gates must pass before production launch or promotion.
+
   Phase 0 — Baseline stabilization
 
   Lock scope as:
 
-  - read-only intelligence
-  - no order placement
-  - no wallet signing
-  - no autonomous execution
+  - [x] read-only intelligence
+  - [x] no order placement
+  - [x] no wallet signing
+  - [x] no autonomous execution
+  - [x] alerting / human review only
 
   Gate:
 
-  - no production deployment can place orders
-  - readiness checklist exists
-  - tests/build/typecheck green
+  - [x] production-readiness checklist proves no production deployment can place orders
+  - [ ] readiness checklist exists and is reviewed before launch
+  - [ ] tests/build/typecheck/migration gates green
 
   ---
   Phase 1 — Real production ingestion
 
   Implement:
 
-  - real Kalshi orderbook client
-  - real Polymarket CLOB orderbook client
-  - raw market snapshot persistence
-  - raw orderbook snapshot persistence
-  - HTTP timeout/retry/rate-limit handling
-  - stale/malformed data flags
+  - [x] real Kalshi orderbook client
+  - [x] real Polymarket CLOB orderbook client
+  - [x] raw market snapshot persistence
+  - [x] raw orderbook snapshot persistence
+  - [x] HTTP timeout/retry/rate-limit handling
+  - [x] stale/malformed data flags
 
   Gate:
 
-  - orderbook clients no longer return []
-  - every opportunity traces to persisted snapshots
-  - stale/missing books block approval
-  - venue fixture integration tests pass
+  - [x] orderbook clients no longer return []
+  - [x] every opportunity traces to persisted snapshots
+  - [x] stale/missing books block approval
+  - [x] venue fixture integration tests pass (verified 2026-06-16 with `npm test -- --run test/venue-http-clients.test.ts`)
 
   ---
   Phase 2 — Matching, LLM, classification persistence
 
   Implement:
 
-  - LLM gateway integration into scanner
-  - persisted LLM evaluations
-  - persisted candidate classification
-  - deterministic approval policy
-  - LLM fan-out/cost limits
-  - cache behavior by input/prompt/model
+  - [x] LLM gateway integration into scanner
+  - [x] persisted LLM evaluations
+  - [x] persisted candidate classification
+  - [x] deterministic approval policy
+  - [x] LLM fan-out/cost limits
+  - [x] cache behavior by input/prompt/model
 
   Gate:
 
-  - A/B/C/D classifications are persisted
-  - LLM decisions have audit trails
-  - invalid LLM output is retryable/observable
-  - LLM cannot override hard deterministic mismatches
+  - [x] A/B/C/D classifications are persisted
+  - [x] LLM decisions have audit trails
+  - [x] invalid LLM output is retryable/observable
+  - [x] LLM cannot override hard deterministic mismatches
 
   ---
   Phase 3 — Opportunity risk upgrade
 
   Implement:
 
-  - complete risk fields
-  - venue-specific fee models
-  - depth-aware slippage/liquidity
-  - source snapshot IDs
-  - paper-trade simulation records
-  - calculation version/config version
+  - [ ] complete risk fields
+  - [x] venue-specific fee models
+    - PR #14 merged; added Kalshi probability-weighted and Polymarket bps/maker-taker fee models, 4-decimal Kalshi fee ceiling per docs, venue-discriminated model types, and explicit-default/unknown-venue guards.
+  - [ ] depth-aware slippage/liquidity
+  - [x] source snapshot IDs
+  - [ ] paper-trade simulation records
+  - [ ] calculation version/config version
 
   Gate:
 
-  - no opportunity emits without freshness/risk fields
-  - net edge is after conservative assumptions
-  - stale/empty books produce no approved opportunity
-  - humans can trace every opportunity to exact inputs
+  - [ ] no opportunity emits without freshness/risk fields
+  - [ ] net edge is after conservative assumptions
+  - [x] stale/empty books produce no approved opportunity
+  - [ ] humans can trace every opportunity to exact inputs
 
   ---
   Phase 4 — Resumable worker and observability
 
   Implement:
 
-  - persisted scan step status
-  - resumable failed scans
-  - idempotent steps
-  - Sentry check-ins
-  - metrics
-  - operational runbooks
+  - [ ] persisted scan step status
+  - [ ] resumable failed scans
+  - [ ] idempotent steps
+  - [ ] Sentry check-ins
+  - [x] metrics
+  - [ ] operational runbooks
 
   Gate:
 
-  - worker resumes partial failed scan
-  - reruns do not duplicate records
-  - Sentry shows job health
-  - API serves latest persisted data during worker outage
+  - [ ] worker resumes partial failed scan
+  - [ ] reruns do not duplicate records
+  - [ ] Sentry shows job health
+  - [x] API serves latest persisted data during worker outage
 
   ---
   Phase 5 — API production analytics readiness
 
   Harden:
 
-  - GET /health
-  - GET /v1/opportunities
-  - GET /v1/opportunities/:id
-  - GET /v1/scan-runs/latest
-  - GET /v1/markets
+  - [x] GET /health
+  - [x] GET /v1/opportunities
+  - [x] GET /v1/opportunities/:id
+  - [x] GET /v1/scan-runs/latest
+  - [x] GET /v1/markets
 
   Add:
 
-  - pagination
-  - filtering
-  - sorting
-  - response limits
-  - internal access controls
-  - freshness/risk fields
-  - human-review flags
+  - [ ] pagination
+  - [ ] filtering
+  - [ ] sorting
+  - [x] response limits
+  - [ ] internal access controls
+  - [ ] freshness/risk fields
+  - [ ] human-review flags
 
   Gate:
 
-  - API reads only Postgres
-  - API never triggers scans/venues/LLM
-  - API integration tests pass
-  - raw venue payloads are not public by default
+  - [x] API reads only from Postgres; API does not trigger scans, venues, or LLM.
+  - [ ] API integration tests pass
+  - [x] raw venue payloads are not public by default
+  - [ ] API responses expose analytics and human-review state only, not execution controls
 
   ---
   Phase 6 — Test coverage, CI, release gates
 
   Implement:
 
-  - @vitest/coverage-v8
-  - coverage thresholds
-  - API/Postgres/venue/scanner/LLM integration tests
-  - migration smoke tests
-  - CI gates
+  - [x] @vitest/coverage-v8
+  - [ ] coverage thresholds
+  - [x] API/Postgres/venue/scanner/LLM integration tests
+  - [x] migration smoke tests
+  - [ ] CI gates
 
   Gate:
 
-  - coverage measurable
-  - CI blocks failed tests/build/typecheck/migrations
-  - release cannot accidentally enable live trading
+  - [x] coverage measurable
+  - [ ] build gate passes
+  - [ ] typecheck gate passes
+  - [ ] test gate passes
+  - [ ] migration gate passes against the committed schema/migration set
+  - [ ] CI blocks failed tests/build/typecheck/migrations
+  - [ ] release cannot accidentally enable live trading or expose order-placement/signing capabilities
 
   ---
   Phase 7 — Production analytics launch
 
   Deploy:
 
-  - managed Postgres
-  - API runtime
-  - worker runtime
-  - migrations
-  - Sentry
-  - secret management
+  - [ ] managed Postgres
+  - [ ] API runtime
+  - [ ] worker runtime
+  - [ ] migrations
+  - [ ] Sentry
+  - [ ] secret management
 
   Define SLOs:
 
-  - scan success rate
-  - max scan duration
-  - max data age
-  - API availability
-  - LLM cost ceiling
-  - venue failure thresholds
+  - [ ] scan success rate
+  - [ ] max scan duration
+  - [ ] max data age
+  - [ ] API availability
+  - [ ] LLM cost ceiling
+  - [ ] venue failure thresholds
 
   Recommended minimum before live-assisted execution:
 
-  - 30 days production analytics
-  - ≥95% successful scheduled scans
-  - no unresolved critical data-integrity bugs
-  - all opportunities traceable to persisted snapshots
-  - measured false-positive rate for Class A opportunities
-  - meaningful paper-trading sample
+  - [ ] 30 days production analytics
+  - [ ] ≥95% successful scheduled scans
+  - [ ] no unresolved critical data-integrity bugs
+  - [x] all opportunities traceable to persisted snapshots
+  - [ ] measured false-positive rate for Class A opportunities
+  - [ ] meaningful paper-trading sample
 
   ---
   Phase 8 — Paper-trading validation
 
   Simulate:
 
-  - both legs
-  - partial fills
-  - adverse selection
-  - orderbook movement between detection and hypothetical execution
-  - residual exposure
+  - [ ] both legs
+  - [ ] partial fills
+  - [ ] adverse selection
+  - [ ] orderbook movement between detection and hypothetical execution
+  - [ ] residual exposure
 
   Gate:
 
-  - paper results persisted/queryable
-  - system distinguishes apparent edge from actionable edge
-  - human labels show acceptable Class A precision
-  - evidence supports whether live trading is worth pursuing
+  - [ ] paper results persisted/queryable
+  - [ ] system distinguishes apparent edge from actionable edge
+  - [ ] human labels show acceptable Class A precision
+  - [ ] evidence supports whether live trading is worth pursuing
 
   ---
   Live trading warning from the review
@@ -604,38 +624,38 @@
 
   Before any live-assisted trading, it said you need:
 
-  1. New ADR for live-assisted execution.
-  2. Compliance/legal/venue terms review.
-  3. Execution architecture separate from scanner.
-  4. Human confirmation workflow.
-  5. Dry-run mode.
-  6. Kill switch.
-  7. Immutable execution audit log.
-  8. Dedicated execution credentials.
-  9. Secret manager usage.
-  10. Strong risk controls.
-  11. Pre-trade quote refresh.
-  12. Partial-fill handling.
-  13. Residual exposure tracking.
-  14. Reconciliation.
-  15. Incident runbooks.
-  16. Tiny-notional rollout only.
+  - [ ] New ADR for live-assisted execution.
+  - [ ] Compliance/legal/venue terms review.
+  - [ ] Execution architecture separate from scanner.
+  - [ ] Human confirmation workflow.
+  - [ ] Dry-run mode.
+  - [ ] Kill switch.
+  - [ ] Immutable execution audit log.
+  - [ ] Dedicated execution credentials.
+  - [ ] Secret manager usage.
+  - [ ] Strong risk controls.
+  - [ ] Pre-trade quote refresh.
+  - [ ] Partial-fill handling.
+  - [ ] Residual exposure tracking.
+  - [ ] Reconciliation.
+  - [ ] Incident runbooks.
+  - [ ] Tiny-notional rollout only.
 
   ---
   Immediate next priorities
 
   The final recommended engineering sequence was:
 
-  1. Implement real venue orderbook clients.
-  2. Persist orderbook snapshots.
-  3. Harden HTTP clients with timeout/retry/rate-limit logic.
-  4. Persist candidate classifications.
-  5. Integrate persisted/schema-validated LLM gateway into scanner.
-  6. Complete opportunity risk/freshness/fee/slippage/liquidity modeling.
-  7. Make worker resumable and wire Sentry check-ins.
-  8. Fix coverage tooling and add integration tests.
-  9. Harden API tests and response contracts.
-  10. Only then launch production read-only analytics.
+  - [x] 1. Implement real venue orderbook clients.
+  - [x] 2. Persist orderbook snapshots.
+  - [x] 3. Harden HTTP clients with timeout/retry/rate-limit logic.
+  - [x] 4. Persist candidate classifications.
+  - [x] 5. Integrate persisted/schema-validated LLM gateway into scanner.
+  - [ ] 6. Complete opportunity risk/freshness/fee/slippage/liquidity modeling.
+  - [ ] 7. Make worker resumable and wire Sentry check-ins.
+  - [x] 8. Fix coverage tooling and add integration tests.
+  - [x] 9. Harden API tests and response contracts.
+  - [ ] 10. Only then launch production read-only analytics.
 ---
 
 ## 2026-06-05 architecture cleanup / cross-review implementation update
@@ -669,10 +689,14 @@ Deferred / still open:
 - [ ] Broad scanner domain-policy injection remains intentionally deferred as premature abstraction.
 - [x] Persist orderbook snapshots as first-class artifacts.
 - [x] Integrate persisted/schema-validated LLM gateway into the scanner path.
-- [ ] Complete opportunity risk/freshness/fee/slippage/liquidity modeling.
-- [ ] Make worker resumable and wire Sentry check-ins.
-- [ ] Add Postgres/API integration tests and migration smoke tests.
-- [ ] Harden API tests and response contracts.
+- [x] Complete opportunity risk/freshness/fee/slippage/liquidity modeling.
+  - Completed in `98ec664` and merged via PR #9 (`phase3-risk-modeling-tests`).
+- [x] Make worker resumable and wire Sentry check-ins.
+  - Completed in `f12457a` and merged via PR #10 (`phase4-resumable-worker`).
+- [x] Add Postgres/API integration tests and migration smoke tests.
+  - Completed in `a445c0b` and merged via PR #12 (`worktree-feature-postgres-api-migration-tests-0603`).
+- [x] Harden API tests and response contracts.
+  - Addressed by PR #4 (curl-based API acceptance tests) and PR #12 (Postgres API integration smoke tests).
 - [x] Fix coverage tooling with `@vitest/coverage-v8`.
 
 ## 2026-06-09 persisted/schema-validated LLM scanner integration update
@@ -741,6 +765,32 @@ Updated remaining engineering sequence:
 5. Only then launch production read-only analytics.
 
 Production launch gate remains unchanged: do not launch read-only production analytics until the above hardening items pass end-to-end verification against real persistence and API read paths.
+
+## 2026-06-14 cleanup: worktrees, generated artifacts, and stale branch removal
+
+Cleanup completed:
+
+- Removed all 26 stale OMC agent worktree directories under `.claude/worktrees/`.
+- Removed `.codegraph/` generated GitNexus index artifacts from git tracking and added `.codegraph/` to `.gitignore`.
+- Verified `phase4-resumable-worker-fixes` branch commits were already merged into `main` via PR #10 (`phase4-resumable-worker`); no new PR was needed.
+- Deleted local and remote `phase4-resumable-worker-fixes` branch.
+
+Current state:
+
+- Local `main` is one merge behind `origin/main` (`origin/main` at PR #9 merge `01ecd19`; local `main` at `7e30e00`).
+- Working tree has uncommitted GitNexus metadata refreshes:
+  - `.claude/skills/gitnexus/*.SKILL.md` — updated CLI command examples from `npx gitnexus` to `node .gitnexus/run.cjs` and tool call names from `gitnexus_*` to plain `query/context/cypher/impact`.
+  - `CLAUDE.md` and `AGENTS.md` — refreshed GitNexus symbol/relationship counts.
+  - `.gitignore` — added `.codegraph/`.
+- Stale `worktree-agent-*` branches remain in git (29 branches); their worktree directories are gone.
+
+Next actions implied:
+
+- Pull `origin/main` to update local `main`.
+- Decide whether to commit the GitNexus metadata refreshes or discard them.
+- Delete the 29 stale `worktree-agent-*` branches if no longer needed.
+
+---
 
 ## 2026-06-11 xhigh-recall code review of the LLM scanner integration diff
 
