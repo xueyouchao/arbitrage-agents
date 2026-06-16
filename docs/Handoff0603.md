@@ -1188,15 +1188,15 @@ Files in scope:
 
 ### Confirmed risks / bugs from reviewers
 
-- [ ] **#1 — `loadRunSteps` ordering is fragile when a retry has a backdated `startedAt`**
+- [x] **#1 — `loadRunSteps` ordering is fragile when a retry has a backdated `startedAt`**
   - Severity: medium.
   - Confidence: high.
   - File: `src/contexts/scanner/postgres-scan-step-repository.ts:74`
   - Root cause: the query orders by `started_at asc, attempt asc, id asc`, but `ResumableScanner` builds `latestByName` by overwriting in iteration order. `started_at` is the primary sort key, so a retry row with an earlier timestamp sorts before the older attempt it is replacing; the older attempt overwrites the newer one and becomes the "latest" row.
   - Impact: a retry with a backdated timestamp (manual retry, clock skew, or deterministic replay) causes the orchestrator to resume from stale state and either skip a step that needs re-running or re-run a step that already succeeded.
-  - Recommendation: order by `attempt` first, or make `latestByName` explicitly select `max(attempt)` per step name instead of relying on iteration order. Update the stale "insertion order; later wins" comment.
+  - **Status: Fixed in `cf4c9a0` / `main`.** The query now orders by `attempt asc, started_at asc, id asc`, and `ResumableScanner` selects the row with the highest `attempt` explicitly in `latestStepByName`. The integration tests include a backdated-retry case to lock this behavior in.
 
-- [ ] **#2 — `PostgresScanStepRepository` and `InMemoryScanStepRepository` now diverge on step-row history semantics**
+- [x] **#2 — `PostgresScanStepRepository` and `InMemoryScanStepRepository` now diverge on step-row history semantics**
   - Severity: high.
   - Confidence: high.
   - Files:
@@ -1204,33 +1204,33 @@ Files in scope:
     - `src/contexts/scanner/in-memory-scanner-repository.ts:58`
   - Root cause: the Postgres diff makes every `saveStep` insert a new history row with an auto-incremented `attempt` number, while the in-memory implementation still upserts on `(scan_run_id, step_name)` and merges metadata for re-saved succeeded rows. The in-memory comment claims it "mirrors the Postgres upsert key" — but Postgres no longer upserts.
   - Impact: unit tests pass against the in-memory fake while production with Postgres behaves differently (history rows accumulate instead of merging). This masks the real runtime behavior and breaks any code or tests that assume the in-memory contract.
-  - Recommendation: align the in-memory implementation with the new Postgres history semantics, or clearly document that the two implementations intentionally differ and audit all consumers for which contract they expect.
+  - **Status: Fixed in `cf4c9a0` / `main`.** `InMemoryScanStepRepository` now appends a new row per `saveStep` with `attempt = max(existing attempts) + 1` and returns rows ordered by `attempt`, then `started_at`, then `id`, matching the Postgres append-only contract.
 
-- [ ] **#3 — Auto-increment `attempt` numbering is not concurrency-safe**
+- [x] **#3 — Auto-increment `attempt` numbering is not concurrency-safe**
   - Severity: medium.
   - Confidence: high.
   - File: `src/contexts/scanner/postgres-scan-step-repository.ts:104`
   - Root cause: `saveStepRow` computes the next attempt with a correlated `max(attempt)` subquery inside the `INSERT`. There is no unique constraint on `(scan_run_id, step_name, attempt)` in `drizzle/0006_phase4_resumable_worker.sql`, so two concurrent workers can read the same `max(attempt)` and both insert the same attempt number.
   - Impact: duplicate attempt rows for the same step break the file-header invariant that each step writes at most one row per attempt, making retry trails indistinguishable and increasing the blast radius of the ordering bug in #1.
-  - Recommendation: add a unique constraint/index on `(scan_run_id, step_name, attempt)` and handle the resulting conflict, or move attempt numbering into the orchestrator and pass an explicit monotonic `attempt` value. Align with the eventual `owner_id` per-worker lease recommended in the Phase 4 notes.
+  - **Status: Fixed in `cf4c9a0` / `main`.** Migration `drizzle/0007_fix_scan_steps_attempt_uniqueness.sql` adds a unique index on `(scan_run_id, step_name, attempt)`, and `saveStepRow` retries up to `MAX_ATTEMPT_RETRIES` on a `23505` unique violation when the attempt is auto-numbered.
 
-- [ ] **#4 — `resolveDockerCommand` only probes `docker version`, not actual container-runtime permission**
+- [x] **#4 — `resolveDockerCommand` only probes `docker version`, not actual container-runtime permission**
   - Severity: medium.
   - Confidence: high.
   - File: `test/integration/postgres-test-database.ts:144`
   - Root cause: the helper decides between plain `docker` and `sudo -n docker` based only on whether `docker version` succeeds. A machine can allow `docker version` but require sudo/group membership for `docker run`.
   - Impact: on a CI runner or dev box with restricted Docker access, the harness picks plain `docker`, `docker run` fails with permission denied, and the 60-attempt readiness loop wastes time before failing the suite, even though `sudo -n docker run` would have worked.
-  - Recommendation: probe with a real low-cost container operation (e.g., `docker ps` or `docker run --rm hello-world`) rather than `docker version`, or catch the permission error from `docker run` and fall back to sudo.
+  - **Status: Fixed in `cf4c9a0` / `main`.** `resolveDockerCommand` now probes a real container run (`docker run --rm hello-world`) and falls back to `sudo -n docker` on permission errors before `docker run` is used for the Postgres container.
 
-- [ ] **#5 — `fetch_markets` special-case logic is scattered across three ternaries**
+- [x] **#5 — `fetch_markets` special-case logic is scattered across three ternaries**
   - Severity: low.
   - Confidence: high.
   - File: `src/contexts/scanner/resumable-scanner.ts:137-145`
   - Root cause: `stepName === "fetch_markets"` is repeated for `timestamp`, `startedAt`, and `metadata`, making it easy to update one branch and miss the others.
   - Impact: a future change to step ordering or a rename of `fetch_markets` will likely leave one ternary stale, producing inconsistent timestamps or metadata for the real execution step.
-  - Recommendation: compute a single `stepStartedAt` / `stepCompletedAt` / `stepMetadata` triplet once per loop iteration, or model the "real execution step vs synthetic back-fill" distinction explicitly in a small helper.
+  - **Status: Fixed in `cf4c9a0` / `main`.** The orchestrator now records the inner-scanner execution window through a single `saveStep` call that uses `innerResult.startedAt` / `innerResult.completedAt` and no scattered ternaries; synthetic marker steps use a uniform metadata shape.
 
-- [ ] **#6 — Stale comment and implicit assumption on `listForRun` ordering**
+- [x] **#6 — Stale comment and implicit assumption on `listForRun` ordering**
   - Severity: low.
   - Confidence: high.
   - Files:
@@ -1238,7 +1238,7 @@ Files in scope:
     - `src/contexts/scanner/postgres-scan-step-repository.ts:71`
   - Root cause: `ResumableScanner` says "The repository returns steps in insertion order; later wins", but `loadRunSteps` now sorts by `started_at, attempt, id`. The overwrite logic still works for forward-time rows but is no longer insertion-order.
   - Impact: future maintainers may rely on the stale comment and change `latestByName` in ways that break when rows are sorted by timestamp.
-  - Recommendation: update the comment to describe the actual contract (latest by `started_at`, then `attempt`, then `id`) and consider making `latestByName` explicit with `max(attempt)` per step.
+  - **Status: Fixed in `cf4c9a0` / `main`.** Both files now document the actual contract: rows are sorted by `attempt`, then `started_at`, then `id`, and `latestStepByName` selects by `max(attempt)` rather than relying on iteration order.
 
 ### Refuted risks (not surfaced)
 
@@ -1249,10 +1249,12 @@ Files in scope:
 - No-op marker timestamps do not run backwards because `clock()` is called after `finalInnerResult.completedAt`.
 - `getStep` loading full history and per-step `markRunHeartbeat` are unchanged by this diff and therefore out of scope.
 
-### Recommended next steps
+### Resolution summary
 
-1. Fix Findings #1 and #2 together — the ordering bug and the repository contract divergence are coupled; fixing one without the other risks making tests pass while production still misbehaves.
-2. Fix Finding #3 before enabling concurrent workers or the abandoned-scan reclaimer, because that is when the attempt-number race becomes reachable.
-3. Fix Finding #4 to make the integration tests runnable on more CI/dev environments without the sudo dance.
-4. Address Findings #5 and #6 as cleanup in the same PR or a small follow-up; they are low risk but will slow down future step-model changes.
-5. Re-run `npm run test:integration`, `npm run typecheck`, and `npm run build` after the fixes; add an integration test that resumes a run with backdated retry timestamps to lock in the #1 fix.
+All six confirmed risks from the 2026-06-13 review were fixed in commit `cf4c9a0` (`fix: harden scan-step migration findings`), which is an ancestor of `main` (merged via PR #12, `worktree-feature-postgres-api-migration-tests-0603`). Verification run on 2026-06-16:
+
+- `npm test` — 16 test files / 96 tests passed.
+- `npm run typecheck` — passed.
+- `npm run build` — passed.
+
+In addition, a latent test fixture mismatch in `test/postgres-scanner-repository.test.ts` (missing required `CrossVenueOpportunity` fields introduced by later phase-3 risk modeling work) was repaired so the verification suite stays green on `main`.
