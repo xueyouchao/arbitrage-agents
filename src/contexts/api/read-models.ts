@@ -105,6 +105,34 @@ export interface ScanRunReadModel {
   failureReason?: string;
 }
 
+export interface PaperTradeLegFillReadModel {
+  averagePrice: number;
+  contracts: number;
+  fees: number;
+  slippage: number;
+}
+
+export interface PaperTradeSimulationReadModel {
+  id: string;
+  opportunityId: string;
+  simulatedAt: string;
+  targetNotionalUsd: number;
+  longLegFill: PaperTradeLegFillReadModel;
+  hedgeLegFill: PaperTradeLegFillReadModel;
+  adverseSelectionBps: number;
+  partialFill: boolean;
+  residualExposureUsd: number;
+  combinedCost: number;
+  grossEdge: number;
+  netEdge: number;
+  configVersion: string;
+  calculationVersion: string;
+}
+
+export interface PaperTradeSimulationReadRepository {
+  listPaperTradeSimulations(opportunityId: string): Promise<PaperTradeSimulationReadModel[]>;
+}
+
 export interface OpportunityReadRepository {
   listOpportunities(): Promise<OpportunityReadModel[]>;
   getOpportunity(id: string): Promise<OpportunityReadModel | undefined>;
@@ -121,6 +149,7 @@ export interface ScanRunReadRepository {
 export const OPPORTUNITY_READ_REPOSITORY = Symbol("OPPORTUNITY_READ_REPOSITORY");
 export const MARKET_READ_REPOSITORY = Symbol("MARKET_READ_REPOSITORY");
 export const SCAN_RUN_READ_REPOSITORY = Symbol("SCAN_RUN_READ_REPOSITORY");
+export const PAPER_TRADE_SIMULATION_READ_REPOSITORY = Symbol("PAPER_TRADE_SIMULATION_READ_REPOSITORY");
 
 @Injectable()
 export class OpportunityReadService {
@@ -159,5 +188,17 @@ export class ScanRunReadService {
 
   getLatestScanRun(): Promise<ScanRunReadModel> {
     return this.scanRuns.getLatestScanRun();
+  }
+}
+
+@Injectable()
+export class PaperTradeSimulationReadService {
+  constructor(
+    @Inject(PAPER_TRADE_SIMULATION_READ_REPOSITORY)
+    private readonly paperTradeSimulations: PaperTradeSimulationReadRepository
+  ) {}
+
+  listPaperTradeSimulations(opportunityId: string): Promise<PaperTradeSimulationReadModel[]> {
+    return this.paperTradeSimulations.listPaperTradeSimulations(opportunityId);
   }
 }

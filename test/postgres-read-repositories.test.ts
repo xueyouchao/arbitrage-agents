@@ -146,6 +146,46 @@ describe("PostgresReadRepositories", () => {
       })
     ]);
   });
+
+  it("lists paper-trade simulations for an opportunity and coerces numeric fields", async () => {
+    const repository = new PostgresReadRepositories({ databaseUrl: "postgres://test" } as never);
+    poolQuery.mockResolvedValueOnce({ rows: [{
+      id: "sim-1",
+      opportunity_id: "opp-1",
+      simulated_at: new Date("2026-06-03T12:00:02.000Z"),
+      target_notional_usd: "5",
+      long_leg: { averagePrice: 0.42, contracts: 11.9048, fees: 0.0042, slippage: 0 },
+      hedge_leg: { averagePrice: 0.51, contracts: 9.8039, fees: 0.0051, slippage: 0 },
+      adverse_selection_bps: "25",
+      partial_fill: false,
+      residual_exposure_usd: "0",
+      combined_cost: "0.93",
+      gross_edge: "0.07",
+      net_edge: "0.0607",
+      config_version: "seed-config-v1",
+      calculation_version: "seed-calc-v1"
+    }] });
+
+    const result = await repository.listPaperTradeSimulations("opp-1");
+
+    expect(poolQuery.mock.calls[0][0]).toContain("from paper_trade_simulations");
+    expect(poolQuery.mock.calls[0][0]).toContain("where opportunity_id = $1");
+    expect(poolQuery.mock.calls[0][1]).toEqual(["opp-1"]);
+    expect(result).toEqual([
+      expect.objectContaining({
+        id: "sim-1",
+        opportunityId: "opp-1",
+        simulatedAt: "2026-06-03T12:00:02.000Z",
+        targetNotionalUsd: 5,
+        adverseSelectionBps: 25,
+        partialFill: false,
+        residualExposureUsd: 0,
+        combinedCost: 0.93,
+        grossEdge: 0.07,
+        netEdge: 0.0607
+      })
+    ]);
+  });
 });
 
 function opportunityRow(overrides: Partial<Record<string, unknown>> = {}) {
