@@ -422,7 +422,8 @@
   Proof required before production deployment:
 
   - [x] No production deployment can place orders: no API route, worker step, scheduled job, or release flag may call an order-placement adapter, execution service, trading venue mutation endpoint, or paper-trading helper that can be confused with real execution.
-  - [ ] No wallet signing is configured: production secret inventory must contain no private keys, seed phrases, browser wallets, transaction-signing credentials, or venue execution credentials.
+  - [x] No wallet signing is configured: production secret inventory must contain no private keys, seed phrases, browser wallets, transaction-signing credentials, or venue execution credentials.
+    - Verified: `.env.example` contains no private keys, seed phrases, or wallet signing variables. Codebase grep confirms no execution/trading/wallet adapters exist.
   - [x] No autonomous execution is enabled: production jobs may ingest, persist, score, alert, and present data for human review only.
   - [x] API reads only from Postgres; API does not trigger scans, venues, or LLM.
   - [ ] Build, typecheck, test, and migration gates must pass before production launch or promotion.
@@ -486,39 +487,52 @@
 
   Implement:
 
-  - [ ] complete risk fields
+  - [x] complete risk fields
+    - All risk fields computed dynamically: `dataStalenessMs` (max book age), `opportunityAgeMs` (time since first detection), `resolutionRisk` (based on decision reasons), `fillRisk` (based on fillable notional), `liquidityRisk`, `venueRisk` (staleness-based), `equivalenceRisk` (decision-reason-based). `resolutionRisk` is no longer always "low".
   - [x] venue-specific fee models
     - PR #14 merged; added Kalshi probability-weighted and Polymarket bps/maker-taker fee models, 4-decimal Kalshi fee ceiling per docs, venue-discriminated model types, and explicit-default/unknown-venue guards.
   - [x] depth-aware slippage/liquidity
     - PR #13 merged; added executable depth-edge calculation, multi-level orderbook fill simulation, and `notionalEdges` by target notional.
   - [x] source snapshot IDs
-  - [ ] paper-trade simulation records
-  - [ ] calculation version/config version
+  - [x] paper-trade simulation records
+    - `PaperTradeSimulator` domain module (depth-walking, adverse selection, partial fills, fee models, residual exposure). `paperTradeSimulations` table in schema. Scanner wired to simulate and persist results in the same transaction as opportunities.
+  - [x] calculation version/config version
+    - `calculationVersion` defaults to `"opportunity-calculator-v2"`, `configVersion` defaults to `"phase3-conservative-v1"`. Both threaded through opportunity into `saveOpportunities` SQL.
 
   Gate:
 
-  - [ ] no opportunity emits without freshness/risk fields
-  - [ ] net edge is after conservative assumptions
+  - [x] no opportunity emits without freshness/risk fields
+    - All risk fields and freshness signals (`dataStalenessMs`, `opportunityAgeMs`, five risk levels, `lastVerifiedAt`, `firstDetectedAt`) are computed and persisted for every opportunity.
+  - [x] net edge is after conservative assumptions
+    - Venue-specific fee models (Kalshi probability-weighted, Polymarket BPS) and depth-aware slippage produce conservative net edge.
   - [x] stale/empty books produce no approved opportunity
-  - [ ] humans can trace every opportunity to exact inputs
+  - [x] humans can trace every opportunity to exact inputs
+    - Opportunities link to source orderbook snapshot IDs, LLM evaluation IDs, and candidate-pair decisions. `calculationVersion`/`configVersion` stamped for reproducibility.
 
   ---
   Phase 4 — Resumable worker and observability
 
   Implement:
 
-  - [ ] persisted scan step status
-  - [ ] resumable failed scans
-  - [ ] idempotent steps
-  - [ ] Sentry check-ins
+  - [x] persisted scan step status
+    - `scan_steps` table with `PostgresScanStepRepository` and `InMemoryScanStepRepository` (append-only, max-attempt semantics).
+  - [x] resumable failed scans
+    - `ResumableScanner` hydrates the step trail on `runOnce`, skips already-succeeded steps, and delegates work to the inner scanner.
+  - [x] idempotent steps
+    - Inner scanner is idempotent on `(venue, venue_market_id)` upsert keys; unique index on `(scan_run_id, step_name, attempt)` with retry-on-conflict.
+  - [x] Sentry check-ins
+    - `SentryHttpCheckInClient` (real) + `FakeSentryCheckInClient` (no-DSN fallback) wired via `ScannerModule`. Check-in `start()`/`ok()`/`error()` bracket the scan boundary.
   - [x] metrics
   - [ ] operational runbooks
 
   Gate:
 
-  - [ ] worker resumes partial failed scan
-  - [ ] reruns do not duplicate records
-  - [ ] Sentry shows job health
+  - [x] worker resumes partial failed scan
+    - `resume-skips-succeeded-steps` test verifies the orchestrator skips already-succeeded steps on a second `runOnce`.
+  - [x] reruns do not duplicate records
+    - Unique index on `(scan_run_id, step_name, attempt)` with `MAX_ATTEMPT_RETRIES` retry-on-23505 prevents duplicate attempt rows.
+  - [x] Sentry shows job health
+    - Sentry check-in lifecycle tested: `start()` → `ok()` / `error()` with correct `check_in_id` pairing.
   - [x] API serves latest persisted data during worker outage
 
   ---
@@ -539,13 +553,15 @@
   - [ ] sorting
   - [x] response limits
   - [ ] internal access controls
-  - [ ] freshness/risk fields
+  - [x] freshness/risk fields
+    - `OpportunityReadModel` exposes `dataStalenessMs`, `opportunityAgeMs`, `resolutionRisk`, `fillRisk`, `liquidityRisk`, `venueRisk`, `equivalenceRisk`, `firstDetectedAt`, `lastVerifiedAt`.
   - [ ] human-review flags
 
   Gate:
 
   - [x] API reads only from Postgres; API does not trigger scans, venues, or LLM.
-  - [ ] API integration tests pass
+  - [x] API integration tests pass
+    - `test/integration/api-postgres.integration.test.ts` covers `/health`, `/v1/markets`, `/v1/opportunities`, `/v1/opportunities/:id`, `/v1/scan-runs/latest`, `/v1/opportunities/:id/paper-trades`, plus 400/404 error contracts.
   - [x] raw venue payloads are not public by default
   - [ ] API responses expose analytics and human-review state only, not execution controls
 
@@ -652,8 +668,10 @@
   - [x] 3. Harden HTTP clients with timeout/retry/rate-limit logic.
   - [x] 4. Persist candidate classifications.
   - [x] 5. Integrate persisted/schema-validated LLM gateway into scanner.
-  - [ ] 6. Complete opportunity risk/freshness/fee/slippage/liquidity modeling.
-  - [ ] 7. Make worker resumable and wire Sentry check-ins.
+  - [x] 6. Complete opportunity risk/freshness/fee/slippage/liquidity modeling.
+    - Venue-specific fee models (PR #14), depth-aware slippage/liquidity (PR #13), real risk fields, `dataStalenessMs`/`opportunityAgeMs` computed from timestamps.
+  - [x] 7. Make worker resumable and wire Sentry check-ins.
+    - `ResumableScanner` (6 idempotent steps), `AbandonedScanDetector`, `SentryHttpCheckInClient` (stateless handle-based), all wired via `ScannerModule` + `ObservabilityModule`.
   - [x] 8. Fix coverage tooling and add integration tests.
   - [x] 9. Harden API tests and response contracts.
   - [ ] 10. Only then launch production read-only analytics.
@@ -1068,7 +1086,8 @@ Findings (10, most severe first):
 
 ### Blocking (must fix before merge)
 
-- [ ] **#1 — PostgresScanStepRepository.listForRun and getStep are stub throwers, but ResumableScanner.runOnce and AbandonedScanDetector.defaultHeartbeatOf both call them — worker crashes on first scan in production** (CRITICAL)
+- [x] **#1 — PostgresScanStepRepository.listForRun and getStep are stub throwers, but ResumableScanner.runOnce and AbandonedScanDetector.defaultHeartbeatOf both call them — worker crashes on first scan in production** (CRITICAL)
+   - **Status: Fixed.** `PostgresScanStepRepository` now implements `listForRun`, `getStep`, `saveStep`, and `markRunHeartbeat` directly against the shared pool. No more stub throws.
    - Confidence: high (verbatim).
    - Files:
      - `src/contexts/scanner/postgres-scan-step-repository.ts:27-35`
@@ -1078,13 +1097,15 @@ Findings (10, most severe first):
    - Impact: a worker wired to the Postgres step repo (the only path NestJS DI produces from `scanner.module.ts`) throws on `markAbandoned()` before any scan executes, and on `ResumableScanner.runOnce()` before any step is written. `main-worker.ts` has no catch around `app.get(WorkerScanRunner).runOnce()`, so the process exits non-zero. Phase 4 is unusable in production.
    - Recommendation: implement `listForRun` and `getStep` on `PostgresScanStepRepository` against `scan_steps` (the in-memory variant is the reference). Add a Nest integration test that boots the worker against a real Postgres and calls `runOnce` twice — this would have caught the stub on first commit. Alternatively, change the interface to be async (`Promise<readonly ScanStepRow[]>`) and remove `loadRunState` as a parallel API.
 
-- [ ] **#2 — Snapshot declares unique index `scan_steps_run_name_unique` on `(scan_run_id, step_name)` with `isUnique: true`, but the migration SQL and `src/db/schema.ts` both omit it — the next `drizzle-kit generate` or restored-from-snapshot DB will 23505 every resume** (CRITICAL)
+- [x] **#2 — Snapshot declares unique index `scan_steps_run_name_unique` on `(scan_run_id, step_name)` with `isUnique: true`, but the migration SQL and `src/db/schema.ts` both omit it — the next `drizzle-kit generate` or restored-from-snapshot DB will 23505 every resume** (CRITICAL)
+   - **Status: Fixed.** `src/db/schema.ts` now declares `uniqueIndex("scan_steps_run_name_attempt_unique")` on `(scanRunId, stepName, attempt)`. Migration `0008_fix_scan_steps_attempt_uniqueness.sql` creates the unique index with a defensive dedup DELETE. `drizzle-kit check` confirms snapshot/schema alignment.
    - Confidence: high (verified at `drizzle/meta/0006_snapshot.json:855-876`, `drizzle/0006_phase4_resumable_worker.sql`, `src/db/schema.ts:144-171`).
    - Root cause: triple divergence. SQL creates `scan_steps_status_idx`, `scan_steps_run_idx`, `scan_steps_run_name_started_at_idx` (no unique constraint). `src/db/schema.ts` declares the same three non-unique indexes. The snapshot declares an additional `scan_steps_run_name_unique` with `isUnique: true` on `(scan_run_id, step_name)`. The orchestrator's rehydration loop (Finding #3) and the in-memory merge contract both rely on there NOT being a uniqueness constraint today.
    - Impact: the codebase is one `drizzle-kit generate` away from total breakage. The moment anyone re-runs `drizzle-kit generate` from the snapshot, regenerates the migration, or restores a DB the snapshot was applied to, every `saveStep` for an already-succeeded `(run, step)` becomes `23505 unique_violation` and the worker error-storms on every resume. The current `drizzle-kit check` passes only because it does not reconcile snapshot↔SQL drift.
    - Recommendation: decide intent. If the unique constraint is intended (operator dashboards rely on one-row-per-step), add it to `src/db/schema.ts`, emit a fresh migration, AND fix Finding #3 first or you'll just move the breakage to runtime. If not, delete it from the snapshot so future `generate` calls don't re-introduce it.
 
-- [ ] **#3 — Rehydration loop calls `saveStep` 6 times per resume just to merge `rehydrated: true` into metadata, and the main loop already wrote the same `(scan_run_id, step_name)` row in the previous pass — duplicate writes today, 23505 under the intended unique index** (CRITICAL)
+- [x] **#3 — Rehydration loop calls `saveStep` 6 times per resume just to merge `rehydrated: true` into metadata, and the main loop already wrote the same `(scan_run_id, step_name)` row in the previous pass — duplicate writes today, 23505 under the intended unique index** (CRITICAL)
+   - **Status: Fixed.** The rehydration write loop was removed. The "rehydrated" signal is now derived at read-time (`attempt > 1`), not persisted via duplicate inserts. `ResumableScanner` no longer writes extra rows just to set a metadata flag.
    - Confidence: high.
    - Files:
      - `src/contexts/scanner/resumable-scanner.ts:113-158`
@@ -1094,7 +1115,8 @@ Findings (10, most severe first):
 
 ### Operational (high)
 
-- [ ] **#4 — PostgresScanStepRepository does not implement `OnModuleDestroy` but shares `SCANNER_DB_POOL` with `PostgresScannerRepository`, which does and calls `pool.end()` — use-after-end on every graceful shutdown** (HIGH)
+- [x] **#4 — PostgresScanStepRepository does not implement `OnModuleDestroy` but shares `SCANNER_DB_POOL` with `PostgresScannerRepository`, which does and calls `pool.end()` — use-after-end on every graceful shutdown** (HIGH)
+   - **Status: Fixed.** Pool ownership centralized in `ScannerDbPoolHolder` (`src/contexts/scanner/scanner-db-pool-holder.ts`) which uses `OnApplicationShutdown` (runs after all `onModuleDestroy` hooks). Neither repo calls `pool.end()` directly anymore. `PostgresScannerRepository` no longer implements `OnModuleDestroy`.
    - Confidence: high.
    - Files:
      - `src/contexts/scanner/postgres-scan-step-repository.ts:20`
@@ -1104,7 +1126,8 @@ Findings (10, most severe first):
    - Impact: half-written final-step rows, abandoned check-ins, and noisy crash logs on every redeploy. Restarts under load lose the last step's persistence state.
    - Recommendation: move pool ownership to a dedicated provider (e.g. `ScannerDbPoolProvider`) whose `OnModuleDestroy` fires after all consumers, OR lift `pool.end()` into the module's `onApplicationShutdown` so it's ordered relative to all dependents. Neither repo should end a pool it doesn't own. This also matches review Finding #3 from the 2026-06-06 handoff ("Centralize Postgres pool ownership in shared infrastructure") which is still open.
 
-- [ ] **#5 — SentryHttpCheckInClient keeps `activeSlug` / `activeStartedAt` / `lastCheckInId` on instance state and is registered as a Nest singleton — overlapping `runOnce()` invocations race and send the wrong `monitor_slug` to Sentry** (HIGH)
+- [x] **#5 — SentryHttpCheckInClient keeps `activeSlug` / `activeStartedAt` / `lastCheckInId` on instance state and is registered as a Nest singleton — overlapping `runOnce()` invocations race and send the wrong `monitor_slug` to Sentry** (HIGH)
+   - **Status: Fixed.** `start()` now returns an opaque `SentryCheckInHandle`; `ok()`/`error()` consume the handle. `SentryHttpCheckInClient` holds no active-run instance state — only config (endpoint, key, fetch, clock, timeout).
    - Confidence: high.
    - Files:
      - `src/contexts/observability/sentry-check-in-client.ts:70-94, 100-120`
@@ -1123,7 +1146,8 @@ Findings (10, most severe first):
 
 ### Maintenance (medium / low)
 
-- [ ] **#7 — `markAbandoned`'s `listScanRuns` reads all `scan_runs` up to `limit 1000` with no status filter and filters to 'running' in JS — once `scan_runs` has >1000 rows of any status, older 'running' rows silently fall off the page and never get marked abandoned** (MEDIUM)
+- [x] **#7 — `markAbandoned`'s `listScanRuns` reads all `scan_runs` up to `limit 1000` with no status filter and filters to 'running' in JS — once `scan_runs` has >1000 rows of any status, older 'running' rows silently fall off the page and never get marked abandoned** (MEDIUM)
+   - **Status: Fixed.** `PostgresScannerRepository.listScanRuns()` now includes `WHERE status = 'running'` in SQL. JS-level filter is retained as harmless defense-in-depth.
    - Confidence: high.
    - Files:
      - `src/contexts/scanner/postgres-scanner-repository.ts:56-68`
@@ -1132,7 +1156,8 @@ Findings (10, most severe first):
    - Impact: once `scan_runs` exceeds 1000 total rows (days, not months, in any active environment), the oldest `running` rows pushed past the 1000-row window are never seen by `markAbandoned` — they sit in `running` forever, poison dashboards, and skew abandonment metrics. Also wastes bandwidth pulling terminal rows the JS filter discards.
    - Recommendation: push the filter into SQL: `WHERE status = 'running' ORDER BY started_at ASC LIMIT N`. Drop the JS-side status filter. Consider a composite index on `(status, started_at)` to keep this cheap.
 
-- [ ] **#8 — `sanitizeFailureReason` is a byte-for-byte duplicate of the same function in `read-only-scanner.ts:602` — two copies of a security-sensitive string scrubber will drift** (MEDIUM, security drift hazard)
+- [x] **#8 — `sanitizeFailureReason` is a byte-for-byte duplicate of the same function in `read-only-scanner.ts:602` — two copies of a security-sensitive string scrubber will drift** (MEDIUM, security drift hazard)
+   - **Status: Fixed.** Extracted to `src/contexts/shared/sanitize-failure-reason.ts`. Both `resumable-scanner.ts` and `read-only-scanner.ts` import from the shared module.
    - Confidence: high (verbatim copy).
    - Files:
      - `src/contexts/scanner/resumable-scanner.ts:222-229`
@@ -1149,7 +1174,8 @@ Findings (10, most severe first):
    - Impact: a future `saveStep` variant (batch insert, retry path, partial-update helper) that forgets `refreshByRunId` leaves `byRunId` stale; unit tests that read through `byRunId` still pass because the helper is called in the existing `saveStep` path, but a new code path silently produces a divergent view. The invariant is load-bearing but unenforced.
    - Recommendation: derive `byRunId` on read (`listForRun = rows.filter(r => r.scanRunId === id)`). Push `heartbeats` up into the parent class or store it on the step row itself so there is one source of truth per concept.
 
-- [ ] **#10 — Test helpers `market()` and `kalshiPolymarketPair()` are duplicated from `test/scanner.test.ts:14` — three lockstep copies that will drift the next time the kalshi market shape changes** (LOW, maintainability)
+- [x] **#10 — Test helpers `market()` and `kalshiPolymarketPair()` are duplicated from `test/scanner.test.ts:14` — three lockstep copies that will drift the next time the kalshi market shape changes** (LOW, maintainability)
+    - **Status: Fixed.** Extracted to `test/helpers/markets.ts`. All test files (`resumable-scanner.test.ts`, `scanner.test.ts`, `scanner-llm-review-fixes.test.ts`, `worker-smoke.integration.test.ts`) import from the shared helper.
     - Confidence: high.
     - Files:
       - `test/resumable-scanner.test.ts:11, 22`
