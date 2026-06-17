@@ -56,6 +56,10 @@ export interface ResumableScannerDeps {
   monitorSlug: string;
   clock?: () => string;
   nextScanRunId?: () => string;
+  // Phase 4 Finding #6: per-worker lease. Stamped on every scan
+  // result so the abandoned-scan detector can skip runs owned by
+  // the active worker.
+  workerId?: string;
 }
 
 export type { ScanStepName } from "./scan-step";
@@ -139,13 +143,14 @@ export class ResumableScanner {
 
       const completedAt = clock();
       const result: ScanResult = finalInnerResult
-        ? { ...finalInnerResult, id: scanRunId, startedAt, completedAt }
+        ? { ...finalInnerResult, id: scanRunId, startedAt, completedAt, ...(this.deps.workerId ? { workerId: this.deps.workerId } : {}) }
         : {
             id: scanRunId,
             status: "succeeded",
             startedAt,
             completedAt,
-            metrics: { marketsScanned: 0, normalizedMarkets: 0, candidatePairs: 0, opportunitiesFound: 0, llmEvaluations: 0 }
+            metrics: { marketsScanned: 0, normalizedMarkets: 0, candidatePairs: 0, opportunitiesFound: 0, llmEvaluations: 0 },
+            ...(this.deps.workerId ? { workerId: this.deps.workerId } : {})
           };
       if (checkInHandle) await this.deps.checkInClient.ok(checkInHandle, new Date(completedAt)).catch(() => undefined);
       return result;
@@ -158,7 +163,8 @@ export class ResumableScanner {
         completedAt: clock(),
         metrics: { marketsScanned: 0, normalizedMarkets: 0, candidatePairs: 0, opportunitiesFound: 0, llmEvaluations: 0 },
         failureCategory: "processing",
-        failureReason: sanitizeFailureReason(error)
+        failureReason: sanitizeFailureReason(error),
+        ...(this.deps.workerId ? { workerId: this.deps.workerId } : {})
       };
     }
   }
@@ -188,7 +194,8 @@ export class ResumableScanner {
       completedAt: clock(),
       metrics: { marketsScanned: 0, normalizedMarkets: 0, candidatePairs: 0, opportunitiesFound: 0, llmEvaluations: 0 },
       failureCategory: failureCategoryForStep(stepName),
-      failureReason
+      failureReason,
+      ...(this.deps.workerId ? { workerId: this.deps.workerId } : {})
     };
   }
 }

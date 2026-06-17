@@ -21,6 +21,7 @@ function buildResumableScanner(
     checkInClient?: FakeSentryCheckInClient;
     clock?: () => string;
     nextScanRunId?: () => string;
+    workerId?: string;
   } = {}
 ) {
   const clients = kalshiPolymarketPair();
@@ -39,7 +40,8 @@ function buildResumableScanner(
       checkInClient,
       monitorSlug: "arbitrage-agents-scan",
       clock,
-      nextScanRunId: options.nextScanRunId
+      nextScanRunId: options.nextScanRunId,
+      workerId: options.workerId
     }),
     checkInClient,
     stepRepository
@@ -230,5 +232,23 @@ describe("ResumableScanner", () => {
       { slug: "monitor", checkInId: handle.checkInId, status: "in_progress", startedAt: "2026-06-04T12:00:00.000Z" },
       { slug: "monitor", checkInId: handle.checkInId, status: "ok", startedAt: "2026-06-04T12:00:05.000Z" }
     ]);
+  });
+
+  // Finding #6: the scan result must carry the workerId so the
+  // abandoned-scan detector can skip runs owned by the active worker.
+  it("stamps workerId on the scan result when configured", async () => {
+    const repository = new InMemoryScannerRepository();
+    const stepRepository = new InMemoryScanStepRepository();
+    const { scanner } = buildResumableScanner(repository, stepRepository, { workerId: "worker-42" });
+    const result = await scanner.runOnce();
+    expect(result.workerId).toBe("worker-42");
+  });
+
+  it("omits workerId from scan result when not configured", async () => {
+    const repository = new InMemoryScannerRepository();
+    const stepRepository = new InMemoryScanStepRepository();
+    const { scanner } = buildResumableScanner(repository, stepRepository);
+    const result = await scanner.runOnce();
+    expect(result.workerId).toBeUndefined();
   });
 });

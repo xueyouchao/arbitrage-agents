@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { randomUUID } from "crypto";
 import { Pool } from "pg";
 import { APP_CONFIG } from "../../config/config.module";
 import { AppConfig } from "../../config/app-config";
@@ -32,6 +33,14 @@ import {
   SENTRY_CHECK_IN_CLIENT
 } from "./scanner-tokens";
 import { WorkerScanRunner } from "./worker-scan-runner";
+
+// Phase 4 Finding #6: per-worker lease. Generated once at module load
+// time and shared by ResumableScanner (stamps it on scan results) and
+// AbandonedScanDetector (uses it to skip owned runs). Each worker
+// process gets a unique UUID so a restarted worker does NOT inherit
+// the previous process's lease — stale scans from the dead process
+// are correctly flagged as abandoned.
+const WORKER_ID = randomUUID();
 
 @Module({
   providers: [
@@ -140,14 +149,15 @@ import { WorkerScanRunner } from "./worker-scan-runner";
           innerScanner,
           stepRepository,
           checkInClient,
-          monitorSlug: config.sentryMonitorSlug
+          monitorSlug: config.sentryMonitorSlug,
+          workerId: WORKER_ID
         }),
       inject: [ReadOnlyScanner, SCAN_STEP_REPOSITORY, SENTRY_CHECK_IN_CLIENT, APP_CONFIG]
     },
     {
       provide: AbandonedScanDetector,
       useFactory: (repository: ScannerRepository, stepRepository: ScanStepRepository, config: AppConfig) =>
-        new AbandonedScanDetector({ repository, stepRepository, abandonedAfterMs: config.scannerAbandonedAfterMs }),
+        new AbandonedScanDetector({ repository, stepRepository, abandonedAfterMs: config.scannerAbandonedAfterMs, workerId: WORKER_ID }),
       inject: [SCANNER_REPOSITORY, SCAN_STEP_REPOSITORY, APP_CONFIG]
     },
     {

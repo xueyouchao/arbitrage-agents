@@ -11,7 +11,13 @@ export const scanRuns = pgTable("scan_runs", {
   // `abandonedAfterMs` from config; scans whose heartbeat is older than
   // the threshold are flipped to `abandoned` so a fresh run can take over.
   heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
-  metrics: jsonb("metrics").notNull().default({})
+  metrics: jsonb("metrics").notNull().default({}),
+  // Phase 4 Finding #6: per-worker lease. The worker stamps its own
+  // UUID on every scan it creates so the abandoned-scan detector can
+  // skip runs owned by the active worker process. NULL for legacy
+  // scans created before this column existed (treated as abandoned
+  // by the detector for backward compatibility).
+  workerId: text("worker_id")
 });
 
 export const venueMarketSnapshots = pgTable("venue_market_snapshots", {
@@ -127,6 +133,13 @@ export const opportunities = pgTable("opportunities", {
   estimatedFees: numeric("estimated_fees").notNull(),
   estimatedSlippage: numeric("estimated_slippage").notNull(),
   netEdge: numeric("net_edge").notNull(),
+  theoreticalCombinedCost: numeric("theoretical_combined_cost").notNull(),
+  theoreticalGrossEdge: numeric("theoretical_gross_edge").notNull(),
+  theoreticalNetEdge: numeric("theoretical_net_edge").notNull(),
+  executableSizeUsd: numeric("executable_size_usd").notNull(),
+  executableCombinedCost: numeric("executable_combined_cost").notNull(),
+  executableGrossEdge: numeric("executable_gross_edge").notNull(),
+  executableNetEdge: numeric("executable_net_edge").notNull(),
   maxTradableUsd: numeric("max_tradable_usd").notNull(),
   notionalEdges: jsonb("notional_edges").notNull().default(sql`'[]'::jsonb`),
   equivalenceClass: text("equivalence_class").notNull(),
