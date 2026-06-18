@@ -59,9 +59,24 @@ export class AbandonedScanDetector {
       // incident on the dashboard. Scans from other workers (or
       // with no workerId) are fair game: a previous process died.
       if (myWorkerId && run.workerId === myWorkerId) continue;
+      
+      // Grace period for scans with NULL workerId: these are either
+      // legacy scans (created before workerId column existed) or
+      // scans just created that haven't stamped their workerId yet.
+      // Use a short grace period (30 seconds) to distinguish between
+      // a newly created scan vs. a truly abandoned scan.
+      const hasNullWorkerId = !run.workerId;
+      const gracePeriodMs = 30 * 1000; // 30 seconds
+      
       const heartbeat = await heartbeatOf(run);
       if (!heartbeat) continue;
       const ageMs = now().getTime() - new Date(heartbeat).getTime();
+      
+      // For scans with NULL workerId, apply grace period from startedAt
+      // to avoid marking newly created scans as abandoned before they
+      // have a chance to stamp their workerId.
+      if (hasNullWorkerId && ageMs < gracePeriodMs) continue;
+      
       if (ageMs < abandonedAfterMs) continue;
       const ageMinutes = Math.round(ageMs / 60_000);
       const thresholdMinutes = Math.round(abandonedAfterMs / 60_000);
