@@ -188,7 +188,21 @@ describe("PostgresReadRepositories", () => {
         residualExposureUsd: 0,
         combinedCost: 0.93,
         grossEdge: 0.07,
-        netEdge: 0.0607
+        netEdge: 0.0607,
+        configVersion: "seed-config-v1",
+        calculationVersion: "seed-calc-v1",
+        longLegFill: {
+          averagePrice: 0.42,
+          contracts: 11.9048,
+          fees: 0.0042,
+          slippage: 0
+        },
+        hedgeLegFill: {
+          averagePrice: 0.51,
+          contracts: 9.8039,
+          fees: 0.0051,
+          slippage: 0
+        }
       })
     ]);
   });
