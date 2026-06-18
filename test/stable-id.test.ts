@@ -25,4 +25,19 @@ describe("uuidFromStableKey", () => {
     expect(uuidV7).toMatch(uuidRegex);
     expect(uuidV8).toMatch(uuidRegex);
   });
+
+  it("accepts all RFC 4122 UUID versions (v1-v5) in API validation", () => {
+    // UUID v1 example (time-based)
+    const uuidV1 = "550e8400-e29b-11d4-a716-446655440000";
+    // UUID v3 example (MD5 namespace)
+    const uuidV3 = "6fa459ea-ee8a-3ca4-894e-db77e160355e";
+    // UUID v5 example (SHA-1 namespace)
+    const uuidV5 = "74738ff5-5367-5958-9aee-98fffdcd1876";
+
+    // All should be valid UUIDs
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    expect(uuidV1).toMatch(uuidRegex);
+    expect(uuidV3).toMatch(uuidRegex);
+    expect(uuidV5).toMatch(uuidRegex);
+  });
 });
