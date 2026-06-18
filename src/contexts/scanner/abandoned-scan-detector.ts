@@ -28,6 +28,14 @@ export interface AbandonedScanDetectorDeps {
   // grace period has elapsed from `started_at`). Async so the
   // implementation may query Postgres for step rows.
   heartbeatOf?: (run: ScanResult) => Promise<string | undefined>;
+  // Phase 4 Finding #6: per-worker lease. When set, the detector
+  // skips any running scan whose `workerId` matches this value — the
+  // current worker process owns that scan and it must not be flagged
+  // as abandoned even if its heartbeat is stale (e.g. a long LLM
+  // batch). Scans with a different workerId or no workerId are still
+  // eligible for abandonment (a previous worker died). When unset,
+  // ALL stale running scans are marked abandoned (backward compat).
+  workerId?: string;
 }
 
 export const ABANDONED_AFTER_MS_DEFAULT = 5 * 60 * 1000;
@@ -39,14 +47,36 @@ export class AbandonedScanDetector {
     const now = this.deps.now ?? (() => new Date());
     const abandonedAfterMs = this.deps.abandonedAfterMs ?? ABANDONED_AFTER_MS_DEFAULT;
     const heartbeatOf = this.deps.heartbeatOf ?? defaultHeartbeatOf(this.deps.stepRepository);
+    const myWorkerId = this.deps.workerId;
 
     const abandoned: ScanResult[] = [];
     const runs = await this.deps.repository.listScanRuns();
     for (const run of runs) {
       if (run.status !== "running") continue;
+      // Finding #6: skip scans owned by the active worker. A scan
+      // whose workerId matches ours is being worked on by THIS
+      // process — marking it abandoned would produce a phantom
+      // incident on the dashboard. Scans from other workers (or
+      // with no workerId) are fair game: a previous process died.
+      if (myWorkerId && run.workerId === myWorkerId) continue;
+      
+      // Grace period for scans with NULL workerId: these are either
+      // legacy scans (created before workerId column existed) or
+      // scans just created that haven't stamped their workerId yet.
+      // Use a short grace period (30 seconds) to distinguish between
+      // a newly created scan vs. a truly abandoned scan.
+      const hasNullWorkerId = !run.workerId;
+      const gracePeriodMs = 30 * 1000; // 30 seconds
+      
       const heartbeat = await heartbeatOf(run);
       if (!heartbeat) continue;
       const ageMs = now().getTime() - new Date(heartbeat).getTime();
+      
+      // For scans with NULL workerId, apply grace period from startedAt
+      // to avoid marking newly created scans as abandoned before they
+      // have a chance to stamp their workerId.
+      if (hasNullWorkerId && ageMs < gracePeriodMs) continue;
+      
       if (ageMs < abandonedAfterMs) continue;
       const ageMinutes = Math.round(ageMs / 60_000);
       const thresholdMinutes = Math.round(abandonedAfterMs / 60_000);

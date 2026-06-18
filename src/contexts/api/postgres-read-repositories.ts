@@ -7,13 +7,16 @@ import {
   MarketReadRepository,
   OpportunityReadModel,
   OpportunityReadRepository,
+  PaperTradeLegFillReadModel,
+  PaperTradeSimulationReadModel,
+  PaperTradeSimulationReadRepository,
   ScanRunReadModel,
   ScanRunReadRepository
 } from "./read-models";
 
 @Injectable()
 export class PostgresReadRepositories
-  implements OpportunityReadRepository, MarketReadRepository, ScanRunReadRepository, OnModuleDestroy
+  implements OpportunityReadRepository, MarketReadRepository, ScanRunReadRepository, PaperTradeSimulationReadRepository, OnModuleDestroy
 {
   private readonly pool: Pool;
 
@@ -135,6 +138,31 @@ export class PostgresReadRepositories
     return result.rows.map(toMarket);
   }
 
+  async listPaperTradeSimulations(opportunityId: string): Promise<PaperTradeSimulationReadModel[]> {
+    const result = await this.pool.query<PaperTradeSimulationRow>(`
+      select id,
+             opportunity_id,
+             simulated_at,
+             target_notional_usd,
+             long_leg,
+             hedge_leg,
+             adverse_selection_bps,
+             partial_fill,
+             residual_exposure_usd,
+             combined_cost,
+             gross_edge,
+             net_edge,
+             config_version,
+             calculation_version
+      from paper_trade_simulations
+      where opportunity_id = $1
+      order by simulated_at desc, target_notional_usd asc
+      limit 100
+    `, [opportunityId]);
+
+    return result.rows.map(toPaperTradeSimulation);
+  }
+
   async getLatestScanRun(): Promise<ScanRunReadModel> {
     const result = await this.pool.query<ScanRunRow>(`
       select id,
@@ -227,6 +255,23 @@ interface MarketRow {
   confidence: string;
 }
 
+interface PaperTradeSimulationRow {
+  id: string;
+  opportunity_id: string;
+  simulated_at: Date | string;
+  target_notional_usd: string;
+  long_leg: PaperTradeLegFillReadModel;
+  hedge_leg: PaperTradeLegFillReadModel;
+  adverse_selection_bps: string;
+  partial_fill: boolean;
+  residual_exposure_usd: string;
+  combined_cost: string;
+  gross_edge: string;
+  net_edge: string;
+  config_version: string;
+  calculation_version: string;
+}
+
 interface ScanRunRow {
   id: string;
   status: string;
@@ -291,6 +336,25 @@ function toMarket(row: MarketRow): MarketReadModel {
     payoffType: row.payoff_type,
     ambiguityFlags: row.ambiguity_flags,
     confidence: Number(row.confidence)
+  };
+}
+
+function toPaperTradeSimulation(row: PaperTradeSimulationRow): PaperTradeSimulationReadModel {
+  return {
+    id: row.id,
+    opportunityId: row.opportunity_id,
+    simulatedAt: toIso(row.simulated_at),
+    targetNotionalUsd: Number(row.target_notional_usd),
+    longLegFill: row.long_leg,
+    hedgeLegFill: row.hedge_leg,
+    adverseSelectionBps: Number(row.adverse_selection_bps),
+    partialFill: row.partial_fill,
+    residualExposureUsd: Number(row.residual_exposure_usd),
+    combinedCost: Number(row.combined_cost),
+    grossEdge: Number(row.gross_edge),
+    netEdge: Number(row.net_edge),
+    configVersion: row.config_version,
+    calculationVersion: row.calculation_version
   };
 }
 

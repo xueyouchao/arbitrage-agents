@@ -131,11 +131,19 @@ insert into opportunities (
   estimated_fees,
   estimated_slippage,
   net_edge,
+  theoretical_combined_cost,
+  theoretical_gross_edge,
+  theoretical_net_edge,
+  executable_size_usd,
+  executable_combined_cost,
+  executable_gross_edge,
+  executable_net_edge,
   max_tradable_usd,
   equivalence_class,
   resolution_risk,
   fill_risk,
   detected_at,
+  first_detected_at,
   last_verified_at
 )
 values (
@@ -150,12 +158,73 @@ values (
   0.01,
   0.005,
   0.055,
+  0.93,
+  0.07,
+  0.055,
+  12,
+  0.93,
+  0.07,
+  0.055,
   12,
   'A',
   'low',
   'medium',
   '2026-06-03T12:00:01.000Z',
+  '2026-06-03T12:00:01.000Z',
   '2026-06-03T12:00:01.000Z'
 );
+
+insert into paper_trade_simulations (
+  id,
+  opportunity_id,
+  simulated_at,
+  target_notional_usd,
+  long_leg,
+  hedge_leg,
+  adverse_selection_bps,
+  partial_fill,
+  residual_exposure_usd,
+  combined_cost,
+  gross_edge,
+  net_edge,
+  config_version,
+  calculation_version,
+  created_at
+)
+values
+  (
+    '00000000-0000-4000-8000-000000000501',
+    '00000000-0000-4000-8000-000000000401',
+    '2026-06-03T12:00:02.000Z',
+    5,
+    '{"averagePrice":0.42,"contracts":11.9048,"fees":0.0042,"slippage":0}'::jsonb,
+    '{"averagePrice":0.51,"contracts":9.8039,"fees":0.0051,"slippage":0}'::jsonb,
+    25,
+    false,
+    0,
+    0.93,
+    0.07,
+    0.0607,
+    'seed-config-v1',
+    'seed-calc-v1',
+    '2026-06-03T12:00:02.000Z'
+  ),
+  (
+    '00000000-0000-4000-8000-000000000502',
+    '00000000-0000-4000-8000-000000000401',
+    '2026-06-03T12:00:02.000Z',
+    25,
+    '{"averagePrice":0.42,"contracts":59.5238,"fees":0.021,"slippage":0}'::jsonb,
+    '{"averagePrice":0.52,"contracts":48.0769,"fees":0.026,"slippage":0.49}'::jsonb,
+    25,
+    true,
+    1.00,
+    0.94,
+    0.06,
+    0.013,
+    'seed-config-v1',
+    'seed-calc-v1',
+    '2026-06-03T12:00:02.000Z'
+  );
 
 commit;

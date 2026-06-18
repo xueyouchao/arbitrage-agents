@@ -25,6 +25,7 @@ describe("migration smoke tests", () => {
         "normalized_markets",
         "opportunities",
         "orderbook_snapshots",
+        "paper_trade_simulations",
         "scan_runs",
         "scan_steps",
         "venue_market_snapshots"

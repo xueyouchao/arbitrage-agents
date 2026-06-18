@@ -66,8 +66,9 @@ export class PostgresScannerRepository implements ScannerRepository {
       started_at: Date;
       completed_at: Date | null;
       metrics: Record<string, unknown>;
+      worker_id: string | null;
     }>(
-      `select id, status, started_at, completed_at, metrics
+      `select id, status, started_at, completed_at, metrics, worker_id
        from scan_runs
        where status = 'running'
        order by started_at asc
@@ -78,7 +79,8 @@ export class PostgresScannerRepository implements ScannerRepository {
       status: row.status as ScanResult["status"],
       startedAt: row.started_at.toISOString(),
       completedAt: row.completed_at ? row.completed_at.toISOString() : undefined,
-      metrics: row.metrics as unknown as ScanResult["metrics"]
+      metrics: row.metrics as unknown as ScanResult["metrics"],
+      ...(row.worker_id ? { workerId: row.worker_id } : {})
     }));
   }
 }
@@ -91,13 +93,14 @@ async function saveScanRun(queryable: Queryable, scanRun: ScanResult): Promise<v
   };
 
   await queryable.query(
-    `insert into scan_runs (id, status, started_at, completed_at, metrics)
-     values ($1, $2, $3, $4, $5::jsonb)
+    `insert into scan_runs (id, status, started_at, completed_at, metrics, worker_id)
+     values ($1, $2, $3, $4, $5::jsonb, $6)
      on conflict (id) do update set
        status = excluded.status,
        completed_at = excluded.completed_at,
-       metrics = excluded.metrics`,
-    [scanRun.id, scanRun.status, scanRun.startedAt, scanRun.completedAt ?? null, JSON.stringify(metrics)]
+       metrics = excluded.metrics,
+       worker_id = coalesce(excluded.worker_id, scan_runs.worker_id)`,
+    [scanRun.id, scanRun.status, scanRun.startedAt, scanRun.completedAt ?? null, JSON.stringify(metrics), scanRun.workerId ?? null]
   );
 }
 
@@ -279,11 +282,13 @@ async function saveOpportunities(
       `insert into opportunities (
         id, candidate_pair_id, kalshi_orderbook_snapshot_id, polymarket_orderbook_snapshot_id,
         long_leg, hedge_leg, combined_cost, gross_edge, estimated_fees,
-        estimated_slippage, net_edge, max_tradable_usd, notional_edges, equivalence_class,
+        estimated_slippage, net_edge, theoretical_combined_cost, theoretical_gross_edge, theoretical_net_edge,
+        executable_size_usd, executable_combined_cost, executable_gross_edge, executable_net_edge,
+        max_tradable_usd, notional_edges, equivalence_class,
         resolution_risk, fill_risk, liquidity_risk, venue_risk, equivalence_risk,
         data_staleness_ms, opportunity_age_ms, detected_at, first_detected_at, last_verified_at,
         calculation_version, config_version
-      ) values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
+      ) values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33)
       on conflict (id) do update set
         kalshi_orderbook_snapshot_id = excluded.kalshi_orderbook_snapshot_id,
         polymarket_orderbook_snapshot_id = excluded.polymarket_orderbook_snapshot_id,
@@ -294,6 +299,13 @@ async function saveOpportunities(
         estimated_fees = excluded.estimated_fees,
         estimated_slippage = excluded.estimated_slippage,
         net_edge = excluded.net_edge,
+        theoretical_combined_cost = excluded.theoretical_combined_cost,
+        theoretical_gross_edge = excluded.theoretical_gross_edge,
+        theoretical_net_edge = excluded.theoretical_net_edge,
+        executable_size_usd = excluded.executable_size_usd,
+        executable_combined_cost = excluded.executable_combined_cost,
+        executable_gross_edge = excluded.executable_gross_edge,
+        executable_net_edge = excluded.executable_net_edge,
         max_tradable_usd = excluded.max_tradable_usd,
         notional_edges = excluded.notional_edges,
         equivalence_class = excluded.equivalence_class,
@@ -324,6 +336,13 @@ async function saveOpportunities(
         opportunity.estimatedFees,
         opportunity.estimatedSlippage,
         opportunity.netEdge,
+        opportunity.theoreticalCombinedCost,
+        opportunity.theoreticalGrossEdge,
+        opportunity.theoreticalNetEdge,
+        opportunity.executableSizeUsd,
+        opportunity.executableCombinedCost,
+        opportunity.executableGrossEdge,
+        opportunity.executableNetEdge,
         opportunity.maxTradableUsd,
         JSON.stringify(opportunity.notionalEdges),
         opportunity.equivalenceClass,

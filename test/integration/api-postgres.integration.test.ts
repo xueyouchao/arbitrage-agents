@@ -85,6 +85,24 @@ describe("API + Postgres integration", () => {
       marketsScanned: 2,
       opportunitiesFound: 1
     });
+
+    const paperTrades = await request(app.getHttpServer())
+      .get("/v1/opportunities/00000000-0000-4000-8000-000000000401/paper-trades")
+      .expect(200);
+    expect(paperTrades.body).toHaveLength(2);
+    expect(paperTrades.body[0]).toMatchObject({
+      id: "00000000-0000-4000-8000-000000000501",
+      opportunityId: "00000000-0000-4000-8000-000000000401",
+      targetNotionalUsd: 5,
+      partialFill: false,
+      netEdge: 0.0607
+    });
+    expect(paperTrades.body[1]).toMatchObject({
+      id: "00000000-0000-4000-8000-000000000502",
+      targetNotionalUsd: 25,
+      partialFill: true,
+      netEdge: 0.013
+    });
   });
 
   it("keeps API error contracts stable", async () => {
@@ -95,5 +113,15 @@ describe("API + Postgres integration", () => {
       .get("/v1/opportunities/00000000-0000-4000-8000-000000009999")
       .expect(404);
     expect(missing.body.message).toBe("Opportunity 00000000-0000-4000-8000-000000009999 not found");
+
+    const malformedPaperTrades = await request(app.getHttpServer())
+      .get("/v1/opportunities/not-a-uuid/paper-trades")
+      .expect(400);
+    expect(malformedPaperTrades.body.message).toBe("Opportunity id must be a UUID");
+
+    const missingPaperTrades = await request(app.getHttpServer())
+      .get("/v1/opportunities/00000000-0000-4000-8000-000000009999/paper-trades")
+      .expect(404);
+    expect(missingPaperTrades.body.message).toBe("Opportunity 00000000-0000-4000-8000-000000009999 not found");
   });
 });
