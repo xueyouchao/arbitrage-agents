@@ -8,7 +8,9 @@ import {
   LlmEvaluationRequest,
   LlmProviderResult
 } from "./llm-evaluation";
+import { LlmCostCalculator } from "./llm-cost-calculator";
 import { LlmOutputValidatorRegistry } from "./llm-output-validators";
+import { LlmTraceReporter } from "./llm-trace-reporter";
 
 export type LlmProvider = (request: LlmEvaluationRequest) => Promise<LlmProviderResult>;
 
@@ -20,10 +22,24 @@ export interface PersistedLlmGatewayOptions {
    * generic persisted gateway (issue #14).
    */
   validatorRegistry?: LlmOutputValidatorRegistry;
+  /**
+   * Optional cost calculator. When provided, each evaluation record is
+   * stamped with an estimatedCostUsd computed from its token counts and
+   * model pricing. Omit for backward-compatible behaviour (cost = 0).
+   */
+  costCalculator?: LlmCostCalculator;
+  /**
+   * Optional trace reporter. When provided, the gateway emits a trace
+   * event after every evaluation (fresh, cached, or failed) so that
+   * observability backends can record spans and metrics.
+   */
+  traceReporter?: LlmTraceReporter;
 }
 
 export class PersistedLlmGateway {
   private readonly registry: LlmOutputValidatorRegistry;
+  private readonly costCalculator?: LlmCostCalculator;
+  private readonly traceReporter?: LlmTraceReporter;
 
   constructor(
     private readonly repository: LlmEvaluationRepository,
@@ -31,6 +47,8 @@ export class PersistedLlmGateway {
     options: PersistedLlmGatewayOptions = {}
   ) {
     this.registry = options.validatorRegistry ?? defaultValidatorRegistry();
+    this.costCalculator = options.costCalculator;
+    this.traceReporter = options.traceReporter;
   }
 
   async evaluate(request: LlmEvaluationRequest): Promise<LlmEvaluationRecord> {
@@ -48,7 +66,20 @@ export class PersistedLlmGateway {
       // call is attempted.
       const revalidated = revalidateCachedOutput(cached, this.registry, request);
       if (revalidated.status === "succeeded" && revalidated.parsedOutput) {
-        return { ...revalidated, isCacheHit: true };
+        const cacheHit = { ...revalidated, isCacheHit: true };
+        try {
+          this.traceReporter?.report({
+            model: request.model,
+            taskType: request.taskType,
+            promptTokens: revalidated.promptTokens ?? 0,
+            completionTokens: revalidated.completionTokens ?? 0,
+            estimatedCostUsd: revalidated.estimatedCostUsd ?? 0,
+            latencyMs: revalidated.latencyMs ?? 0,
+            isCacheHit: true,
+            status: revalidated.status
+          });
+        } catch { /* telemetry isolation */ }
+        return cacheHit;
       }
       // Fall through to fresh call when the cached row is no longer valid.
     }
@@ -66,13 +97,30 @@ export class PersistedLlmGateway {
         status: parsedOutput ? "succeeded" : "failed",
         promptTokens: result.tokenUsage?.promptTokens ?? 0,
         completionTokens: result.tokenUsage?.completionTokens ?? 0,
-        estimatedCostUsd: 0,
+        estimatedCostUsd: this.costCalculator
+          ? this.costCalculator.calculate(request.model, {
+              promptTokens: result.tokenUsage?.promptTokens ?? 0,
+              completionTokens: result.tokenUsage?.completionTokens ?? 0
+            })
+          : 0,
         latencyMs: result.latencyMs ?? Date.now() - startedAt,
         createdAt: new Date(startedAt).toISOString(),
         payloadSchemaVersion: this.registry.schemaVersionFor(request.taskType),
         isPersisted: true
       };
       await this.repository.save(record);
+      try {
+        this.traceReporter?.report({
+          model: request.model,
+          taskType: request.taskType,
+          promptTokens: record.promptTokens,
+          completionTokens: record.completionTokens,
+          estimatedCostUsd: record.estimatedCostUsd,
+          latencyMs: record.latencyMs,
+          isCacheHit: false,
+          status: record.status
+        });
+      } catch { /* telemetry isolation */ }
       return record;
     } catch (error) {
       const record: LlmEvaluationRecord = {
@@ -90,6 +138,18 @@ export class PersistedLlmGateway {
         isPersisted: true
       };
       await this.repository.save(record);
+      try {
+        this.traceReporter?.report({
+          model: request.model,
+          taskType: request.taskType,
+          promptTokens: 0,
+          completionTokens: 0,
+          estimatedCostUsd: 0,
+          latencyMs: record.latencyMs,
+          isCacheHit: false,
+          status: "failed"
+        });
+      } catch { /* telemetry isolation */ }
       return record;
     }
   }

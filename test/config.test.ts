@@ -18,7 +18,8 @@ describe("loadAppConfig", () => {
         LLM_REQUEST_TIMEOUT_MS: "45000",
         SCANNER_LLM_MAX_EVALUATIONS_PER_SCAN: "7",
         SCANNER_ABANDONED_AFTER_MS: "120000",
-        SENTRY_MONITOR_SLUG: "custom-monitor"
+        SENTRY_MONITOR_SLUG: "custom-monitor",
+        SENTRY_TRACES_SAMPLE_RATE: "0.1"
       })
     ).toMatchObject({
       nodeEnv: "test",
@@ -33,7 +34,8 @@ describe("loadAppConfig", () => {
       llmRequestTimeoutMs: 45000,
       scannerLlmMaxEvaluationsPerScan: 7,
       scannerAbandonedAfterMs: 120000,
-      sentryMonitorSlug: "custom-monitor"
+      sentryMonitorSlug: "custom-monitor",
+      sentryTracesSampleRate: 0.1
     });
   });
 
@@ -42,6 +44,20 @@ describe("loadAppConfig", () => {
       loadAppConfig({
         PORT: "99999",
         DATABASE_URL: "postgres://user:pass@localhost:5432/db"
+      })
+    ).toThrow();
+  });
+
+  it("defaults sentryTracesSampleRate to 0 (tracing disabled)", () => {
+    const config = loadAppConfig({ DATABASE_URL: "postgres://user:pass@localhost:5432/db" });
+    expect(config.sentryTracesSampleRate).toBe(0);
+  });
+
+  it("rejects sentryTracesSampleRate outside 0..1", () => {
+    expect(() =>
+      loadAppConfig({
+        DATABASE_URL: "postgres://user:pass@localhost:5432/db",
+        SENTRY_TRACES_SAMPLE_RATE: "1.5"
       })
     ).toThrow();
   });
