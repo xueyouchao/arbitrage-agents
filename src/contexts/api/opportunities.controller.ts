@@ -1,13 +1,61 @@
-import { BadRequestException, Controller, Get, Inject, NotFoundException, Param } from "@nestjs/common";
+import { BadRequestException, Controller, Get, Inject, NotFoundException, Param, Query } from "@nestjs/common";
 import { OpportunityReadService } from "./read-models";
+import type { OpportunityFilters, OpportunitySort } from "./read-models";
 
 @Controller("v1/opportunities")
 export class OpportunitiesController {
   constructor(@Inject(OpportunityReadService) private readonly opportunities: OpportunityReadService) {}
 
   @Get()
-  list() {
-    return this.opportunities.listOpportunities();
+  list(
+    @Query("offset") offset?: string,
+    @Query("limit") limit?: string,
+    @Query("equivalenceClass") equivalenceClass?: string,
+    @Query("minNetEdge") minNetEdge?: string,
+    @Query("maxDataStalenessMs") maxDataStalenessMs?: string,
+    @Query("resolutionRisk") resolutionRisk?: string,
+    @Query("fillRisk") fillRisk?: string,
+    @Query("humanReviewFlag") humanReviewFlag?: string,
+    @Query("sortBy") sortBy?: string,
+    @Query("sortOrder") sortOrder?: string
+  ) {
+    const pagination = {
+      offset: offset ? Math.max(0, parseInt(offset, 10)) : 0,
+      limit: limit ? Math.min(100, Math.max(1, parseInt(limit, 10))) : 20
+    };
+
+    const filters: OpportunityFilters = {};
+    if (equivalenceClass === "A" || equivalenceClass === "B" || equivalenceClass === "C" || equivalenceClass === "D") {
+      filters.equivalenceClass = equivalenceClass;
+    }
+    if (minNetEdge !== undefined) {
+      const value = parseFloat(minNetEdge);
+      if (!isNaN(value)) {
+        filters.minNetEdge = value;
+      }
+    }
+    if (maxDataStalenessMs !== undefined) {
+      const value = parseInt(maxDataStalenessMs, 10);
+      if (!isNaN(value) && value > 0) {
+        filters.maxDataStalenessMs = value;
+      }
+    }
+    if (resolutionRisk === "low" || resolutionRisk === "medium" || resolutionRisk === "high") {
+      filters.resolutionRisk = resolutionRisk;
+    }
+    if (fillRisk === "low" || fillRisk === "medium" || fillRisk === "high") {
+      filters.fillRisk = fillRisk;
+    }
+    if (humanReviewFlag === "pending" || humanReviewFlag === "approved" || humanReviewFlag === "rejected") {
+      filters.humanReviewFlag = humanReviewFlag;
+    }
+
+    const sort: OpportunitySort = {
+      field: sortBy === "netEdge" || sortBy === "opportunityAgeMs" || sortBy === "equivalenceClass" ? sortBy : "detectedAt",
+      order: sortOrder === "asc" ? "asc" : "desc"
+    };
+
+    return this.opportunities.listOpportunities({ pagination, filters, sort });
   }
 
   @Get(":id")

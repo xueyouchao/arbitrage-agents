@@ -548,22 +548,39 @@
 
   Add:
 
-  - [ ] pagination
-  - [ ] filtering
-  - [ ] sorting
+  - [x] pagination
+    - `GET /v1/opportunities?offset=0&limit=20` returns `{ data: [...], pagination: { offset, limit, total, hasMore } }`
+    - `GET /v1/markets?offset=0&limit=50` returns paginated response
+    - Default limits: 20 for opportunities, 50 for markets
+    - Maximum limits: 100 for opportunities, 500 for markets
+  - [x] filtering
+    - `GET /v1/opportunities?equivalenceClass=A&minNetEdge=0.05&maxDataStalenessMs=10000`
+    - Filters: `equivalenceClass`, `minNetEdge`, `maxDataStalenessMs`, `resolutionRisk`, `fillRisk`, `humanReviewFlag`
+    - Multiple filters can be combined
+    - Invalid filter values are safely ignored
+  - [x] sorting
+    - `GET /v1/opportunities?sortBy=netEdge&sortOrder=asc`
+    - Sortable fields: `detectedAt` (default), `netEdge`, `opportunityAgeMs`, `equivalenceClass`
+    - Sort order: `asc` or `desc` (default: desc)
   - [x] response limits
-  - [ ] internal access controls
+  - [x] internal access controls
+    - API is read-only; no execution controls exposed
+    - Raw venue payloads not public by default
   - [x] freshness/risk fields
     - `OpportunityReadModel` exposes `dataStalenessMs`, `opportunityAgeMs`, `resolutionRisk`, `fillRisk`, `liquidityRisk`, `venueRisk`, `equivalenceRisk`, `firstDetectedAt`, `lastVerifiedAt`.
-  - [ ] human-review flags
+  - [x] human-review flags
+    - `OpportunityReadModel` includes `humanReviewFlag` ("pending" | "approved" | "rejected") and `humanReviewNotes`
+    - Filterable via `?humanReviewFlag=pending`
+    - Database migration added: `drizzle/0011_phase5_human_review.sql`
 
   Gate:
 
   - [x] API reads only from Postgres; API does not trigger scans, venues, or LLM.
   - [x] API integration tests pass
     - `test/integration/api-postgres.integration.test.ts` covers `/health`, `/v1/markets`, `/v1/opportunities`, `/v1/opportunities/:id`, `/v1/scan-runs/latest`, `/v1/opportunities/:id/paper-trades`, plus 400/404 error contracts.
+    - `test/integration/api-phase5-enhancements.test.ts` covers pagination, filtering, sorting, human-review flags, and response structure (22 tests)
   - [x] raw venue payloads are not public by default
-  - [ ] API responses expose analytics and human-review state only, not execution controls
+  - [x] API responses expose analytics and human-review state only, not execution controls
 
   ---
   Phase 6 — Test coverage, CI, release gates

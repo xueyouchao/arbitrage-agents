@@ -69,6 +69,8 @@ export interface OpportunityReadModel {
   lastVerifiedAt: string;
   calculationVersion: string;
   configVersion: string;
+  humanReviewFlag?: "pending" | "approved" | "rejected";
+  humanReviewNotes?: string;
 }
 
 export interface MarketReadModel {
@@ -133,13 +135,48 @@ export interface PaperTradeSimulationReadRepository {
   listPaperTradeSimulations(opportunityId: string): Promise<PaperTradeSimulationReadModel[]>;
 }
 
+export interface PaginationParams {
+  offset: number;
+  limit: number;
+}
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  pagination: {
+    offset: number;
+    limit: number;
+    total: number;
+    hasMore: boolean;
+  };
+}
+
+export interface OpportunityFilters {
+  equivalenceClass?: ApiEquivalenceClass;
+  minNetEdge?: number;
+  maxDataStalenessMs?: number;
+  resolutionRisk?: ApiRiskLevel;
+  fillRisk?: ApiRiskLevel;
+  humanReviewFlag?: "pending" | "approved" | "rejected";
+}
+
+export interface OpportunitySort {
+  field: "detectedAt" | "netEdge" | "opportunityAgeMs" | "equivalenceClass";
+  order: "asc" | "desc";
+}
+
 export interface OpportunityReadRepository {
-  listOpportunities(): Promise<OpportunityReadModel[]>;
+  listOpportunities(params?: {
+    pagination?: PaginationParams;
+    filters?: OpportunityFilters;
+    sort?: OpportunitySort;
+  }): Promise<PaginatedResponse<OpportunityReadModel>>;
   getOpportunity(id: string): Promise<OpportunityReadModel | undefined>;
 }
 
 export interface MarketReadRepository {
-  listMarkets(): Promise<MarketReadModel[]>;
+  listMarkets(params?: {
+    pagination?: PaginationParams;
+  }): Promise<PaginatedResponse<MarketReadModel>>;
 }
 
 export interface ScanRunReadRepository {
@@ -158,8 +195,12 @@ export class OpportunityReadService {
     private readonly opportunities: OpportunityReadRepository
   ) {}
 
-  listOpportunities(): Promise<OpportunityReadModel[]> {
-    return this.opportunities.listOpportunities();
+  listOpportunities(params?: {
+    pagination?: PaginationParams;
+    filters?: OpportunityFilters;
+    sort?: OpportunitySort;
+  }): Promise<PaginatedResponse<OpportunityReadModel>> {
+    return this.opportunities.listOpportunities(params);
   }
 
   getOpportunity(id: string): Promise<OpportunityReadModel | undefined> {
@@ -174,8 +215,10 @@ export class MarketReadService {
     private readonly markets: MarketReadRepository
   ) {}
 
-  listMarkets(): Promise<MarketReadModel[]> {
-    return this.markets.listMarkets();
+  listMarkets(params?: {
+    pagination?: PaginationParams;
+  }): Promise<PaginatedResponse<MarketReadModel>> {
+    return this.markets.listMarkets(params);
   }
 }
 
