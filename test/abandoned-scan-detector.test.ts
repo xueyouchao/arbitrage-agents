@@ -103,6 +103,73 @@ describe("AbandonedScanDetector", () => {
     const abandoned = await detector.markAbandoned();
     expect(new Set(abandoned.map((r) => r.id))).toEqual(new Set(["a", "b", "c"]));
   });
+
+  // Finding #6: a long-running scan must NOT be marked abandoned by the
+  // same worker that owns it. Without a per-worker lease, the next
+  // worker iteration flips a still-running scan to "abandoned" and the
+  // dashboard shows a phantom incident.
+  it("skips scans owned by the same worker (per-worker lease)", async () => {
+    const deps = buildDeps({ workerId: "worker-A" });
+    // A scan owned by the current worker — even though its heartbeat
+    // is older than the threshold, the detector must leave it alone.
+    deps.repository.saveScanRun({ ...scanRun("mine-1", "running"), workerId: "worker-A" });
+    // A scan owned by a different worker with a stale heartbeat — this
+    // one IS abandoned (a previous worker died).
+    deps.repository.saveScanRun({ ...scanRun("theirs-1", "running"), workerId: "worker-B" });
+    // A scan with no workerId (legacy or pre-migration) — treated as
+    // abandoned for backward compatibility.
+    deps.repository.saveScanRun(scanRun("legacy-1", "running"));
+
+    const detector = new AbandonedScanDetector(deps);
+    const abandoned = await detector.markAbandoned();
+    const abandonedIds = abandoned.map((r) => r.id).sort();
+    expect(abandonedIds).toEqual(["legacy-1", "theirs-1"]);
+  });
+
+  it("marks all scans abandoned when no workerId is configured (backward compat)", async () => {
+    const deps = buildDeps();
+    deps.repository.saveScanRun({ ...scanRun("owned-1", "running"), workerId: "some-worker" });
+    const detector = new AbandonedScanDetector(deps);
+    const abandoned = await detector.markAbandoned();
+    expect(abandoned.map((r) => r.id)).toEqual(["owned-1"]);
+  });
+
+  it("applies grace period for scans with NULL workerId to avoid marking newly created scans as abandoned", async () => {
+    const deps = buildDeps({
+      workerId: "worker-A",
+      // Current time is 12:00:00
+      now: () => new Date("2026-06-04T12:00:00.000Z")
+    });
+    
+    // Scan created 10 seconds ago with NULL workerId — within grace period (30s)
+    // Should NOT be marked abandoned even though heartbeat is old
+    deps.repository.saveScanRun({
+      ...scanRun("new-scan", "running"),
+      startedAt: "2026-06-04T11:59:50.000Z"
+    });
+    
+    // Scan created 5 minutes ago with NULL workerId — outside grace period
+    // Should be marked abandoned (legacy behavior)
+    deps.repository.saveScanRun({
+      ...scanRun("old-legacy-scan", "running"),
+      startedAt: "2026-06-04T11:55:00.000Z"
+    });
+    
+    // Scan with workerId set, owned by different worker, stale heartbeat
+    // Should be marked abandoned
+    deps.repository.saveScanRun({
+      ...scanRun("other-worker", "running"),
+      workerId: "worker-B",
+      startedAt: "2026-06-04T11:50:00.000Z"
+    });
+
+    const detector = new AbandonedScanDetector(deps);
+    const abandoned = await detector.markAbandoned();
+    const abandonedIds = abandoned.map((r) => r.id).sort();
+    
+    // new-scan is protected by grace period, other two are abandoned
+    expect(abandonedIds).toEqual(["old-legacy-scan", "other-worker"]);
+  });
 });
 
 vi.mock("crypto", async () => {

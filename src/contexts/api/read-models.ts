@@ -69,6 +69,8 @@ export interface OpportunityReadModel {
   lastVerifiedAt: string;
   calculationVersion: string;
   configVersion: string;
+  humanReviewFlag?: "pending" | "approved" | "rejected";
+  humanReviewNotes?: string;
 }
 
 export interface MarketReadModel {
@@ -105,13 +107,76 @@ export interface ScanRunReadModel {
   failureReason?: string;
 }
 
+export interface PaperTradeLegFillReadModel {
+  averagePrice: number;
+  contracts: number;
+  fees: number;
+  slippage: number;
+}
+
+export interface PaperTradeSimulationReadModel {
+  id: string;
+  opportunityId: string;
+  simulatedAt: string;
+  targetNotionalUsd: number;
+  longLegFill: PaperTradeLegFillReadModel;
+  hedgeLegFill: PaperTradeLegFillReadModel;
+  adverseSelectionBps: number;
+  partialFill: boolean;
+  residualExposureUsd: number;
+  combinedCost: number;
+  grossEdge: number;
+  netEdge: number;
+  configVersion: string;
+  calculationVersion: string;
+}
+
+export interface PaperTradeSimulationReadRepository {
+  listPaperTradeSimulations(opportunityId: string): Promise<PaperTradeSimulationReadModel[]>;
+}
+
+export interface PaginationParams {
+  offset: number;
+  limit: number;
+}
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  pagination: {
+    offset: number;
+    limit: number;
+    total: number;
+    hasMore: boolean;
+  };
+}
+
+export interface OpportunityFilters {
+  equivalenceClass?: ApiEquivalenceClass;
+  minNetEdge?: number;
+  maxDataStalenessMs?: number;
+  resolutionRisk?: ApiRiskLevel;
+  fillRisk?: ApiRiskLevel;
+  humanReviewFlag?: "pending" | "approved" | "rejected";
+}
+
+export interface OpportunitySort {
+  field: "detectedAt" | "netEdge" | "opportunityAgeMs" | "equivalenceClass";
+  order: "asc" | "desc";
+}
+
 export interface OpportunityReadRepository {
-  listOpportunities(): Promise<OpportunityReadModel[]>;
+  listOpportunities(params?: {
+    pagination?: PaginationParams;
+    filters?: OpportunityFilters;
+    sort?: OpportunitySort;
+  }): Promise<PaginatedResponse<OpportunityReadModel>>;
   getOpportunity(id: string): Promise<OpportunityReadModel | undefined>;
 }
 
 export interface MarketReadRepository {
-  listMarkets(): Promise<MarketReadModel[]>;
+  listMarkets(params?: {
+    pagination?: PaginationParams;
+  }): Promise<PaginatedResponse<MarketReadModel>>;
 }
 
 export interface ScanRunReadRepository {
@@ -121,6 +186,7 @@ export interface ScanRunReadRepository {
 export const OPPORTUNITY_READ_REPOSITORY = Symbol("OPPORTUNITY_READ_REPOSITORY");
 export const MARKET_READ_REPOSITORY = Symbol("MARKET_READ_REPOSITORY");
 export const SCAN_RUN_READ_REPOSITORY = Symbol("SCAN_RUN_READ_REPOSITORY");
+export const PAPER_TRADE_SIMULATION_READ_REPOSITORY = Symbol("PAPER_TRADE_SIMULATION_READ_REPOSITORY");
 
 @Injectable()
 export class OpportunityReadService {
@@ -129,8 +195,12 @@ export class OpportunityReadService {
     private readonly opportunities: OpportunityReadRepository
   ) {}
 
-  listOpportunities(): Promise<OpportunityReadModel[]> {
-    return this.opportunities.listOpportunities();
+  listOpportunities(params?: {
+    pagination?: PaginationParams;
+    filters?: OpportunityFilters;
+    sort?: OpportunitySort;
+  }): Promise<PaginatedResponse<OpportunityReadModel>> {
+    return this.opportunities.listOpportunities(params);
   }
 
   getOpportunity(id: string): Promise<OpportunityReadModel | undefined> {
@@ -145,8 +215,10 @@ export class MarketReadService {
     private readonly markets: MarketReadRepository
   ) {}
 
-  listMarkets(): Promise<MarketReadModel[]> {
-    return this.markets.listMarkets();
+  listMarkets(params?: {
+    pagination?: PaginationParams;
+  }): Promise<PaginatedResponse<MarketReadModel>> {
+    return this.markets.listMarkets(params);
   }
 }
 
@@ -159,5 +231,17 @@ export class ScanRunReadService {
 
   getLatestScanRun(): Promise<ScanRunReadModel> {
     return this.scanRuns.getLatestScanRun();
+  }
+}
+
+@Injectable()
+export class PaperTradeSimulationReadService {
+  constructor(
+    @Inject(PAPER_TRADE_SIMULATION_READ_REPOSITORY)
+    private readonly paperTradeSimulations: PaperTradeSimulationReadRepository
+  ) {}
+
+  listPaperTradeSimulations(opportunityId: string): Promise<PaperTradeSimulationReadModel[]> {
+    return this.paperTradeSimulations.listPaperTradeSimulations(opportunityId);
   }
 }

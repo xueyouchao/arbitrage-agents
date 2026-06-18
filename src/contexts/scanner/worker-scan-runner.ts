@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { randomUUID } from "crypto";
 import { ResumableScanner } from "./resumable-scanner";
 import { AbandonedScanDetector } from "./abandoned-scan-detector";
 
@@ -15,14 +16,25 @@ import { AbandonedScanDetector } from "./abandoned-scan-detector";
 // `failureReason`. The runner only throws when the underlying scanner
 // or step repository throws synchronously, which would indicate a
 // programming error or a misconfigured dependency graph.
+//
+// Finding #6: the runner generates a stable `workerId` at construction
+// time and threads it into both the ResumableScanner (which stamps it
+// on every scan result) and the AbandonedScanDetector (which uses it
+// to skip runs owned by THIS process). Without this per-worker lease,
+// a long-running scan is falsely marked abandoned by the next worker
+// iteration and the dashboard shows a phantom incident.
 @Injectable()
 export class WorkerScanRunner {
   private running = false;
+  private readonly workerId: string;
 
   constructor(
     private readonly resumableScanner: ResumableScanner,
-    private readonly abandonedDetector: AbandonedScanDetector
-  ) {}
+    private readonly abandonedDetector: AbandonedScanDetector,
+    workerId?: string
+  ) {
+    this.workerId = workerId ?? randomUUID();
+  }
 
   async runOnce(): Promise<void> {
     if (this.running) return;

@@ -5,15 +5,22 @@ import { AppConfig } from "../../config/app-config";
 import {
   MarketReadModel,
   MarketReadRepository,
+  OpportunityFilters,
   OpportunityReadModel,
   OpportunityReadRepository,
+  OpportunitySort,
+  PaginatedResponse,
+  PaginationParams,
+  PaperTradeLegFillReadModel,
+  PaperTradeSimulationReadModel,
+  PaperTradeSimulationReadRepository,
   ScanRunReadModel,
   ScanRunReadRepository
 } from "./read-models";
 
 @Injectable()
 export class PostgresReadRepositories
-  implements OpportunityReadRepository, MarketReadRepository, ScanRunReadRepository, OnModuleDestroy
+  implements OpportunityReadRepository, MarketReadRepository, ScanRunReadRepository, PaperTradeSimulationReadRepository, OnModuleDestroy
 {
   private readonly pool: Pool;
 
@@ -25,8 +32,70 @@ export class PostgresReadRepositories
     await this.pool.end();
   }
 
-  async listOpportunities(): Promise<OpportunityReadModel[]> {
-    const result = await this.pool.query<OpportunityRow>(`
+  async listOpportunities(params?: {
+    pagination?: PaginationParams;
+    filters?: OpportunityFilters;
+    sort?: OpportunitySort;
+  }): Promise<PaginatedResponse<OpportunityReadModel>> {
+    const pagination = params?.pagination ?? { offset: 0, limit: 20 };
+    const filters = params?.filters ?? {};
+    const sort = params?.sort ?? { field: "detectedAt", order: "desc" };
+
+    const whereClauses: string[] = [];
+    const queryParams: any[] = [];
+    let paramIndex = 1;
+
+    if (filters.equivalenceClass) {
+      whereClauses.push(`equivalence_class = $${paramIndex}`);
+      queryParams.push(filters.equivalenceClass);
+      paramIndex++;
+    }
+    if (filters.minNetEdge !== undefined) {
+      whereClauses.push(`net_edge >= $${paramIndex}`);
+      queryParams.push(filters.minNetEdge);
+      paramIndex++;
+    }
+    if (filters.maxDataStalenessMs !== undefined) {
+      whereClauses.push(`data_staleness_ms <= $${paramIndex}`);
+      queryParams.push(filters.maxDataStalenessMs);
+      paramIndex++;
+    }
+    if (filters.resolutionRisk) {
+      whereClauses.push(`resolution_risk = $${paramIndex}`);
+      queryParams.push(filters.resolutionRisk);
+      paramIndex++;
+    }
+    if (filters.fillRisk) {
+      whereClauses.push(`fill_risk = $${paramIndex}`);
+      queryParams.push(filters.fillRisk);
+      paramIndex++;
+    }
+    if (filters.humanReviewFlag) {
+      whereClauses.push(`human_review_flag = $${paramIndex}`);
+      queryParams.push(filters.humanReviewFlag);
+      paramIndex++;
+    }
+
+    const whereClause = whereClauses.length > 0 ? `where ${whereClauses.join(" and ")}` : "";
+
+    const sortFieldMap: Record<string, string> = {
+      detectedAt: "detected_at",
+      netEdge: "net_edge",
+      opportunityAgeMs: "opportunity_age_ms",
+      equivalenceClass: "equivalence_class"
+    };
+    const dbSortField = sortFieldMap[sort.field] || "detected_at";
+    const sortOrder = sort.order === "asc" ? "asc" : "desc";
+
+    const countQuery = `
+      select count(*) as total
+      from opportunities
+      ${whereClause}
+    `;
+    const countResult = await this.pool.query<{ total: string }>(countQuery, queryParams);
+    const total = parseInt(countResult.rows[0].total, 10);
+
+    const dataQuery = `
       select id,
              candidate_pair_id,
              kalshi_orderbook_snapshot_id,
@@ -56,15 +125,32 @@ export class PostgresReadRepositories
              data_staleness_ms,
              opportunity_age_ms,
              detected_at,
+             first_detected_at,
              last_verified_at,
              calculation_version,
-             config_version
+             config_version,
+             human_review_flag,
+             human_review_notes
       from opportunities
-      order by detected_at desc
-      limit 100
-    `);
+      ${whereClause}
+      order by ${dbSortField} ${sortOrder}
+      limit $${paramIndex} offset $${paramIndex + 1}
+    `;
+    const dataParams = [...queryParams, pagination.limit, pagination.offset];
+    const result = await this.pool.query<OpportunityRow>(dataQuery, dataParams);
 
-    return result.rows.map(toOpportunity);
+    const data = result.rows.map(toOpportunity);
+    const hasMore = pagination.offset + data.length < total;
+
+    return {
+      data,
+      pagination: {
+        offset: pagination.offset,
+        limit: pagination.limit,
+        total,
+        hasMore
+      }
+    };
   }
 
   async getOpportunity(id: string): Promise<OpportunityReadModel | undefined> {
@@ -98,9 +184,12 @@ export class PostgresReadRepositories
              data_staleness_ms,
              opportunity_age_ms,
              detected_at,
+             first_detected_at,
              last_verified_at,
              calculation_version,
-             config_version
+             config_version,
+             human_review_flag,
+             human_review_notes
       from opportunities
       where id = $1
       limit 1
@@ -109,7 +198,16 @@ export class PostgresReadRepositories
     return result.rows[0] ? toOpportunity(result.rows[0]) : undefined;
   }
 
-  async listMarkets(): Promise<MarketReadModel[]> {
+  async listMarkets(params?: {
+    pagination?: PaginationParams;
+  }): Promise<PaginatedResponse<MarketReadModel>> {
+    const pagination = params?.pagination ?? { offset: 0, limit: 50 };
+
+    const countResult = await this.pool.query<{ total: string }>(
+      `select count(*) as total from normalized_markets`
+    );
+    const total = parseInt(countResult.rows[0].total, 10);
+
     const result = await this.pool.query<MarketRow>(`
       select id,
              venue,
@@ -129,10 +227,46 @@ export class PostgresReadRepositories
              confidence
       from normalized_markets
       order by created_at desc
-      limit 500
-    `);
+      limit $1 offset $2
+    `, [pagination.limit, pagination.offset]);
 
-    return result.rows.map(toMarket);
+    const data = result.rows.map(toMarket);
+    const hasMore = pagination.offset + data.length < total;
+
+    return {
+      data,
+      pagination: {
+        offset: pagination.offset,
+        limit: pagination.limit,
+        total,
+        hasMore
+      }
+    };
+  }
+
+  async listPaperTradeSimulations(opportunityId: string): Promise<PaperTradeSimulationReadModel[]> {
+    const result = await this.pool.query<PaperTradeSimulationRow>(`
+      select id,
+             opportunity_id,
+             simulated_at,
+             target_notional_usd,
+             long_leg,
+             hedge_leg,
+             adverse_selection_bps,
+             partial_fill,
+             residual_exposure_usd,
+             combined_cost,
+             gross_edge,
+             net_edge,
+             config_version,
+             calculation_version
+      from paper_trade_simulations
+      where opportunity_id = $1
+      order by simulated_at desc, target_notional_usd asc
+      limit 100
+    `, [opportunityId]);
+
+    return result.rows.map(toPaperTradeSimulation);
   }
 
   async getLatestScanRun(): Promise<ScanRunReadModel> {
@@ -206,6 +340,8 @@ interface OpportunityRow {
   last_verified_at: Date | string;
   calculation_version: string;
   config_version: string;
+  human_review_flag: "pending" | "approved" | "rejected" | null;
+  human_review_notes: string | null;
 }
 
 interface MarketRow {
@@ -225,6 +361,23 @@ interface MarketRow {
   payoff_type: MarketReadModel["payoffType"];
   ambiguity_flags: string[];
   confidence: string;
+}
+
+interface PaperTradeSimulationRow {
+  id: string;
+  opportunity_id: string;
+  simulated_at: Date | string;
+  target_notional_usd: string;
+  long_leg: PaperTradeLegFillReadModel;
+  hedge_leg: PaperTradeLegFillReadModel;
+  adverse_selection_bps: string;
+  partial_fill: boolean;
+  residual_exposure_usd: string;
+  combined_cost: string;
+  gross_edge: string;
+  net_edge: string;
+  config_version: string;
+  calculation_version: string;
 }
 
 interface ScanRunRow {
@@ -269,7 +422,9 @@ function toOpportunity(row: OpportunityRow): OpportunityReadModel {
     firstDetectedAt: toIso(row.first_detected_at ?? row.detected_at),
     lastVerifiedAt: toIso(row.last_verified_at),
     calculationVersion: row.calculation_version,
-    configVersion: row.config_version
+    configVersion: row.config_version,
+    humanReviewFlag: row.human_review_flag ?? undefined,
+    humanReviewNotes: row.human_review_notes ?? undefined
   };
 }
 
@@ -291,6 +446,25 @@ function toMarket(row: MarketRow): MarketReadModel {
     payoffType: row.payoff_type,
     ambiguityFlags: row.ambiguity_flags,
     confidence: Number(row.confidence)
+  };
+}
+
+function toPaperTradeSimulation(row: PaperTradeSimulationRow): PaperTradeSimulationReadModel {
+  return {
+    id: row.id,
+    opportunityId: row.opportunity_id,
+    simulatedAt: toIso(row.simulated_at),
+    targetNotionalUsd: Number(row.target_notional_usd),
+    longLegFill: row.long_leg,
+    hedgeLegFill: row.hedge_leg,
+    adverseSelectionBps: Number(row.adverse_selection_bps),
+    partialFill: row.partial_fill,
+    residualExposureUsd: Number(row.residual_exposure_usd),
+    combinedCost: Number(row.combined_cost),
+    grossEdge: Number(row.gross_edge),
+    netEdge: Number(row.net_edge),
+    configVersion: row.config_version,
+    calculationVersion: row.calculation_version
   };
 }
 
@@ -328,7 +502,8 @@ function parseNotionalEdges(value: OpportunityRow["notional_edges"]): unknown {
   }
 }
 
-function toIso(value: Date | string): string {
+function toIso(value: Date | string | null | undefined): string {
+  if (!value) return new Date(0).toISOString();
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 

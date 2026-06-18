@@ -64,6 +64,27 @@
       "when": 1781326057236,
       "tag": "0008_fix_scan_steps_attempt_uniqueness",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1781641216328,
+      "tag": "0009_amazing_domino",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1781900000000,
+      "tag": "0010_phase4_worker_lease",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1781950000000,
+      "tag": "0011_phase5_human_review",
+      "breakpoints": true
     }
   ]
 }

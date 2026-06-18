@@ -26,4 +26,10 @@ export interface ScanResult {
   metrics: ScanMetrics;
   failureCategory?: ScanFailureCategory;
   failureReason?: string;
+  // Phase 4 Finding #6: per-worker lease. The worker stamps its own
+  // `workerId` on every scan it creates so the abandoned-scan detector
+  // can skip runs owned by the active worker process. Without this,
+  // a long-running scan (>abandonedAfterMs) is falsely flagged as
+  // abandoned by the next worker iteration.
+  workerId?: string;
 }
