@@ -23,7 +23,7 @@ export class OpportunitiesController {
     const parsedLimit = Number(limit);
     
     const pagination = {
-      offset: Number.isFinite(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0,
+      offset: Number.isFinite(parsedOffset) && parsedOffset >= 0 ? Math.floor(parsedOffset) : 0,
       limit: Number.isFinite(parsedLimit) && parsedLimit >= 1 ? Math.min(100, Math.floor(parsedLimit)) : 20
     };
 

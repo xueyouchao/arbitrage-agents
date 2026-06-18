@@ -117,6 +117,16 @@ describe("Phase 5 API Enhancements", () => {
       expect(response.body.pagination.limit).toBe(20);
     });
 
+    it("floors fractional offset values to integers", async () => {
+      const response = await request(app.getHttpServer())
+        .get("/v1/opportunities")
+        .query({ offset: 1.5, limit: 5.9 })
+        .expect(200);
+
+      expect(response.body.pagination.offset).toBe(1);
+      expect(response.body.pagination.limit).toBe(5);
+    });
+
     it("indicates hasMore correctly", async () => {
       const response = await request(app.getHttpServer())
         .get("/v1/opportunities")
