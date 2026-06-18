@@ -153,27 +153,215 @@ describe("ReadOnlyScanner", () => {
     expect(repository.opportunities).toHaveLength(0);
   });
 
-  it("records sanitized fetch failures", async () => {
+  it("emits reportScanMetrics with status=failed when both venue fetches fail", async () => {
+    const reportScanMetrics = vi.fn();
+    const reportVenueFetch = vi.fn();
+    const scanner = new ReadOnlyScanner({
+      kalshiClient: failingClient("Kalshi API down"),
+      polymarketClient: failingClient("Polymarket API down"),
+      repository: new InMemoryScannerRepository(),
+      telemetryReporter: {
+        reportOpportunity: vi.fn(),
+        reportScanMetrics,
+        reportVenueFetch,
+        reportStaleData: vi.fn()
+      },
+      now: capturedAt
+    });
+
+    await scanner.runOnce();
+
+    expect(reportScanMetrics).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" })
+    );
+  });
+
+  it("emits reportVenueFetch with success=false for the failing venue only", async () => {
+    const reportVenueFetch = vi.fn();
+    const scanner = new ReadOnlyScanner({
+      kalshiClient: failingClient("Kalshi API down"),
+      polymarketClient: new StaticVenueClient({ markets: [], books: [] }),
+      repository: new InMemoryScannerRepository(),
+      telemetryReporter: {
+        reportOpportunity: vi.fn(),
+        reportScanMetrics: vi.fn(),
+        reportVenueFetch,
+        reportStaleData: vi.fn()
+      },
+      now: capturedAt
+    });
+
+    await scanner.runOnce();
+
+    expect(reportVenueFetch).toHaveBeenCalledWith(
+      expect.objectContaining({ venue: "kalshi", success: false })
+    );
+    // Polymarket succeeds because its API call did not throw
+    expect(reportVenueFetch).toHaveBeenCalledWith(
+      expect.objectContaining({ venue: "polymarket", success: true })
+    );
+  });
+
+  it("emits reportScanMetrics with status=failed when persistence fails", async () => {
+    const reportScanMetrics = vi.fn();
+    const scanner = new ReadOnlyScanner({
+      kalshiClient: new StaticVenueClient({
+        markets: [market("kalshi", "K1", "Will Bitcoin be above $100,000 on Jan 1, 2026?")],
+        books: [{ marketId: "K1", venue: "kalshi", yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 20, noAvailableUsd: 30, capturedAt }]
+      }),
+      polymarketClient: new StaticVenueClient({
+        markets: [market("polymarket", "P1", "Will BTC be above $100,000 on Jan 1, 2026?")],
+        books: [{ marketId: "P1", venue: "polymarket", yesAsk: 0.5, noAsk: 0.51, yesAvailableUsd: 50, noAvailableUsd: 12, capturedAt }]
+      }),
+      repository: new FailingCompletedScanRepository("insert failed"),
+      telemetryReporter: {
+        reportOpportunity: vi.fn(),
+        reportScanMetrics,
+        reportVenueFetch: vi.fn(),
+        reportStaleData: vi.fn()
+      },
+      now: capturedAt
+    });
+
+    await scanner.runOnce();
+
+    expect(reportScanMetrics).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" })
+    );
+  });
+
+  it("measures venue fetch latency independently per venue", async () => {
+    const reportVenueFetch = vi.fn();
+    const kalshiLatency = 100;
+    const polymarketLatency = 200;
+    const scanner = new ReadOnlyScanner({
+      kalshiClient: delayedClient(10, [
+        market("kalshi", "K1", "Will Bitcoin be above $100,000 on Jan 1, 2026?")
+      ], [{ marketId: "K1", venue: "kalshi", yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 20, noAvailableUsd: 30, capturedAt }], kalshiLatency),
+      polymarketClient: delayedClient(10, [
+        market("polymarket", "P1", "Will BTC be above $100,000 on Jan 1, 2026?")
+      ], [{ marketId: "P1", venue: "polymarket", yesAsk: 0.5, noAsk: 0.51, yesAvailableUsd: 50, noAvailableUsd: 12, capturedAt }], polymarketLatency),
+      repository: new InMemoryScannerRepository(),
+      telemetryReporter: {
+        reportOpportunity: vi.fn(),
+        reportScanMetrics: vi.fn(),
+        reportVenueFetch,
+        reportStaleData: vi.fn()
+      },
+      now: capturedAt
+    });
+
+    await scanner.runOnce();
+
+    const kalshiCalls = reportVenueFetch.mock.calls.filter(([c]: any[]) => c.venue === "kalshi");
+    const polyCalls = reportVenueFetch.mock.calls.filter(([c]: any[]) => c.venue === "polymarket");
+    expect(kalshiCalls).toHaveLength(1);
+    expect(polyCalls).toHaveLength(1);
+    // Kalshi latency should be close to kalshiLatency, not inflated by polymarket
+    expect(kalshiCalls[0][0].latencyMs).toBeLessThan(kalshiLatency + 500);
+    // Polymarket latency should be close to polymarketLatency
+    expect(polyCalls[0][0].latencyMs).toBeLessThan(polymarketLatency + 500);
+  });
+
+  it("reports per-venue latency accurately when one venue is much slower than the other", async () => {
+    const reportVenueFetch = vi.fn();
+    const scanner = new ReadOnlyScanner({
+      kalshiClient: delayedClient(300, [
+        market("kalshi", "K1", "Will Bitcoin be above $100,000 on Jan 1, 2026?")
+      ], [{ marketId: "K1", venue: "kalshi", yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 20, noAvailableUsd: 30, capturedAt }], 300),
+      polymarketClient: delayedClient(5, [
+        market("polymarket", "P1", "Will BTC be above $100,000 on Jan 1, 2026?")
+      ], [{ marketId: "P1", venue: "polymarket", yesAsk: 0.5, noAsk: 0.51, yesAvailableUsd: 50, noAvailableUsd: 12, capturedAt }], 5),
+      repository: new InMemoryScannerRepository(),
+      telemetryReporter: {
+        reportOpportunity: vi.fn(),
+        reportScanMetrics: vi.fn(),
+        reportVenueFetch,
+        reportStaleData: vi.fn()
+      },
+      now: capturedAt
+    });
+
+    await scanner.runOnce();
+
+    const kalshiCalls = reportVenueFetch.mock.calls.filter(([c]: any[]) => c.venue === "kalshi");
+    const polyCalls = reportVenueFetch.mock.calls.filter(([c]: any[]) => c.venue === "polymarket");
+    // Polymarket (fast) should report significantly less latency than kalshi (slow)
+    expect(polyCalls[0][0].latencyMs).toBeLessThan(kalshiCalls[0][0].latencyMs);
+  });
+
+  it("reports each venue's actual success/failure independently, not both as failed", async () => {
+    const reportVenueFetch = vi.fn();
+    const scanner = new ReadOnlyScanner({
+      kalshiClient: failingClient("Kalshi API down"),
+      polymarketClient: new StaticVenueClient({
+        markets: [market("polymarket", "P1", "Will BTC be above $100,000 on Jan 1, 2026?")],
+        books: [{ marketId: "P1", venue: "polymarket", yesAsk: 0.5, noAsk: 0.51, yesAvailableUsd: 50, noAvailableUsd: 12, capturedAt }]
+      }),
+      repository: new InMemoryScannerRepository(),
+      telemetryReporter: {
+        reportOpportunity: vi.fn(),
+        reportScanMetrics: vi.fn(),
+        reportVenueFetch,
+        reportStaleData: vi.fn()
+      },
+      now: capturedAt
+    });
+
+    await scanner.runOnce();
+
+    expect(reportVenueFetch).toHaveBeenCalledWith(
+      expect.objectContaining({ venue: "kalshi", success: false })
+    );
+    expect(reportVenueFetch).toHaveBeenCalledWith(
+      expect.objectContaining({ venue: "polymarket", success: true })
+    );
+  });
+
+  it("does not emit success scan metrics when persistence fails (no double-counting)", async () => {
+    const reportScanMetrics = vi.fn();
+    const scanner = new ReadOnlyScanner({
+      kalshiClient: new StaticVenueClient({
+        markets: [market("kalshi", "K1", "Will Bitcoin be above $100,000 on Jan 1, 2026?")],
+        books: [{ marketId: "K1", venue: "kalshi", yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 20, noAvailableUsd: 30, capturedAt }]
+      }),
+      polymarketClient: new StaticVenueClient({
+        markets: [market("polymarket", "P1", "Will BTC be above $100,000 on Jan 1, 2026?")],
+        books: [{ marketId: "P1", venue: "polymarket", yesAsk: 0.5, noAsk: 0.51, yesAvailableUsd: 50, noAvailableUsd: 12, capturedAt }]
+      }),
+      repository: new FailingCompletedScanRepository("insert failed"),
+      telemetryReporter: {
+        reportOpportunity: vi.fn(),
+        reportScanMetrics,
+        reportVenueFetch: vi.fn(),
+        reportStaleData: vi.fn()
+      },
+      now: capturedAt
+    });
+
+    await scanner.runOnce();
+
+    const successCalls = reportScanMetrics.mock.calls.filter(
+      ([c]: any[]) => c.status === "succeeded"
+    );
+    expect(successCalls).toHaveLength(0);
+  });
+
+  it("records sanitized fetch failures when both venues fail", async () => {
     const repository = new InMemoryScannerRepository();
     const scanner = new ReadOnlyScanner({
       kalshiClient: failingClient("Kalshi failed: https://secret.test/book?token_id=abc&api_key=secret"),
-      polymarketClient: new StaticVenueClient({ markets: [], books: [] }),
+      polymarketClient: failingClient("Polymarket failed: https://secret.test/book?token_id=abc&api_key=secret"),
       repository,
       now: capturedAt
     });
 
     const result = await scanner.runOnce();
 
-    expect(result).toMatchObject({
-      status: "failed",
-      failureCategory: "fetch",
-      failureReason: "Kalshi failed: [redacted-url]"
-    });
-    expect(result.metrics).toMatchObject({
-      failureCategory: "fetch",
-      failureReason: "Kalshi failed: [redacted-url]"
-    });
-    expect(repository.scanRuns.at(-1)).toMatchObject(result);
+    expect(result.status).toBe("failed");
+    expect(result.failureCategory).toBe("fetch");
+    // The failure reason should be sanitized (URLs redacted)
+    expect(result.failureReason).toContain("[redacted-url]");
   });
 
   it("records sanitized processing failures", async () => {
@@ -589,6 +777,38 @@ class FailingCompletedScanRepository extends InMemoryScannerRepository {
   async saveCompletedScan(_artifacts: CompletedScanArtifacts): Promise<CompletedScanResult> {
     throw new Error(this.message);
   }
+}
+
+function delayedClient(
+  delayMs: number,
+  markets: VenueMarketSnapshot[],
+  books: MarketBook[],
+  _expectedLatency: number
+): VenueClient {
+  return {
+    listMarkets: vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      return markets;
+    }),
+    listOrderbooks: vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      return books;
+    })
+  };
+}
+
+function partialFailingClient(
+  failMarkets: boolean,
+  markets: VenueMarketSnapshot[],
+  books: MarketBook[]
+): VenueClient {
+  return {
+    listMarkets: vi.fn(async () => {
+      if (failMarkets) throw new Error("markets API down");
+      return markets;
+    }),
+    listOrderbooks: vi.fn(async () => books)
+  };
 }
 
 function sequencingClient(

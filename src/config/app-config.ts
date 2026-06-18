@@ -19,6 +19,10 @@ const AppConfigSchema = z.object({
   logLevel: z.enum(["debug", "info", "warn", "error"]).default("info"),
   sentryDsn: z.string().url().optional(),
   sentrySendDefaultPii: booleanFromString.default(false),
+  // Sentry trace sampling rate. 0 = no traces (free tier safe),
+  // 1 = every span is sent. Keep low unless you have a paid plan
+  // — at 25 evals/scan × 288 scans/day, rate=1 produces ~216K spans/month.
+  sentryTracesSampleRate: z.coerce.number().min(0).max(1).default(0),
   llmPromptSampleRate: z.coerce.number().min(0).max(1).default(0),
   llmEnabled: booleanFromString.default(false),
   llmProvider: z.enum(["ollama"]).default("ollama"),
@@ -49,6 +53,7 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     logLevel: env.LOG_LEVEL,
     sentryDsn: emptyToUndefined(env.SENTRY_DSN),
     sentrySendDefaultPii: env.SENTRY_SEND_DEFAULT_PII,
+    sentryTracesSampleRate: env.SENTRY_TRACES_SAMPLE_RATE,
     llmPromptSampleRate: env.LLM_PROMPT_SAMPLE_RATE,
     llmEnabled: env.LLM_ENABLED,
     llmProvider: env.LLM_PROVIDER,

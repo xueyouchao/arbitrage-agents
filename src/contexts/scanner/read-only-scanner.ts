@@ -18,6 +18,7 @@ import {
   ScannerRepository
 } from "./scanner-repository";
 import { ScanFailureCategory, ScanMetrics, ScanResult } from "./scanner-result";
+import { ScanTelemetryReporter } from "./sentry-scan-telemetry-reporter";
 
 export interface ReadOnlyScannerDependencies {
   kalshiClient: VenueClient;
@@ -32,6 +33,10 @@ export interface ReadOnlyScannerDependencies {
   // is wrapped in try/catch so a single malformed opportunity can never
   // fail the scan.
   paperTradeSimulator?: PaperTradeSimulator;
+  // Optional telemetry reporter for Sentry scan metrics, venue
+  // health, opportunity alerts, and staleness warnings. When absent,
+  // no telemetry is emitted and the scanner behaves unchanged.
+  telemetryReporter?: ScanTelemetryReporter;
   now?: string;
   clock?: () => string;
 }
@@ -71,14 +76,14 @@ export class ReadOnlyScanner {
 
   constructor(private readonly dependencies: ReadOnlyScannerDependencies) {}
 
-  async runOnce(): Promise<ScanResult> {
+  async runOnce(scanRunId?: string): Promise<ScanResult> {
     const now = this.dependencies.clock ?? (() => this.dependencies.now ?? new Date().toISOString());
     const startedAt = now();
     let kalshiMarkets;
     let polymarketMarkets;
     let kalshiBooks;
     let polymarketBooks;
-    const scanId = randomUUID();
+    const scanId = scanRunId ?? randomUUID();
     try {
       await this.dependencies.repository.saveScanRun({
         id: scanId,
@@ -90,21 +95,126 @@ export class ReadOnlyScanner {
       return failedScanResult(scanId, startedAt, now(), emptyMetrics(), "persistence", _error);
     }
 
+    let kalshiFetchLatencyMs = 0;
+    let polymarketFetchLatencyMs = 0;
+    let kalshiMarketCount = 0;
+    let polymarketMarketCount = 0;
+    let kalshiFetchSucceeded = false;
+    let polymarketFetchSucceeded = false;
+
+    // Fetch markets from both venues in parallel using allSettled so
+    // one venue failure does not mask the other's success. Each venue's
+    // promise is wrapped with .finally() to capture per-venue end times
+    // regardless of success or failure (fixes misleading 0ms latency).
+    // End timestamps default to start so unupdated values contribute 0ms.
+    const kalshiMarketsStart = Date.now();
+    const polymarketMarketsStart = Date.now();
+    let kalshiMarketsEnd = kalshiMarketsStart;
+    let polymarketMarketsEnd = polymarketMarketsStart;
+    const [kalshiMarketsResult, polymarketMarketsResult] = await Promise.allSettled([
+      this.dependencies.kalshiClient.listMarkets().finally(() => { kalshiMarketsEnd = Date.now(); }),
+      this.dependencies.polymarketClient.listMarkets().finally(() => { polymarketMarketsEnd = Date.now(); })
+    ]);
+
+    if (kalshiMarketsResult.status === "fulfilled") {
+      kalshiMarkets = kalshiMarketsResult.value;
+      kalshiMarketCount = kalshiMarkets.length;
+      kalshiFetchSucceeded = true;
+    }
+    if (polymarketMarketsResult.status === "fulfilled") {
+      polymarketMarkets = polymarketMarketsResult.value;
+      polymarketMarketCount = polymarketMarkets.length;
+      polymarketFetchSucceeded = true;
+    }
+
+    // Fetch orderbooks for each venue independently. A venue that failed
+    // listMarkets() gets an empty orderbook list (no fetch attempted).
+    // End timestamps default to start so skipped fetches contribute 0ms.
+    const kalshiBooksStart = Date.now();
+    const polymarketBooksStart = Date.now();
+    let kalshiBooksEnd = kalshiBooksStart;
+    let polymarketBooksEnd = polymarketBooksStart;
+    const [kalshiBooksResult, polymarketBooksResult] = await Promise.allSettled([
+      kalshiMarkets
+        ? this.dependencies.kalshiClient.listOrderbooks(kalshiMarkets).finally(() => { kalshiBooksEnd = Date.now(); })
+        : Promise.resolve([]),
+      polymarketMarkets
+        ? this.dependencies.polymarketClient.listOrderbooks(polymarketMarkets).finally(() => { polymarketBooksEnd = Date.now(); })
+        : Promise.resolve([])
+    ]);
+
+    if (kalshiBooksResult.status === "fulfilled") {
+      kalshiBooks = kalshiBooksResult.value;
+    } else {
+      kalshiFetchSucceeded = false;
+    }
+    if (polymarketBooksResult.status === "fulfilled") {
+      polymarketBooks = polymarketBooksResult.value;
+    } else {
+      polymarketFetchSucceeded = false;
+    }
+
+    kalshiFetchLatencyMs = (kalshiMarketsEnd - kalshiMarketsStart) + (kalshiBooksEnd - kalshiBooksStart);
+    polymarketFetchLatencyMs = (polymarketMarketsEnd - polymarketMarketsStart) + (polymarketBooksEnd - polymarketBooksStart);
+
+    // Ensure defaults so downstream spread operations don't throw.
+    kalshiMarkets = kalshiMarkets ?? [];
+    polymarketMarkets = polymarketMarkets ?? [];
+    kalshiBooks = kalshiBooks ?? [];
+    polymarketBooks = polymarketBooks ?? [];
+
+    // Report per-venue fetch telemetry based on each venue's actual result.
     try {
-      [kalshiMarkets, polymarketMarkets] = await Promise.all([
-        this.dependencies.kalshiClient.listMarkets(),
-        this.dependencies.polymarketClient.listMarkets()
-      ]);
-      [kalshiBooks, polymarketBooks] = await Promise.all([
-        this.dependencies.kalshiClient.listOrderbooks(kalshiMarkets),
-        this.dependencies.polymarketClient.listOrderbooks(polymarketMarkets)
-      ]);
-    } catch (_error) {
-      const failed = failedScanResult(scanId, startedAt, now(), emptyMetrics(), "fetch", _error);
+      this.dependencies.telemetryReporter?.reportVenueFetch({
+        venue: "kalshi", latencyMs: kalshiFetchLatencyMs, success: kalshiFetchSucceeded, marketCount: kalshiMarketCount
+      });
+      this.dependencies.telemetryReporter?.reportVenueFetch({
+        venue: "polymarket", latencyMs: polymarketFetchLatencyMs, success: polymarketFetchSucceeded, marketCount: polymarketMarketCount
+      });
+    } catch { /* telemetry isolation */ }
+
+    // Fail the scan when no venue produced usable data. This covers
+    // both venues failing outright, or one failing while the other
+    // succeeded but returned zero markets/books.
+    const noKalshiData = !kalshiFetchSucceeded || kalshiMarketCount === 0;
+    const noPolymarketData = !polymarketFetchSucceeded || polymarketMarketCount === 0;
+    const noUsableData = noKalshiData && noPolymarketData;
+    if (noUsableData) {
+      // Aggregate errors from both venues when both fail, so operators
+      // see all failure context rather than an arbitrary preference order.
+      // Inspect all 4 results (markets + orderbooks) to capture orderbook
+      // failures too.
+      const errors: string[] = [];
+      const extractError = (result: PromiseSettledResult<unknown>, venue: string, phase: string): void => {
+        if (result.status === "rejected") {
+          const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+          errors.push(`${venue} ${phase}: ${reason}`);
+        }
+      };
+      extractError(kalshiMarketsResult, "kalshi", "markets");
+      extractError(kalshiBooksResult, "kalshi", "orderbooks");
+      extractError(polymarketMarketsResult, "polymarket", "markets");
+      extractError(polymarketBooksResult, "polymarket", "orderbooks");
+      const combinedError = errors.length > 0
+        ? new Error(`All venues failed: ${errors.join("; ")}`)
+        : new Error("No venue produced usable market data");
+      const failed = failedScanResult(scanId, startedAt, now(), emptyMetrics(), "fetch", combinedError);
       await saveFailedScanRun(this.dependencies.repository, failed);
+      try {
+        this.dependencies.telemetryReporter?.reportScanMetrics({
+          status: "failed",
+          marketsScanned: 0,
+          normalizedMarkets: 0,
+          candidatePairs: 0,
+          opportunitiesFound: 0,
+          llmEvaluations: 0,
+          durationMs: new Date(now()).getTime() - new Date(startedAt).getTime()
+        });
+      } catch { /* telemetry isolation */ }
       return failed;
     }
 
+    // At this point at least one venue returned markets and orderbooks.
     const calculationAt = now();
     const snapshots = [...kalshiMarkets, ...polymarketMarkets];
     const fetchMetrics: ScanMetrics = { ...emptyMetrics(), marketsScanned: snapshots.length };
@@ -144,9 +254,37 @@ export class ReadOnlyScanner {
             polymarketOrderbookSnapshotId: polymarketSnapshot.id
           }));
       });
+      // Report stale data telemetry. The orderbook snapshots carry a
+      // `stale` flag set by the venue client when data is older than
+      // expected.
+      try {
+        const staleSnapshots = orderbookSnapshots.filter((s) => s.stale);
+        if (staleSnapshots.length > 0) {
+          const maxStaleMs = staleSnapshots.reduce((max, s) => {
+            const age = new Date(calculationAt).getTime() - new Date(s.capturedAt).getTime();
+            return Math.max(max, age);
+          }, 0);
+          this.dependencies.telemetryReporter?.reportStaleData({
+            staleCount: staleSnapshots.length,
+            totalMarkets: orderbookSnapshots.length,
+            maxStalenessMs: maxStaleMs
+          });
+        }
+      } catch { /* telemetry isolation */ }
     } catch (_error) {
       const failed = failedScanResult(scanId, startedAt, now(), fetchMetrics, "processing", _error);
       await saveFailedScanRun(this.dependencies.repository, failed);
+      try {
+        this.dependencies.telemetryReporter?.reportScanMetrics({
+          status: "failed",
+          marketsScanned: fetchMetrics.marketsScanned,
+          normalizedMarkets: 0,
+          candidatePairs: 0,
+          opportunitiesFound: 0,
+          llmEvaluations: 0,
+          durationMs: new Date(now()).getTime() - new Date(startedAt).getTime()
+        });
+      } catch { /* telemetry isolation */ }
       return failed;
     }
 
@@ -163,8 +301,25 @@ export class ReadOnlyScanner {
       }
     };
 
+    // Report opportunity telemetry before persistence (informational,
+    // not tied to persistence outcome). Each call is isolated so one
+    // failure does not suppress subsequent opportunities.
+    for (const { opportunity } of opportunities) {
+      try {
+        this.dependencies.telemetryReporter?.reportOpportunity({
+          equivalenceClass: opportunity.equivalenceClass,
+          netEdge: opportunity.netEdge,
+          grossEdge: opportunity.grossEdge,
+          executableSizeUsd: opportunity.executableSizeUsd,
+          fillRisk: opportunity.fillRisk,
+          liquidityRisk: opportunity.liquidityRisk,
+          dataStalenessMs: opportunity.dataStalenessMs
+        });
+      } catch { /* telemetry isolation */ }
+    }
+
     try {
-      return await this.dependencies.repository.saveCompletedScan({
+      const completedResult = await this.dependencies.repository.saveCompletedScan({
         scanRun: result,
         completeScanRun: (scanRun) => ({ ...scanRun, completedAt: now() }),
         snapshots,
@@ -174,9 +329,34 @@ export class ReadOnlyScanner {
         opportunities,
         paperTradeSimulations: this.simulateOpportunities(opportunities)
       });
+      // Only emit success scan metrics AFTER persistence succeeds, so
+      // the same scan is never counted as both succeeded and failed.
+      try {
+        this.dependencies.telemetryReporter?.reportScanMetrics({
+          status: result.status,
+          marketsScanned: result.metrics.marketsScanned,
+          normalizedMarkets: result.metrics.normalizedMarkets,
+          candidatePairs: result.metrics.candidatePairs,
+          opportunitiesFound: result.metrics.opportunitiesFound,
+          llmEvaluations: result.metrics.llmEvaluations,
+          durationMs: new Date(now()).getTime() - new Date(startedAt).getTime()
+        });
+      } catch { /* telemetry isolation */ }
+      return completedResult;
     } catch (_error) {
       const failed = failedScanResult(scanId, startedAt, now(), result.metrics, "persistence", _error);
       await saveFailedScanRun(this.dependencies.repository, failed);
+      try {
+        this.dependencies.telemetryReporter?.reportScanMetrics({
+          status: "failed",
+          marketsScanned: result.metrics.marketsScanned,
+          normalizedMarkets: result.metrics.normalizedMarkets,
+          candidatePairs: result.metrics.candidatePairs,
+          opportunitiesFound: result.metrics.opportunitiesFound,
+          llmEvaluations: result.metrics.llmEvaluations,
+          durationMs: new Date(now()).getTime() - new Date(startedAt).getTime()
+        });
+      } catch { /* telemetry isolation */ }
       return failed;
     }
   }

@@ -3,11 +3,14 @@ import { Pool } from "pg";
 import { APP_CONFIG } from "../../config/config.module";
 import { AppConfig } from "../../config/app-config";
 import { LlmEvaluationRepository } from "../llm/application/llm-evaluation";
+import { LlmCostCalculator, DEFAULT_PRICING } from "../llm/application/llm-cost-calculator";
 import { PersistedLlmGateway } from "../llm/application/persisted-llm-gateway";
 import { OllamaChatLlmProvider } from "../llm/infrastructure/ollama-chat-llm-provider";
 import { PostgresLlmEvaluationRepository } from "../llm/infrastructure/postgres-llm-evaluation-repository";
+import { SentryLlmTraceReporter } from "../llm/infrastructure/sentry-llm-trace-reporter";
 import { buildScannerLlmValidatorRegistry } from "../llm/scanner-llm-validators";
 import { FakeSentryCheckInClient, SentryCheckInClient, SentryHttpCheckInClient } from "../observability/sentry-check-in-client";
+import { SentryScanTelemetryReporter } from "./sentry-scan-telemetry-reporter";
 import { KalshiPublicVenueClient, PolymarketPublicVenueClient } from "../venues/infrastructure/http-venue-clients";
 import { VenueClient } from "../venues/domain/venue-market";
 import { AbandonedScanDetector } from "./abandoned-scan-detector";
@@ -84,8 +87,19 @@ import { WorkerScanRunner } from "./worker-scan-runner";
           model: config.llmModel,
           timeoutMs: config.llmRequestTimeoutMs
         });
+        // Use the built-in default pricing table. If the production
+        // model is not in the table, add it to DEFAULT_PRICING in
+        // llm-cost-calculator.ts or pass an override via options.
+        const costCalculator = new LlmCostCalculator(DEFAULT_PRICING);
+        // Trace reporter is only active when Sentry is configured.
+        // Without a DSN the Sentry SDK silently drops spans/metrics.
+        const traceReporter = config.sentryDsn
+          ? new SentryLlmTraceReporter()
+          : undefined;
         return new PersistedLlmGateway(repository, provider.evaluate.bind(provider), {
-          validatorRegistry: buildScannerLlmValidatorRegistry()
+          validatorRegistry: buildScannerLlmValidatorRegistry(),
+          costCalculator,
+          traceReporter
         });
       },
       inject: [LLM_EVALUATION_REPOSITORY, APP_CONFIG]
@@ -106,7 +120,11 @@ import { WorkerScanRunner } from "./worker-scan-runner";
           llmGateway,
           llmPromptVersion: config.scannerLlmPromptVersion,
           llmModel: config.llmModel,
-          scannerLlmMaxEvaluationsPerScan: config.scannerLlmMaxEvaluationsPerScan
+          scannerLlmMaxEvaluationsPerScan: config.scannerLlmMaxEvaluationsPerScan,
+          // Scan telemetry reporter is only active when Sentry is
+          // configured. Without a DSN, all reporter calls are no-ops
+          // (Sentry SDK drops events when not initialised).
+          telemetryReporter: config.sentryDsn ? new SentryScanTelemetryReporter() : undefined
         }),
       inject: [KALSHI_VENUE_CLIENT, POLYMARKET_VENUE_CLIENT, SCANNER_REPOSITORY, SCANNER_LLM_GATEWAY, APP_CONFIG]
     },
