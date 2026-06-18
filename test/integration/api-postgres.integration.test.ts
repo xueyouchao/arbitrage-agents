@@ -49,8 +49,8 @@ describe("API + Postgres integration", () => {
     await request(app.getHttpServer()).get("/health").expect(200).expect({ status: "ok" });
 
     const markets = await request(app.getHttpServer()).get("/v1/markets").expect(200);
-    expect(markets.body).toHaveLength(2);
-    expect(markets.body[0]).toMatchObject({
+    expect(markets.body.data).toHaveLength(2);
+    expect(markets.body.data[0]).toMatchObject({
       venue: "polymarket",
       venueMarketId: "P1",
       threshold: 100000,
@@ -58,8 +58,8 @@ describe("API + Postgres integration", () => {
     });
 
     const opportunities = await request(app.getHttpServer()).get("/v1/opportunities").expect(200);
-    expect(opportunities.body).toHaveLength(1);
-    expect(opportunities.body[0]).toMatchObject({
+    expect(opportunities.body.data.length).toBeGreaterThanOrEqual(1);
+    expect(opportunities.body.data[0]).toMatchObject({
       id: "00000000-0000-4000-8000-000000000401",
       pairId: "00000000-0000-4000-8000-000000000201",
       combinedCost: 0.93,

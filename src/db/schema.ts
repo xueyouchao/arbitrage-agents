@@ -158,7 +158,10 @@ export const opportunities = pgTable("opportunities", {
   firstDetectedAt: timestamp("first_detected_at", { withTimezone: true }).notNull(),
   lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }).notNull(),
   calculationVersion: text("calculation_version").notNull().default("unknown"),
-  configVersion: text("config_version").notNull().default("unknown")
+  configVersion: text("config_version").notNull().default("unknown"),
+  // Phase 5: human-review workflow flags for production monitoring
+  humanReviewFlag: text("human_review_flag"),
+  humanReviewNotes: text("human_review_notes")
 });
 
 export const alerts = pgTable("alerts", {

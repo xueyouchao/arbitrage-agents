@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Arbitrage Agents — Full Scan Pipeline</title>
+<style>
+  :root {
+    --c-bg: #f8fafc;
+    --c-canvas: #ffffff;
+    --c-border: #cbd5e1;
+    --c-text-main: #0f172a;
+    --c-text-sub: #64748b;
+    --c-fail: #dc2626;
+    --c-fail-bg: #fef2f2;
+    --c-llm: #6366f1;
+    --c-llm-bg: #f5f3ff;
+    --c-ok: #16a34a;
+    --font-ui: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'SF Mono', Monaco, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--c-bg); font-family: var(--font-ui); color: var(--c-text-main); padding: 32px; }
+  .diagram-canvas { background: var(--c-canvas); border: 2px solid var(--c-border); padding: 28px 32px 32px; max-width: 1280px; margin: 0 auto; }
+  .diagram-header { border-bottom: 1px solid var(--c-border); padding-bottom: 14px; margin-bottom: 28px; display: flex; justify-content: space-between; align-items: flex-end; }
+  .diagram-title { font-size: 20px; font-weight: 700; color: var(--c-text-main); letter-spacing: -0.3px; }
+  .diagram-subtitle { font-size: 11px; font-weight: 500; color: var(--c-text-sub); text-transform: uppercase; letter-spacing: 0.8px; }
+  .legend { display: flex; gap: 18px; align-items: center; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--c-text-sub); font-family: var(--font-mono); }
+  .legend-swatch { width: 28px; height: 2px; }
+  .legend-swatch--dashed { border-top: 2px dashed var(--c-llm); height: 0; background: none; }
+  .legend-swatch--fail { background: var(--c-fail); }
+  .legend-swatch--normal { background: var(--c-text-main); }
+  .legend-dot { width: 8px; height: 8px; border: 1.5px solid var(--c-fail); background: var(--c-fail-bg); }
+
+  /* Layers */
+  .layer { margin-bottom: 28px; position: relative; }
+  .layer:last-child { margin-bottom: 0; }
+  .layer-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.2px; color: var(--c-text-sub); margin-bottom: 10px; padding-left: 2px; }
+  .layer-content { display: flex; gap: 12px; align-items: stretch; flex-wrap: wrap; }
+
+  /* Nodes */
+  .node { background: var(--c-canvas); border: 1px solid var(--c-border); padding: 10px 14px; position: relative; }
+  .node--wide { flex: 1; min-width: 200px; }
+  .node--compact { padding: 8px 12px; }
+  .node-title { font-size: 13px; font-weight: 600; margin-bottom: 3px; }
+  .node-desc { font-size: 11px; color: var(--c-text-sub); line-height: 1.45; }
+  .mono { font-family: var(--font-mono); font-size: 11px; }
+  .mono--sm { font-family: var(--font-mono); font-size: 10px; color: var(--c-text-sub); }
+
+  .node--entry { border-color: var(--c-text-main); border-width: 2px; }
+  .node--fail { border-color: var(--c-fail); background: var(--c-fail-bg); }
+  .node--llm { border-style: dashed; border-color: var(--c-llm); background: var(--c-llm-bg); }
+  .node--optional { border-style: dashed; border-color: var(--c-border); }
+  .node--ok { border-color: var(--c-ok); }
+
+  /* Badge */
+  .badge { display: inline-block; font-size: 9px; font-family: var(--font-mono); font-weight: 600; padding: 1px 5px; border: 1px solid var(--c-text-main); text-transform: uppercase; letter-spacing: 0.5px; margin-left: 6px; vertical-align: middle; }
+  .badge--filled { background: var(--c-text-main); color: var(--c-canvas); }
+  .badge--fail { border-color: var(--c-fail); color: var(--c-fail); }
+  .badge--llm { border-color: var(--c-llm); color: var(--c-llm); }
+  .badge--ok { border-color: var(--c-ok); color: var(--c-ok); }
+
+  /* Flow connectors via SVG */
+  .flow-svg { width: 100%; overflow: visible; }
+  .flow-arrow { fill: var(--c-text-main); }
+  .flow-arrow--fail { fill: var(--c-fail); }
+  .flow-line { stroke: var(--c-text-main); stroke-width: 1.5; fill: none; }
+  .flow-line--fail { stroke: var(--c-fail); stroke-width: 1; stroke-dasharray: 4 3; }
+  .flow-line--dashed { stroke: var(--c-llm); stroke-width: 1.5; stroke-dasharray: 5 3; fill: none; }
+
+  /* Step list */
+  .steps-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; width: 100%; }
+  .step-node { border: 1px solid var(--c-border); padding: 9px 10px; background: var(--c-canvas); position: relative; }
+  .step-node::before { content: attr(data-step); position: absolute; top: -1px; left: -1px; font-size: 9px; font-family: var(--font-mono); font-weight: 700; background: var(--c-text-main); color: var(--c-canvas); padding: 1px 5px; letter-spacing: 0.3px; }
+  .step-name { font-family: var(--font-mono); font-size: 11px; font-weight: 600; margin-top: 10px; margin-bottom: 3px; word-break: break-all; }
+  .step-desc { font-size: 10px; color: var(--c-text-sub); line-height: 1.4; }
+  .step-node--active { border-color: var(--c-text-main); border-width: 2px; }
+  .step-node--noop { opacity: 0.6; }
+
+  /* Inner pipeline */
+  .pipeline { width: 100%; }
+  .pipeline-row { display: flex; align-items: center; gap: 0; margin-bottom: 0; }
+  .pipeline-node { border: 1px solid var(--c-border); padding: 7px 11px; background: var(--c-canvas); font-size: 11px; white-space: nowrap; flex-shrink: 0; }
+  .pipeline-node .mono { font-size: 11px; }
+  .pipeline-arrow { width: 20px; height: 2px; background: var(--c-text-main); position: relative; flex-shrink: 0; }
+  .pipeline-arrow::after { content: ''; position: absolute; right: -1px; top: -4px; border: 5px solid transparent; border-left: 6px solid var(--c-text-main); }
+  .pipeline-fork { display: flex; flex-direction: column; gap: 4px; align-items: center; flex-shrink: 0; }
+  .pipeline-fork-label { font-size: 9px; font-family: var(--font-mono); color: var(--c-text-sub); text-transform: uppercase; }
+
+  /* Vertical separator */
+  .vsep { width: 1px; background: var(--c-border); align-self: stretch; margin: 0 4px; flex-shrink: 0; }
+
+  /* Section divider */
+  .section-divider { border-top: 1px dashed var(--c-border); margin: 24px 0; }
+
+  /* Resume box */
+  .resume-note { border: 1px dashed var(--c-border); padding: 8px 12px; font-size: 11px; color: var(--c-text-sub); margin-top: 10px; line-height: 1.5; }
+  .resume-note .mono { color: var(--c-text-main); }
+
+  /* Sentry bar */
+  .sentry-bar { display: flex; align-items: center; gap: 10px; border: 1px solid var(--c-border); padding: 8px 14px; background: var(--c-canvas); }
+  .sentry-bar .mono { font-size: 11px; }
+
+  /* Failure strip */
+  .fail-strip { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .fail-item { border: 1px solid var(--c-fail); background: var(--c-fail-bg); padding: 5px 10px; font-size: 10px; color: var(--c-fail); font-family: var(--font-mono); display: flex; align-items: center; gap: 5px; }
+  .fail-item .arrow { font-family: var(--font-mono); font-size: 12px; }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .steps-row { grid-template-columns: repeat(3, 1fr); }
+    body { padding: 16px; }
+  }
+</style>
+</head>
+<body>
+<div class="diagram-canvas">
+
+  <!-- Header -->
+  <div class="diagram-header">
+    <div>
+      <h1 class="diagram-title">Full Scan Pipeline — Execution Flow</h1>
+      <p class="diagram-subtitle">ARBITRAGE-AGENTS &nbsp;·&nbsp; WORKER SCAN LIFECYCLE &nbsp;·&nbsp; PHASE 4</p>
+    </div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-swatch legend-swatch--normal"></div>normal flow</div>
+      <div class="legend-item"><div class="legend-swatch legend-swatch--fail"></div>failure path</div>
+      <div class="legend-item"><div class="legend-swatch legend-swatch--dashed"></div>LLM call</div>
+      <div class="legend-item"><div class="legend-dot"></div>optional</div>
+    </div>
+  </div>
+
+  <!-- Layer 1: Entry -->
+  <div class="layer">
+    <div class="layer-label">Layer 1 · Worker Entry Point</div>
+    <div class="layer-content" style="align-items: center;">
+      <div class="node node--entry" style="min-width:160px;">
+        <div class="node-title"><span class="mono">main-worker.ts</span></div>
+        <div class="node-desc">NestJS bootstrap</div>
+      </div>
+      <div style="display:flex;align-items:center;">
+        <div class="pipeline-arrow"></div>
+      </div>
+      <div class="node" style="min-width:180px;">
+        <div class="node-title"><span class="mono">NestFactory.createApplicationContext</span></div>
+        <div class="node-desc"><span class="mono--sm">WorkerAppModule</span></div>
+      </div>
+      <div style="display:flex;align-items:center;">
+        <div class="pipeline-arrow"></div>
+      </div>
+      <div class="node node--entry" style="min-width:220px;">
+        <div class="node-title"><span class="mono">WorkerScanRunner.runOnce()</span> <span class="badge badge--filled">SINGLETON</span></div>
+        <div class="node-desc">Re-entrancy guard: <span class="mono">if (this.running) return</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Layer 2: Pre-scan cleanup -->
+  <div class="layer">
+    <div class="layer-label">Layer 2 · Pre-scan Cleanup</div>
+    <div class="layer-content" style="align-items: center;">
+      <div class="node" style="flex:1;">
+        <div class="node-title"><span class="mono">AbandonedScanDetector.markAbandoned()</span></div>
+        <div class="node-desc" style="margin-top:4px;">
+          Query <span class="mono">scan_runs WHERE status='running'</span> (ASC, limit 1000)<br>
+          For each: check <span class="mono">heartbeat_at</span> age vs <span class="mono">abandonedAfterMs</span> (default <span class="mono">5 min</span>)<br>
+          Stale scans → status <span class="mono" style="color:var(--c-fail);">'abandoned'</span> + failureCategory <span class="mono" style="color:var(--c-fail);">'abandoned'</span>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;">
+        <div class="pipeline-arrow"></div>
+      </div>
+      <div class="node node--entry" style="min-width:200px;">
+        <div class="node-title"><span class="mono">ResumableScanner.runOnce()</span></div>
+        <div class="node-desc">Begin orchestration</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sentry bar -->
+  <div style="margin-bottom: 20px;">
+    <div class="sentry-bar">
+      <span class="mono" style="font-weight:600;">Sentry Check-In</span>
+      <span class="mono" style="color:var(--c-text-sub);">checkInClient.start(slug, startedAt)</span>
+      <span class="badge badge--ok">IN_PROGRESS</span>
+      <span class="mono--sm" style="margin-left:auto;">Failures swallowed — never abort scan</span>
+    </div>
+  </div>
+
+  <!-- Layer 3: ResumableScanner Steps -->
+  <div class="layer">
+    <div class="layer-label">Layer 3 · ResumableScanner — 6-Step Orchestration</div>
+    <div class="steps-row">
+      <div class="step-node step-node--active" data-step="01">
+        <div class="step-name">fetch_markets</div>
+        <div class="step-desc">Inner scanner <span class="mono">runOnce()</span> — the real work. Persist step + heartbeat on success.</div>
+      </div>
+      <div class="step-node step-node--noop" data-step="02">
+        <div class="step-name">fetch_books</div>
+        <div class="step-desc"><span class="mono">inner_scanner</span> no-op marker. Recorded for trail completeness.</div>
+      </div>
+      <div class="step-node step-node--noop" data-step="03">
+        <div class="step-name">normalize_markets</div>
+        <div class="step-desc"><span class="mono">inner_scanner</span> no-op marker.</div>
+      </div>
+      <div class="step-node step-node--noop" data-step="04">
+        <div class="step-name">review_pairs</div>
+        <div class="step-desc"><span class="mono">inner_scanner</span> no-op marker.</div>
+      </div>
+      <div class="step-node step-node--noop" data-step="05">
+        <div class="step-name">calculate_opportunities</div>
+        <div class="step-desc"><span class="mono">inner_scanner</span> no-op marker.</div>
+      </div>
+      <div class="step-node" data-step="06">
+        <div class="step-name">finalize</div>
+        <div class="step-desc">Sentry <span class="mono">ok()</span> check-in. Return result.</div>
+      </div>
+    </div>
+    <div class="resume-note">
+      <strong>Resume logic:</strong> Hydrate step trail via <span class="mono">stepRepository.listForRun(scanRunId)</span> →
+      <span class="mono">latestStepByName()</span> → skip <span class="mono">succeeded</span> steps →
+      execute remaining → <span class="mono">markRunHeartbeat()</span> after each step.
+      Retries append rows with <span class="mono">attempt = N+1</span>.
+    </div>
+  </div>
+
+  <div class="section-divider"></div>
+
+  <!-- Layer 4: Inner Scanner Pipeline (detail of step 1) -->
+  <div class="layer">
+    <div class="layer-label">Layer 4 · ReadOnlyScanner — Inner Pipeline <span style="font-weight:400; opacity:0.7;">(executed inside step 01)</span></div>
+
+    <div class="pipeline">
+      <!-- Row 1: Save running + Parallel fetch -->
+      <div class="pipeline-row" style="margin-bottom:12px; flex-wrap:wrap; gap:0;">
+        <div class="pipeline-node" style="border-width:2px;">
+          <span class="mono">saveScanRun</span><br>
+          <span class="mono--sm">status: 'running'</span>
+        </div>
+        <div class="pipeline-arrow"></div>
+        <div class="pipeline-node" style="border-color:var(--c-text-main); border-width:2px;">
+          <span class="mono">Promise.all</span><br>
+          <span class="mono--sm">parallel fetch</span>
+        </div>
+        <div class="pipeline-arrow"></div>
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <div class="pipeline-node"><span class="mono">kalshiClient.listMarkets()</span></div>
+          <div class="pipeline-node"><span class="mono">polymarketClient.listMarkets()</span></div>
+        </div>
+        <div class="pipeline-arrow"></div>
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <div class="pipeline-node"><span class="mono">kalshiClient.listOrderbooks()</span></div>
+          <div class="pipeline-node"><span class="mono">polymarketClient.listOrderbooks()</span></div>
+        </div>
+      </div>
+
+      <!-- Row 2: Normalize + LLM review -->
+      <div class="pipeline-row" style="margin-bottom:12px; flex-wrap:wrap; gap:0;">
+        <div class="pipeline-node">
+          <span class="mono">CryptoMarketNormalizer</span><br>
+          <span class="mono--sm">.normalize(snapshot)</span>
+        </div>
+        <div class="pipeline-arrow"></div>
+        <div class="pipeline-node node--llm">
+          <span class="mono">reviewAmbiguousMarkets</span> <span class="badge badge--llm">LLM</span><br>
+          <span class="mono--sm">confidence &lt; 0.8 || flags &gt; 0</span><br>
+          <span class="mono--sm">budget-gated · per-task cap</span>
+        </div>
+        <div class="pipeline-arrow"></div>
+        <div class="pipeline-node">
+          <span class="mono">CandidatePairGenerator</span><br>
+          <span class="mono--sm">.generate(normalizedMarkets)</span>
+        </div>
+        <div class="pipeline-arrow"></div>
+        <div class="pipeline-node node--llm">
+          <span class="mono">reviewCandidatePairs</span> <span class="badge badge--llm">LLM</span><br>
+          <span class="mono--sm">class B or D → LLM equivalence</span><br>
+          <span class="mono--sm">promote B→A on confidence ≥ 0.9</span>
+        </div>
+      </div>
+
+      <!-- Row 3: Calculate + Simulate + Persist -->
+      <div class="pipeline-row" style="flex-wrap:wrap; gap:0;">
+        <div class="pipeline-node" style="border-width:2px;">
+          <span class="mono">OpportunityCalculator</span><br>
+          <span class="mono--sm">.calculate(pair, decision, books)</span>
+        </div>
+        <div class="pipeline-arrow"></div>
+        <div class="pipeline-node node--optional">
+          <span class="mono">PaperTradeSimulator</span> <span class="badge" style="border-color:var(--c-text-sub);">OPTIONAL</span><br>
+          <span class="mono--sm">.simulate(opportunity)</span><br>
+          <span class="mono--sm">per-opportunity try/catch</span>
+        </div>
+        <div class="pipeline-arrow"></div>
+        <div class="pipeline-node" style="border-width:2px; border-color:var(--c-text-main);">
+          <span class="mono" style="font-weight:600;">saveCompletedScan</span><br>
+          <span class="mono--sm">single DB transaction</span><br>
+          <span class="mono--sm">snapshots · markets · pairs · books · opps · sims</span>
+        </div>
+        <div class="pipeline-arrow" style="background:var(--c-ok);"></div>
+        <div class="pipeline-node node--ok" style="border-width:2px;">
+          <span class="mono" style="font-weight:600; color:var(--c-ok);">ScanResult</span><br>
+          <span class="mono--sm">status: 'succeeded'</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-divider"></div>
+
+  <!-- Layer 5: Observability -->
+  <div class="layer">
+    <div class="layer-label">Layer 5 · Observability</div>
+    <div class="layer-content" style="align-items: stretch;">
+      <div class="node" style="flex:1;">
+        <div class="node-title"><span class="mono">SentryCheckInClient</span></div>
+        <div class="node-desc" style="margin-top:6px;">
+          <span class="mono">start(slug, date)</span> → <span class="badge badge--ok">in_progress</span>&nbsp;&nbsp;at scan start<br>
+          <span class="mono">ok(handle, date)</span> → <span class="badge badge--ok">ok</span>&nbsp;&nbsp;on success<br>
+          <span class="mono">error(handle, date)</span> → <span class="badge badge--fail">error</span>&nbsp;&nbsp;on failure
+        </div>
+      </div>
+      <div class="node" style="flex:1;">
+        <div class="node-title"><span class="mono">ScanStepRepository</span></div>
+        <div class="node-desc" style="margin-top:6px;">
+          <span class="mono">saveStep()</span> — persist each step transition<br>
+          <span class="mono">listForRun()</span> — hydrate step trail on resume<br>
+          <span class="mono">markRunHeartbeat()</span> — update <span class="mono">scan_runs.heartbeat_at</span>
+        </div>
+      </div>
+      <div class="node" style="flex:1;">
+        <div class="node-title"><span class="mono">LLM Budget Tracker</span></div>
+        <div class="node-desc" style="margin-top:6px;">
+          Global cap: <span class="mono">scannerLlmMaxEvaluationsPerScan</span> (default 25)<br>
+          Normalization reserve: <span class="mono">totalCap - equivalenceReserve</span><br>
+          Equivalence reserve: <span class="mono">min(5, ceil(totalCap × 0.2))</span><br>
+          Cache hits are budget-free
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-divider"></div>
+
+  <!-- Failure paths -->
+  <div class="layer">
+    <div class="layer-label">Failure Paths</div>
+    <div class="fail-strip">
+      <div class="fail-item"><span class="arrow">⚡</span> fetch → <span class="mono">failedScanResult(category: 'fetch')</span> → save failed scan</div>
+      <div class="fail-item"><span class="arrow">⚡</span> processing → <span class="mono">failedScanResult(category: 'processing')</span> → save failed scan</div>
+      <div class="fail-item"><span class="arrow">⚡</span> persistence → <span class="mono">failedScanResult(category: 'persistence')</span> → save failed scan</div>
+      <div class="fail-item"><span class="arrow">⚡</span> step failure → <span class="mono">failWithCheckIn()</span> → record step <span class="mono">'failed'</span> + Sentry <span class="mono">error()</span></div>
+    </div>
+    <div style="margin-top:10px; font-size:11px; color:var(--c-text-sub); line-height:1.5;">
+      All failures are isolated: LLM gateway errors are caught and treated as "no review available".<br>
+      Paper-trade simulator errors are caught per-opportunity. Sentry check-in failures are always swallowed.<br>
+      The <span class="mono">saveFailedScanRun()</span> helper itself is wrapped in try/catch — the original failure is always returned.
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -19,18 +19,19 @@ describe("PostgresReadRepositories", () => {
   it("lists and gets opportunities with Phase 3 fields, JSONB arrays, numeric coercion, nullable snapshots, and ISO dates", async () => {
     const repository = new PostgresReadRepositories({ databaseUrl: "postgres://test" } as never);
     const row = opportunityRow({ notional_edges: [{ targetNotionalUsd: 5, grossEdge: "0.07", estimatedFees: 0.01, estimatedSlippage: 0.004, netEdge: 0.056, fillable: true }] });
-    poolQuery.mockResolvedValueOnce({ rows: [row] }).mockResolvedValueOnce({ rows: [{ ...row, notional_edges: JSON.stringify(row.notional_edges), kalshi_orderbook_snapshot_id: null }] });
+    poolQuery.mockResolvedValueOnce({ rows: [{ total: "1" }] }).mockResolvedValueOnce({ rows: [row] }).mockResolvedValueOnce({ rows: [{ ...row, notional_edges: JSON.stringify(row.notional_edges), kalshi_orderbook_snapshot_id: null }] });
 
     const listed = await repository.listOpportunities();
     const found = await repository.getOpportunity("opp-1");
 
     expect(Pool).toHaveBeenCalledWith({ connectionString: "postgres://test" });
-    expect(poolQuery.mock.calls[0][0]).toContain("kalshi_orderbook_snapshot_id");
-    expect(poolQuery.mock.calls[0][0]).toContain("notional_edges");
-    expect(poolQuery.mock.calls[0][0]).toContain("data_staleness_ms");
-    expect(poolQuery.mock.calls[0][0]).toContain("calculation_version");
-    expect(poolQuery.mock.calls[1][1]).toEqual(["opp-1"]);
-    expect(listed[0]).toMatchObject({
+    expect(poolQuery.mock.calls[0][0]).toContain("count(*)");
+    expect(poolQuery.mock.calls[1][0]).toContain("kalshi_orderbook_snapshot_id");
+    expect(poolQuery.mock.calls[1][0]).toContain("notional_edges");
+    expect(poolQuery.mock.calls[1][0]).toContain("data_staleness_ms");
+    expect(poolQuery.mock.calls[1][0]).toContain("calculation_version");
+    expect(poolQuery.mock.calls[2][1]).toEqual(["opp-1"]);
+    expect(listed.data[0]).toMatchObject({
       id: "opp-1",
       pairId: "pair-1",
       kalshiOrderbookSnapshotId: "kalshi-snapshot-1",
@@ -51,7 +52,7 @@ describe("PostgresReadRepositories", () => {
       calculationVersion: "opportunity-calculator-v2",
       configVersion: "phase3-conservative-v1"
     });
-    expect(listed[0].notionalEdges).toEqual([{ targetNotionalUsd: 5, grossEdge: 0.07, estimatedFees: 0.01, estimatedSlippage: 0.004, netEdge: 0.056, fillable: true }]);
+    expect(listed.data[0].notionalEdges).toEqual([{ targetNotionalUsd: 5, grossEdge: 0.07, estimatedFees: 0.01, estimatedSlippage: 0.004, netEdge: 0.056, fillable: true }]);
     expect(found?.kalshiOrderbookSnapshotId).toBeUndefined();
     expect(found?.polymarketOrderbookSnapshotId).toBe("polymarket-snapshot-1");
     expect(found?.notionalEdges).toEqual([{ targetNotionalUsd: 5, grossEdge: 0.07, estimatedFees: 0.01, estimatedSlippage: 0.004, netEdge: 0.056, fillable: true }]);
@@ -60,16 +61,22 @@ describe("PostgresReadRepositories", () => {
   it("maps malformed opportunity notional_edges to an empty array and returns undefined for a missing opportunity", async () => {
     const repository = new PostgresReadRepositories({ databaseUrl: "postgres://test" } as never);
     poolQuery
+      .mockResolvedValueOnce({ rows: [{ total: "1" }] })
       .mockResolvedValueOnce({ rows: [opportunityRow({ notional_edges: "not-json" })] })
+      .mockResolvedValueOnce({ rows: [{ total: "1" }] })
       .mockResolvedValueOnce({ rows: [opportunityRow({ notional_edges: [{ targetNotionalUsd: "5", grossEdge: "0.07", estimatedFees: "0.01", estimatedSlippage: "0.004", netEdge: "0.056", fillable: "true" }] })] })
       .mockResolvedValueOnce({ rows: [] });
 
-    await expect(repository.listOpportunities()).resolves.toEqual([
-      expect.objectContaining({ id: "opp-1", notionalEdges: [] })
-    ]);
-    await expect(repository.listOpportunities()).resolves.toEqual([
-      expect.objectContaining({ id: "opp-1", notionalEdges: [] })
-    ]);
+    await expect(repository.listOpportunities()).resolves.toEqual(
+      expect.objectContaining({
+        data: [expect.objectContaining({ id: "opp-1", notionalEdges: [] })]
+      })
+    );
+    await expect(repository.listOpportunities()).resolves.toEqual(
+      expect.objectContaining({
+        data: [expect.objectContaining({ id: "opp-1", notionalEdges: [] })]
+      })
+    );
     await expect(repository.getOpportunity("missing")).resolves.toBeUndefined();
   });
 
@@ -111,7 +118,7 @@ describe("PostgresReadRepositories", () => {
 
   it("maps markets and coerces nullable numeric/date fields", async () => {
     const repository = new PostgresReadRepositories({ databaseUrl: "postgres://test" } as never);
-    poolQuery.mockResolvedValueOnce({ rows: [{
+    poolQuery.mockResolvedValueOnce({ rows: [{ total: "1" }] }).mockResolvedValueOnce({ rows: [{
       id: "market-1",
       venue: "kalshi",
       venue_market_id: "K1",
@@ -130,21 +137,20 @@ describe("PostgresReadRepositories", () => {
       confidence: "0.92"
     }] });
 
-    await expect(repository.listMarkets()).resolves.toEqual([
-      expect.objectContaining({
-        id: "market-1",
-        venue: "kalshi",
-        venueMarketId: "K1",
-        asset: undefined,
-        threshold: 100000.5,
-        operator: undefined,
-        deadline: "2026-01-01T00:00:00.000Z",
-        timezone: undefined,
-        resolutionSource: undefined,
-        ambiguityFlags: ["resolution_source_missing"],
-        confidence: 0.92
-      })
-    ]);
+    const result = await repository.listMarkets();
+    expect(result.data[0]).toMatchObject({
+      id: "market-1",
+      venue: "kalshi",
+      venueMarketId: "K1",
+      asset: undefined,
+      threshold: 100000.5,
+      operator: undefined,
+      deadline: "2026-01-01T00:00:00.000Z",
+      timezone: undefined,
+      resolutionSource: undefined,
+      ambiguityFlags: ["resolution_source_missing"],
+      confidence: 0.92
+    });
   });
 
   it("lists paper-trade simulations for an opportunity and coerces numeric fields", async () => {
@@ -182,7 +188,21 @@ describe("PostgresReadRepositories", () => {
         residualExposureUsd: 0,
         combinedCost: 0.93,
         grossEdge: 0.07,
-        netEdge: 0.0607
+        netEdge: 0.0607,
+        configVersion: "seed-config-v1",
+        calculationVersion: "seed-calc-v1",
+        longLegFill: {
+          averagePrice: 0.42,
+          contracts: 11.9048,
+          fees: 0.0042,
+          slippage: 0
+        },
+        hedgeLegFill: {
+          averagePrice: 0.51,
+          contracts: 9.8039,
+          fees: 0.0051,
+          slippage: 0
+        }
       })
     ]);
   });
@@ -201,6 +221,13 @@ function opportunityRow(overrides: Partial<Record<string, unknown>> = {}) {
     estimated_fees: "0.0093",
     estimated_slippage: "0.0046",
     net_edge: "0.0561",
+    theoretical_combined_cost: "0.93",
+    theoretical_gross_edge: "0.07",
+    theoretical_net_edge: "0.0561",
+    executable_size_usd: "12",
+    executable_combined_cost: "0.93",
+    executable_gross_edge: "0.07",
+    executable_net_edge: "0.0561",
     max_tradable_usd: "12",
     notional_edges: [],
     equivalence_class: "A",
@@ -212,9 +239,12 @@ function opportunityRow(overrides: Partial<Record<string, unknown>> = {}) {
     data_staleness_ms: 500,
     opportunity_age_ms: 1500,
     detected_at: new Date("2026-06-03T12:00:00.000Z"),
+    first_detected_at: new Date("2026-06-03T12:00:00.000Z"),
     last_verified_at: "2026-06-03T12:00:01.500Z",
     calculation_version: "opportunity-calculator-v2",
     config_version: "phase3-conservative-v1",
+    human_review_flag: null,
+    human_review_notes: null,
     ...overrides
   };
 }
