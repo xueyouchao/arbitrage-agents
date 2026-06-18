@@ -214,7 +214,7 @@ jobs:
   quality-gate:
     name: Quality Gate
     runs-on: ubuntu-latest
-    needs: [typecheck, build, test, test-integration, test-migrations]
+    needs: [typecheck, build, test, test-integration, test-migrations, test-acceptance]
     if: always()
     steps:
       - name: Check all gates passed
@@ -226,12 +226,13 @@ jobs:
           echo "Unit Tests: ${{ needs.test.result }}"
           echo "Integration Tests: ${{ needs.test-integration.result }}"
           echo "Migration Tests: ${{ needs.test-migrations.result }}"
+          echo "Acceptance Tests: ${{ needs.test-acceptance.result }}"
           echo ""
           
-          # Check if any required job failed
+          # Check if any required job failed, cancelled, or skipped
           FAILED_JOBS=()
-          for result in "${{ needs.typecheck.result }}" "${{ needs.build.result }}" "${{ needs.test.result }}" "${{ needs.test-integration.result }}" "${{ needs.test-migrations.result }}"; do
-            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+          for result in "${{ needs.typecheck.result }}" "${{ needs.build.result }}" "${{ needs.test.result }}" "${{ needs.test-integration.result }}" "${{ needs.test-migrations.result }}" "${{ needs.test-acceptance.result }}"; do
+            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "skipped" ]; then
               FAILED_JOBS+=("$result")
             fi
           done
