@@ -19,9 +19,12 @@ export class OpportunitiesController {
     @Query("sortBy") sortBy?: string,
     @Query("sortOrder") sortOrder?: string
   ) {
+    const parsedOffset = Number(offset);
+    const parsedLimit = Number(limit);
+    
     const pagination = {
-      offset: offset ? Math.max(0, parseInt(offset, 10)) : 0,
-      limit: limit ? Math.min(100, Math.max(1, parseInt(limit, 10))) : 20
+      offset: Number.isFinite(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0,
+      limit: Number.isFinite(parsedLimit) && parsedLimit >= 1 ? Math.min(100, Math.floor(parsedLimit)) : 20
     };
 
     const filters: OpportunityFilters = {};

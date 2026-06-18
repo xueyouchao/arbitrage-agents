@@ -97,6 +97,26 @@ describe("Phase 5 API Enhancements", () => {
       expect(response.body.pagination.limit).toBe(100);
     });
 
+    it("handles invalid pagination values gracefully", async () => {
+      const response = await request(app.getHttpServer())
+        .get("/v1/opportunities")
+        .query({ offset: "abc", limit: "xyz" })
+        .expect(200);
+
+      expect(response.body.pagination.offset).toBe(0);
+      expect(response.body.pagination.limit).toBe(20);
+    });
+
+    it("handles negative pagination values", async () => {
+      const response = await request(app.getHttpServer())
+        .get("/v1/opportunities")
+        .query({ offset: -5, limit: -10 })
+        .expect(200);
+
+      expect(response.body.pagination.offset).toBe(0);
+      expect(response.body.pagination.limit).toBe(20);
+    });
+
     it("indicates hasMore correctly", async () => {
       const response = await request(app.getHttpServer())
         .get("/v1/opportunities")

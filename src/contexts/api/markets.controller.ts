@@ -10,9 +10,12 @@ export class MarketsController {
     @Query("offset") offset?: string,
     @Query("limit") limit?: string
   ) {
+    const parsedOffset = Number(offset);
+    const parsedLimit = Number(limit);
+    
     const pagination = {
-      offset: offset ? Math.max(0, parseInt(offset, 10)) : 0,
-      limit: limit ? Math.min(500, Math.max(1, parseInt(limit, 10))) : 50
+      offset: Number.isFinite(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0,
+      limit: Number.isFinite(parsedLimit) && parsedLimit >= 1 ? Math.min(500, Math.floor(parsedLimit)) : 50
     };
 
     return this.markets.listMarkets({ pagination });
