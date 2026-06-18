@@ -1284,3 +1284,63 @@ All six confirmed risks from the 2026-06-13 review were fixed in commit `cf4c9a0
 - `npm run build` — passed.
 
 In addition, a latent test fixture mismatch in `test/postgres-scanner-repository.test.ts` (missing required `CrossVenueOpportunity` fields introduced by later phase-3 risk modeling work) was repaired so the verification suite stays green on `main`.
+
+---
+
+## PR #20: Sentry Telemetry and Review Findings — COMPLETED (2026-06-18)
+
+### Scope
+
+Comprehensive fixes addressing all PR review findings across multiple iterations for the Sentry observability integration, per-venue telemetry, and error handling improvements.
+
+### What was done
+
+**Sentry metrics and telemetry (Critical fixes):**
+- Emit `reportScanMetrics` with `status=failed` on all scan failure paths (fetch, processing, persistence)
+- Emit `reportVenueFetch` with `success=false` on venue fetch failures
+- Correct per-venue fetch latency measurement — previously conflated parallel operations
+- Add structured Sentry tags (`fillRisk`, `liquidityRisk`, `netEdge`, etc.) to `reportOpportunity` via `withScope`
+- Isolate LLM trace reporter calls with try/catch to prevent lost evaluations
+
+**Per-venue latency and independent failure reporting:**
+- Use `Promise.allSettled` with per-promise timing wrappers for independent venue latency measurement
+- Report each venue's fetch success/failure based on actual result, not both-as-failed
+- Move `reportScanMetrics(status=succeeded)` AFTER `saveCompletedScan` to prevent double-counting
+- Continue scan with surviving venue when only one venue fails (partial degradation)
+
+**Defensive timing and error context:**
+- Use `.finally()` instead of `.then()` for per-venue timing wrappers so failed fetches report realistic latency
+- Initialize latency end timestamps to start for defensive timing (0ms for skipped fetches)
+- Inspect all 4 `allSettled` results (markets + orderbooks) for complete error context
+- Aggregate errors from both venues when both fail for full operator visibility
+
+**LLM cost pricing:**
+- Use `DEFAULT_PRICING` for `LlmCostCalculator` instead of hardcoded rates that misprice non-minimax models
+
+**Migration fixes:**
+- Fix migration 0009 NOT NULL columns with DEFAULT 0 for numerics
+- Three-step backfill for `first_detected_at`
+
+### Testing
+
+- **13 new tests** added (4 scanner failure paths, 3 LLM reporter isolation, 1 opportunity tags, 2 latency measurement, 3 new behavior tests)
+- All tests use TDD red→green approach
+- Full suite: **168 tests pass**, typecheck clean
+
+### Commit history
+
+Originally developed across 5 commits on branch `fix/sentry-review-findings`, then squashed into single commit:
+
+- **Final commit:** `5daa585` — `fix: address PR review findings — telemetry isolation, per-venue latency, error aggregation, and Sentry metrics`
+- Branch squashed and merged to `main`, then cleaned up (both local and remote)
+
+### Verification
+
+All verification checks passed:
+- `npm test` — 168 tests passed
+- `npm run typecheck` — passed
+- `npm run build` — passed
+
+### Status
+
+✅ **DONE** — Merged to `main` on 2026-06-18. Branch `fix/sentry-review-findings` deleted locally and remotely.
