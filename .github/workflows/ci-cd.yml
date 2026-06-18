@@ -1,0 +1,244 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  # ---- Type Check ----
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run type check
+        run: npm run typecheck
+
+  # ---- Build ----
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [typecheck]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Verify build output
+        run: |
+          test -f dist/src/main-api.js || { echo "API build output missing"; exit 1; }
+          test -f dist/src/main-worker.js || { echo "Worker build output missing"; exit 1; }
+          echo "Build artifacts verified"
+
+  # ---- Unit Tests with Coverage ----
+  test:
+    name: Unit Tests & Coverage
+    runs-on: ubuntu-latest
+    needs: [typecheck]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests with coverage
+        run: npm run coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 30
+
+  # ---- Integration Tests ----
+  test-integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [typecheck, build]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: integration
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run integration tests
+        run: npm run test:integration
+        env:
+          TEST_DATABASE_URL: postgres://postgres:integration@localhost:5432/postgres
+
+  # ---- Migration Tests ----
+  test-migrations:
+    name: Migration Tests
+    runs-on: ubuntu-latest
+    needs: [typecheck]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: migration_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run migration smoke tests
+        run: npm run test:integration -- --grep "migration"
+        env:
+          TEST_DATABASE_URL: postgres://postgres:migration_test@localhost:5432/postgres
+
+      - name: Verify migration idempotency
+        run: |
+          echo "Testing migration idempotency..."
+          npx drizzle-kit migrate --config drizzle.config.ts
+          npx drizzle-kit migrate --config drizzle.config.ts
+          echo "Migration idempotency verified"
+        env:
+          DATABASE_URL: postgres://postgres:migration_test@localhost:5432/postgres
+
+  # ---- Acceptance Tests ----
+  test-acceptance:
+    name: Acceptance Tests
+    runs-on: ubuntu-latest
+    needs: [build, test-integration]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: acceptance
+          POSTGRES_DB: arbitrage_agents
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply migrations
+        run: npm run db:migrate
+        env:
+          DATABASE_URL: postgres://postgres:acceptance@localhost:5432/arbitrage_agents
+
+      - name: Seed test data
+        run: |
+          PGPASSWORD=acceptance psql -h localhost -U postgres -d arbitrage_agents -f test/acceptance/seed.sql
+
+      - name: Run acceptance tests
+        run: npm run test:acceptance
+        env:
+          DATABASE_URL: postgres://postgres:acceptance@localhost:5432/arbitrage_agents
+
+  # ---- Quality Gate Summary ----
+  quality-gate:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    needs: [typecheck, build, test, test-integration, test-migrations]
+    if: always()
+    steps:
+      - name: Check all gates passed
+        run: |
+          echo "Quality Gate Results:"
+          echo "====================="
+          echo "Type Check: ${{ needs.typecheck.result }}"
+          echo "Build: ${{ needs.build.result }}"
+          echo "Unit Tests: ${{ needs.test.result }}"
+          echo "Integration Tests: ${{ needs.test-integration.result }}"
+          echo "Migration Tests: ${{ needs.test-migrations.result }}"
+          echo ""
+          
+          # Check if any required job failed
+          FAILED_JOBS=()
+          for result in "${{ needs.typecheck.result }}" "${{ needs.build.result }}" "${{ needs.test.result }}" "${{ needs.test-integration.result }}" "${{ needs.test-migrations.result }}"; do
+            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+              FAILED_JOBS+=("$result")
+            fi
+          done
+          
+          if [ ${#FAILED_JOBS[@]} -gt 0 ]; then
+            echo "❌ Quality Gate FAILED"
+            exit 1
+          else
+            echo "✅ Quality Gate PASSED"
+          fi
