@@ -27,7 +27,7 @@ const AppConfigSchema = z.object({
   llmEnabled: booleanFromString.default(false),
   llmProvider: z.enum(["ollama"]).default("ollama"),
   llmBaseUrl: z.string().url().default("http://127.0.0.1:11434/api/chat"),
-  llmModel: z.string().min(1).default("minimax-m3:cloud"),
+  llmModel: z.string().min(1).default("glm-5.2:cloud"),
   llmRequestTimeoutMs: z.coerce.number().int().positive().max(180_000).default(30_000),
   scannerLlmPromptVersion: z.string().min(1).default("scanner-v1"),
   scannerLlmMaxEvaluationsPerScan: z.coerce.number().int().min(0).max(1_000).default(25),
