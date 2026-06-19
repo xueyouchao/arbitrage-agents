@@ -5,6 +5,8 @@ import {
   parsePositiveFiniteNumber,
   waitForScanToSettle,
   createInterruptibleSleep,
+  MIN_SCAN_INTERVAL_MINUTES,
+  MAX_SCAN_INTERVAL_MINUTES,
 } from "../src/contexts/scanner/worker-runtime-helpers";
 
 describe("parsePositiveFiniteNumber", () => {
@@ -54,10 +56,31 @@ describe("parseScanIntervalMinutes", () => {
     expect(parseScanIntervalMinutes(0, DEFAULT)).toBe(DEFAULT);
     expect(parseScanIntervalMinutes("0", DEFAULT)).toBe(DEFAULT);
   });
-  it("returns the valid positive number when provided as string or number", () => {
+  it("returns the valid positive number when provided as string or number (within bounds)", () => {
     expect(parseScanIntervalMinutes(10, DEFAULT)).toBe(10);
     expect(parseScanIntervalMinutes("10", DEFAULT)).toBe(10);
-    expect(parseScanIntervalMinutes(0.5, DEFAULT)).toBe(0.5);
+  });
+  it("clamps sub-minute values up to MIN_SCAN_INTERVAL_MINUTES (tight-loop guard)", () => {
+    // The exact cases from the PR #27 review: 0.001 (60 ms) and 0.1 (6 s) must
+    // not drive a tight scan loop.
+    expect(parseScanIntervalMinutes(0.001, DEFAULT)).toBe(MIN_SCAN_INTERVAL_MINUTES);
+    expect(parseScanIntervalMinutes(0.1, DEFAULT)).toBe(MIN_SCAN_INTERVAL_MINUTES);
+    expect(parseScanIntervalMinutes(0.5, DEFAULT)).toBe(MIN_SCAN_INTERVAL_MINUTES);
+    expect(parseScanIntervalMinutes("0.001", DEFAULT)).toBe(MIN_SCAN_INTERVAL_MINUTES);
+    // Just below the floor is clamped; at the floor is passed through.
+    expect(parseScanIntervalMinutes(0.999, DEFAULT)).toBe(MIN_SCAN_INTERVAL_MINUTES);
+    expect(parseScanIntervalMinutes(1, DEFAULT)).toBe(MIN_SCAN_INTERVAL_MINUTES);
+  });
+  it("clamps absurdly large values down to MAX_SCAN_INTERVAL_MINUTES", () => {
+    expect(parseScanIntervalMinutes(100_000, DEFAULT)).toBe(MAX_SCAN_INTERVAL_MINUTES);
+    expect(parseScanIntervalMinutes("9999999", DEFAULT)).toBe(MAX_SCAN_INTERVAL_MINUTES);
+    // Just above the ceiling is clamped; at the ceiling is passed through.
+    expect(parseScanIntervalMinutes(1441, DEFAULT)).toBe(MAX_SCAN_INTERVAL_MINUTES);
+    expect(parseScanIntervalMinutes(1440, DEFAULT)).toBe(MAX_SCAN_INTERVAL_MINUTES);
+  });
+  it("clamps the defaultMinutes too, so a misconfigured default cannot bypass bounds", () => {
+    expect(parseScanIntervalMinutes(undefined, 0.5)).toBe(MIN_SCAN_INTERVAL_MINUTES);
+    expect(parseScanIntervalMinutes(undefined, 100_000)).toBe(MAX_SCAN_INTERVAL_MINUTES);
   });
 });
 

@@ -8,6 +8,18 @@
 export const DEFAULT_INTERVAL_MINUTES = 15;
 export const DEFAULT_SHUTDOWN_TIMEOUT_MS = 30_000;
 
+// Lower bound for the scan interval. A misconfigured WORKER_SCAN_INTERVAL_MINUTES
+// such as 0.001 or 0.1 produces a very short interval (60 ms / 6 s) that makes the
+// worker run scans in a tight loop, hammering the database and external APIs and
+// consuming excessive CPU/RAM on the VPS. Anything below this floor is clamped up
+// to it. (PR #27 review: "Unbounded scan interval".)
+export const MIN_SCAN_INTERVAL_MINUTES = 1;
+
+// Upper bound for the scan interval. A huge interval makes the worker effectively
+// idle and is almost certainly a misconfiguration (e.g. units confusion). Anything
+// above this ceiling is clamped down to it. 24 hours is a generous, safe cap.
+export const MAX_SCAN_INTERVAL_MINUTES = 1440;
+
 // Parses a generic positive finite number from an unknown raw value, falling
 // back to `defaultValue` for empty, garbage, non-finite, zero, or negative
 // values. Used for both minutes and milliseconds configuration so millisecond
@@ -27,8 +39,15 @@ export function parsePositiveFiniteNumber(raw: unknown, defaultValue: number): n
 // back to `defaultMinutes` for empty, garbage, non-finite, zero, or negative
 // values. Guards against a misconfigured negative interval that would make
 // `setTimeout` fire immediately and spin the worker in a tight scan loop.
+//
+// The result is clamped to [MIN_SCAN_INTERVAL_MINUTES, MAX_SCAN_INTERVAL_MINUTES]
+// so a small positive value like 0.001 (60 ms) or 0.1 (6 s) cannot drive a tight
+// scan loop, and an absurdly large value cannot effectively silence the worker.
+// `defaultMinutes` itself is also clamped, so a misconfigured default cannot
+// bypass the bounds.
 export function parseScanIntervalMinutes(raw: unknown, defaultMinutes: number): number {
-  return parsePositiveFiniteNumber(raw, defaultMinutes);
+  const parsed = parsePositiveFiniteNumber(raw, defaultMinutes);
+  return Math.min(Math.max(parsed, MIN_SCAN_INTERVAL_MINUTES), MAX_SCAN_INTERVAL_MINUTES);
 }
 
 export interface WaitForScanToSettleOptions {
