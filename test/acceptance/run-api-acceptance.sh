@@ -219,6 +219,7 @@ switch (assertion) {
     assert(data.pagination && typeof data.pagination.total === "number", "expected pagination envelope");
     const items = data.data;
     assert(data.pagination.total === items.length, "expected pagination total to match array length");
+    // matches the 3 rows seeded in test/acceptance/seed.sql (ids ...0401/...0402/...0403)
     assert(items.length === 3, "expected 3 opportunities");
     assert(items[0].id === opportunityId, "expected seeded opportunity id");
     assert(items[0].pairId === "00000000-0000-4000-8000-000000000201", "expected seeded pair id");
