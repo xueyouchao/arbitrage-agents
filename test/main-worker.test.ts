@@ -1,6 +1,5 @@
-// test/main-worker.test.ts
 import { describe, it, expect } from "vitest";
-import { parseScanIntervalMinutes, waitForScanToSettle } from "../src/main-worker";
+import { parseScanIntervalMinutes, waitForScanToSettle } from "../src/contexts/scanner/worker-runtime-helpers";
 
 describe("parseScanIntervalMinutes", () => {
   const DEFAULT = 15;

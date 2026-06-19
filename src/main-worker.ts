@@ -2,6 +2,12 @@ import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { WorkerAppModule } from "./worker-app.module";
 import { WorkerScanRunner } from "./contexts/scanner/worker-scan-runner";
+import {
+  DEFAULT_INTERVAL_MINUTES,
+  DEFAULT_SHUTDOWN_TIMEOUT_MS,
+  parseScanIntervalMinutes,
+  waitForScanToSettle,
+} from "./contexts/scanner/worker-runtime-helpers";
 
 // Production worker entry point.
 //
@@ -21,62 +27,11 @@ import { WorkerScanRunner } from "./contexts/scanner/worker-scan-runner";
 // not finished by the deadline, shutdown proceeds anyway so the worker
 // exits within Docker's stop grace period rather than being
 // force-killed (which would strand DB connections and Sentry check-ins).
-
-const DEFAULT_INTERVAL_MINUTES = 15;
-const DEFAULT_SHUTDOWN_TIMEOUT_MS = 30_000;
-
-// Parses WORKER_SCAN_INTERVAL_MINUTES (and WORKER_SHUTDOWN_TIMEOUT_MS) into a
-// positive finite number, falling back to `defaultMinutes` for empty, garbage,
-// non-finite, zero, or negative values. Guards against a misconfigured negative
-// interval that would make `setTimeout` fire immediately and spin the worker
-// in a tight scan loop.
-export function parseScanIntervalMinutes(raw: unknown, defaultMinutes: number): number {
-  if (raw === undefined || raw === null || raw === "") {
-    return defaultMinutes;
-  }
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return defaultMinutes;
-  }
-  return parsed;
-}
-
-export interface WaitForScanToSettleOptions {
-  scanInFlight: () => boolean;
-  pollMs?: number;
-  timeoutMs: number;
-  sleep: (ms: number) => Promise<void>;
-}
-
-// Polls `scanInFlight()` until it reports `false` (settled) or the configured
-// `timeoutMs` budget is exhausted (timed_out). Elapsed time is accumulated from
-// the durations passed to the injected `sleep` (not from the wall clock) so the
-// function is deterministic under a no-op sleep stub in tests. The bounded
-// timeout guarantees shutdown completes even if `runOnce()` hangs.
-export async function waitForScanToSettle({
-  scanInFlight,
-  pollMs,
-  timeoutMs,
-  sleep,
-}: WaitForScanToSettleOptions): Promise<"settled" | "timed_out"> {
-  const pollInterval = pollMs ?? 500;
-  let elapsed = 0;
-
-  while (true) {
-    if (!scanInFlight()) {
-      return "settled";
-    }
-
-    const remaining = timeoutMs - elapsed;
-    if (remaining <= 0) {
-      return "timed_out";
-    }
-
-    const wait = Math.min(pollInterval, remaining);
-    await sleep(wait);
-    elapsed += wait;
-  }
-}
+//
+// The interval parsing and shutdown-wait helpers live in
+// ./contexts/scanner/worker-runtime-helpers so they can be unit-tested
+// without importing this entry point (which would pull the Nest
+// dependency graph into coverage instrumentation).
 
 async function bootstrap() {
   const app = await NestFactory.createApplicationContext(WorkerAppModule);
