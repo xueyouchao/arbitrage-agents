@@ -167,16 +167,25 @@ describe("Worker e2e smoke test against Postgres", () => {
     expect(result.id).toBe(runId);
     expect(innerSpy).not.toHaveBeenCalled();
 
-    const resumedRepository = app.get(PostgresScanStepRepository);
+    // Issue #24: resolve through the DI token, not the class. The module
+    // binds the factory under `SCAN_STEP_REPOSITORY`; the class itself is
+    // never registered, so `app.get(PostgresScanStepRepository)` throws.
+    const resumedRepository = app.get(SCAN_STEP_REPOSITORY) as PostgresScanStepRepository;
     const resumedSteps = await resumedRepository.listForRun(runId);
-    expect(resumedSteps.map((s) => s.stepName)).toEqual([
+    // The pre-seeded steps share a single `startedAt`/`completedAt`, so
+    // the SQL `order by attempt, started_at, id` falls back to id order,
+    // which is not deterministic. Compare SORTED arrays so the test is
+    // stable across runs and DB implementations.
+    const expected = [
       "fetch_markets",
       "fetch_books",
       "normalize_markets",
       "review_pairs",
       "calculate_opportunities",
       "finalize"
-    ]);
+    ];
+    expect(resumedSteps.map((s) => s.stepName).slice().sort()).toEqual(expected.slice().sort());
+    expect(resumedSteps).toHaveLength(6);
 
     const afterOpportunities = await db.query<{ count: number }>(`select count(*) as count from opportunities`);
     const afterSnapshots = await db.query<{ count: number }>(`select count(*) as count from venue_market_snapshots`);
@@ -221,7 +230,12 @@ describe("Worker e2e smoke test against Postgres", () => {
 
     expect(result.status).toBe("succeeded");
 
-    const finalRepository = app.get(PostgresScanStepRepository);
+    // Issue #24: resolve the step repository through the DI token the
+    // module binds it under. Resolving by the class token fails because
+    // the provider is `{ provide: SCAN_STEP_REPOSITORY, useFactory: ... }`
+    // — the class itself is never registered as a provider, so Nest has
+    // no entry in its graph for `app.get(PostgresScanStepRepository)`.
+    const finalRepository = app.get(SCAN_STEP_REPOSITORY) as PostgresScanStepRepository;
     const fetchBooks = (await finalRepository.listForRun(runId)).filter((s) => s.stepName === "fetch_books");
     expect(fetchBooks.map((s) => s.status)).toEqual(["failed", "succeeded"]);
     expect(fetchBooks[0].failureReason).toBe("previous outage");

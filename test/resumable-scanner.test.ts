@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { RESUMABLE_SCAN_STEP_NAMES, ResumableScanner, ScanStepName } from "../src/contexts/scanner/resumable-scanner";
 import { InMemoryScannerRepository, InMemoryScanStepRepository } from "../src/contexts/scanner/in-memory-scanner-repository";
 import { ReadOnlyScanner } from "../src/contexts/scanner/read-only-scanner";
+import { ScanResult } from "../src/contexts/scanner/scanner-result";
+import { ScanStepArtifact, ScanStepRepository, ScanStepRow } from "../src/contexts/scanner/scan-step";
 import { VenueClient } from "../src/contexts/venues/domain/venue-market";
 import { CapturedCheckIn, FakeSentryCheckInClient, SentryCheckInHandle } from "../src/contexts/observability/sentry-check-in-client";
 import { kalshiPolymarketPair as buildKalshiPolymarketPair } from "./helpers/markets";
@@ -250,5 +252,122 @@ describe("ResumableScanner", () => {
     const { scanner } = buildResumableScanner(repository, stepRepository);
     const result = await scanner.runOnce();
     expect(result.workerId).toBeUndefined();
+  });
+
+  // Issue #24: regression guard. The Postgres `scan_steps.scan_run_id`
+  // column has a foreign key onto `scan_runs.id`. Two invariants must
+  // hold together:
+  //   1. The `scan_runs` row must exist BEFORE any `scan_steps` row.
+  //   2. The `scan_runs` row must use the SAME id the orchestrator
+  //      chose for its step trail. Otherwise the FK points nowhere and
+  //      the database rejects the step insert.
+  // The previous bug satisfied (1) by accident — the inner scanner
+  // happened to write its `scan_runs` row first — but used a DIFFERENT
+  // id, so Postgres still rejected the step insert with a FK violation.
+  it("persists the scan_runs row with the same id the orchestrator chose for its step trail", async () => {
+    const events: string[] = [];
+    const repository = new InMemoryScannerRepository();
+    const stepRepository: ScanStepRepository = {
+      async saveStep(step: ScanStepArtifact): Promise<ScanStepRow> {
+        events.push(`saveStep:${step.stepName}:${step.status}:${step.scanRunId}`);
+        return {
+          id: `row-${events.length}`,
+          scanRunId: step.scanRunId,
+          stepName: step.stepName,
+          status: step.status,
+          startedAt: step.startedAt,
+          completedAt: step.completedAt,
+          attempt: 1,
+          failureReason: step.failureReason,
+          metadata: step.metadata ?? {}
+        };
+      },
+      async listForRun() { return []; },
+      async getStep() { return undefined; },
+      async markRunHeartbeat(scanRunId: string) {
+        events.push(`markRunHeartbeat:${scanRunId}`);
+      }
+    };
+
+    // Wrap the in-memory repository to record when the inner scanner
+    // (or anyone) writes a scan_runs row.
+    const originalSaveScanRun = repository.saveScanRun.bind(repository);
+    repository.saveScanRun = (scanRun: ScanResult): Promise<void> => {
+      events.push(`saveScanRun:${scanRun.id}:${scanRun.status}`);
+      return originalSaveScanRun(scanRun);
+    };
+
+    const innerScanner = new ReadOnlyScanner({
+      kalshiClient: kalshiPolymarketPair().kalshiClient,
+      polymarketClient: kalshiPolymarketPair().polymarketClient,
+      repository
+    });
+
+    const scanner = new ResumableScanner({
+      innerScanner,
+      stepRepository,
+      checkInClient: new FakeSentryCheckInClient(),
+      monitorSlug: "arbitrage-agents-scan",
+      clock: () => "2026-06-04T12:00:00.000Z",
+      nextScanRunId: () => "scan-fk-order"
+    });
+
+    const result = await scanner.runOnce();
+    expect(result.status).toBe("succeeded");
+    expect(result.id).toBe("scan-fk-order");
+
+    // (1) The first scan_runs write must precede the first scan_steps write.
+    const firstSaveScanRunAt = events.findIndex((e) => e.startsWith("saveScanRun:"));
+    const firstSaveStepAt = events.findIndex((e) => e.startsWith("saveStep:"));
+    expect(firstSaveScanRunAt).toBeGreaterThanOrEqual(0);
+    expect(firstSaveStepAt).toBeGreaterThanOrEqual(0);
+    expect(firstSaveScanRunAt).toBeLessThan(firstSaveStepAt);
+
+    // (2) The scan_runs row must use the same id the step trail uses.
+    // The orchestrator chose "scan-fk-order" via `nextScanRunId`. Every
+    // step row references that id; the scan_runs row must too.
+    const stepIds = events
+      .filter((e) => e.startsWith("saveStep:"))
+      .map((e) => e.split(":")[3]);
+    expect(stepIds.length).toBeGreaterThan(0);
+    expect(new Set(stepIds)).toEqual(new Set(["scan-fk-order"]));
+    const scanRunIds = events
+      .filter((e) => e.startsWith("saveScanRun:"))
+      .map((e) => e.split(":")[1]);
+    expect(scanRunIds).toContain("scan-fk-order");
+  });
+
+  // Issue #24: regression guard. The `scan_runs` row inserted by the
+  // inner scanner must use the SAME id the orchestrator chose for its
+  // step trail. Otherwise the `scan_steps.scan_run_id` foreign key has
+  // nothing to point at and the database rejects the insert.
+  it("threads its scanRunId into the inner scanner so the scan_runs row matches the step trail", async () => {
+    const innerCalls: Array<string | undefined> = [];
+    const repository = new InMemoryScannerRepository();
+    const innerScanner = {
+      runOnce: vi.fn(async (scanRunId?: string) => {
+        innerCalls.push(scanRunId);
+        return {
+          id: scanRunId ?? "unexpected",
+          status: "succeeded" as const,
+          startedAt: "2026-06-04T12:00:00.000Z",
+          completedAt: "2026-06-04T12:00:01.000Z",
+          metrics: { marketsScanned: 0, normalizedMarkets: 0, candidatePairs: 0, opportunitiesFound: 0, llmEvaluations: 0 }
+        };
+      })
+    } as unknown as ReadOnlyScanner;
+
+    const scanner = new ResumableScanner({
+      innerScanner,
+      stepRepository: new InMemoryScanStepRepository(),
+      checkInClient: new FakeSentryCheckInClient(),
+      monitorSlug: "arbitrage-agents-scan",
+      clock: () => "2026-06-04T12:00:00.000Z",
+      nextScanRunId: () => "scan-passthrough"
+    });
+
+    const result = await scanner.runOnce();
+    expect(result.id).toBe("scan-passthrough");
+    expect(innerCalls).toEqual(["scan-passthrough"]);
   });
 });

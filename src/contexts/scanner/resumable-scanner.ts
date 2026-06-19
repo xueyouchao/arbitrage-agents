@@ -106,7 +106,12 @@ export class ResumableScanner {
         // keeps the trail clean.
         if (stepName === "fetch_markets") {
           try {
-            const innerResult = await this.deps.innerScanner.runOnce();
+            // Issue #24: pass our `scanRunId` into the inner scanner so
+            // the `scan_runs` row it inserts uses the SAME id the step
+            // trail references. Without this, the inner scanner generates
+            // a fresh UUID and the `scan_steps.scan_run_id` foreign key
+            // points at a non-existent row, breaking every fresh run.
+            const innerResult = await this.deps.innerScanner.runOnce(scanRunId);
             finalInnerResult = innerResult;
             // Mark the step succeeded. Use the inner result's startedAt
             // as the step timestamp so the trail reflects the actual
