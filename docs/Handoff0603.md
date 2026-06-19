@@ -1361,3 +1361,46 @@ All verification checks passed:
 ### Status
 
 ✅ **DONE** — Merged to `main` on 2026-06-18. Branch `fix/sentry-review-findings` deleted locally and remotely.
+
+---
+
+## Issue #24 — Worker smoke FK violation (commit `914a946`)
+
+**Branch:** `fix/issue-24-worker-smoke-fk`
+**Merged:** 2026-06-18 (PR #25)
+**Closes:** #24
+
+### Symptom
+
+All 4 worker-smoke integration tests failed on `origin/main` with Postgres error `23503` (foreign key violation): `scan_steps.scan_run_id` pointed at a non-existent `scan_runs.id`.
+
+### Root cause
+
+`ResumableScanner.runOnce` generated its own `scanRunId` and immediately wrote `scan_steps` rows referencing it. The matching `scan_runs` row was inserted inside `ReadOnlyScanner.runOnce`, which was called *without* a `scanRunId` argument and therefore generated a fresh UUID of its own. The two ids never matched → step insert was rejected by the FK.
+
+The inner scanner already accepted a `scanRunId?` parameter — the orchestrator just wasn't using it.
+
+### Fix (`src/contexts/scanner/resumable-scanner.ts:106-110`)
+
+Thread the orchestrator's `scanRunId` into `innerScanner.runOnce(scanRunId)` so the `scan_runs` row uses the same id the step trail references.
+
+### Test fixes (same commit)
+
+1. **`test/integration/worker-smoke.integration.test.ts`** — `app.get(PostgresScanStepRepository)` throws because the provider is bound to the `SCAN_STEP_REPOSITORY` symbol, not the class. Switched both call sites to `app.get(SCAN_STEP_REPOSITORY) as PostgresScanStepRepository`.
+2. The "resumes a fully-succeeded run" test pre-seeded all 6 steps with identical `startedAt`/`completedAt`, so the SQL `ORDER BY` fell back to UUID `id` (non-deterministic). Compare sorted arrays instead.
+
+### Regression tests added (`test/resumable-scanner.test.ts`)
+
+Two new unit tests, both fail against the unmodified code and pass against the fix:
+
+1. Captures the order of `saveScanRun` vs `saveStep` events and asserts both invariants: the `scan_runs` row exists before any `scan_steps` row, **and** the `scan_runs` row uses the same id the step trail uses.
+2. Asserts the orchestrator passes its `scanRunId` into `ReadOnlyScanner.runOnce(scanRunId)`.
+
+### Verification
+
+- 182/182 unit tests passing
+- 39/39 integration tests passing against real Postgres (was 0/4 for worker-smoke before the fix)
+
+### Status
+
+✅ **DONE** — Merged to `main` on 2026-06-18. Branch `fix/issue-24-worker-smoke-fk` deleted locally and remotely on 2026-06-19.
