@@ -204,7 +204,9 @@ switch (assertion) {
     assert(data.data && Array.isArray(data.data), "expected data array in envelope");
     assert(data.pagination && typeof data.pagination.total === "number" && typeof data.pagination.hasMore === "boolean", "expected pagination envelope with total + hasMore");
     const items = data.data;
-    // pagination.total is the global record count; hasMore===false means the page holds the full set
+    // pagination.total is the global record count; hasMore===false means the page holds the full set.
+    // GET /v1/markets orders by created_at DESC (see postgres-read-repositories.listMarkets), and the
+    // seed gives P1 created_at 12:00:01 > K1 12:00:00, so items[0] is deterministically polymarket.
     assert(data.pagination.total === 2, "expected total to be the global record count");
     assert(data.pagination.hasMore === false, "expected full dataset returned on first page");
     assert(items.length === 2, "expected all records on this page");
@@ -223,7 +225,10 @@ switch (assertion) {
     // pagination.total is the global record count; hasMore===false means the page holds the full set
     assert(data.pagination.total === 3, "expected total to be the global record count");
     assert(data.pagination.hasMore === false, "expected full dataset returned on first page");
-    // matches the 3 rows seeded in test/acceptance/seed.sql (ids ...0401/...0402/...0403)
+    // matches the 3 rows seeded in test/acceptance/seed.sql (ids ...0401/...0402/...0403).
+    // GET /v1/opportunities orders by detected_at DESC by default (see
+    // postgres-read-repositories.listOpportunities); the seed gives ...0401 the latest
+    // detected_at (12:00:01), so items[0] is deterministically ...0401 (opportunityId).
     assert(items.length === 3, "expected all records on this page");
     assert(items[0].id === opportunityId, "expected seeded opportunity id");
     assert(items[0].pairId === "00000000-0000-4000-8000-000000000201", "expected seeded pair id");
