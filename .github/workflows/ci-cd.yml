@@ -207,6 +207,11 @@ jobs:
         run: npm run test:acceptance
         env:
           DATABASE_URL: postgres://postgres:acceptance@localhost:5432/arbitrage_agents
+          # The acceptance runner resets this disposable, service-postgres
+          # database (postgres:16-alpine, POSTGRES_DB: arbitrage_agents). It
+          # refuses to run without this acknowledgement to avoid clobbering a
+          # real database; the CI service DB is disposable, so opt in here.
+          ACCEPTANCE_CONFIRM_DISPOSABLE_DATABASE: true
 
   # ---- Quality Gate Summary ----
   quality-gate:

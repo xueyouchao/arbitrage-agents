@@ -200,28 +200,46 @@ switch (assertion) {
   case "health":
     assert(data.status === "ok", "expected status ok");
     break;
-  case "markets":
-    assert(Array.isArray(data), "expected array");
-    assert(data.length === 2, "expected two markets");
-    assert(data[0].venue === "polymarket", "expected newest market first");
-    assert(data[0].venueMarketId === "P1", "expected polymarket venueMarketId P1");
-    assert(data[0].threshold === 100000, "expected numeric threshold");
-    assert(data[0].confidence === 0.93, "expected numeric confidence");
-    assert(data[1].venue === "kalshi", "expected second market to be kalshi");
-    assert(data[1].ambiguityFlags.length === 0, "expected empty ambiguity flags");
+  case "markets": {
+    assert(data.data && Array.isArray(data.data), "expected data array in envelope");
+    assert(data.pagination && typeof data.pagination.total === "number" && typeof data.pagination.hasMore === "boolean", "expected pagination envelope with total + hasMore");
+    const items = data.data;
+    // pagination.total is the global record count; hasMore===false means the page holds the full set.
+    // GET /v1/markets orders by created_at DESC (see postgres-read-repositories.listMarkets), and the
+    // seed gives P1 created_at 12:00:01 > K1 12:00:00, so items[0] is deterministically polymarket.
+    assert(data.pagination.total === 2, "expected total to be the global record count");
+    assert(data.pagination.hasMore === false, "expected full dataset returned on first page");
+    assert(items.length === 2, "expected all records on this page");
+    assert(items[0].venue === "polymarket", "expected newest market first");
+    assert(items[0].venueMarketId === "P1", "expected polymarket venueMarketId P1");
+    assert(items[0].threshold === 100000, "expected numeric threshold");
+    assert(items[0].confidence === 0.93, "expected numeric confidence");
+    assert(items[1].venue === "kalshi", "expected second market to be kalshi");
+    assert(items[1].ambiguityFlags.length === 0, "expected empty ambiguity flags");
     break;
-  case "opportunities":
-    assert(Array.isArray(data), "expected array");
-    assert(data.length === 1, "expected one opportunity");
-    assert(data[0].id === opportunityId, "expected seeded opportunity id");
-    assert(data[0].pairId === "00000000-0000-4000-8000-000000000201", "expected seeded pair id");
-    assert(data[0].combinedCost === 0.93, "expected combinedCost 0.93");
-    assert(data[0].netEdge === 0.055, "expected netEdge 0.055");
-    assert(data[0].longLeg.venue === "kalshi", "expected kalshi long leg");
-    assert(data[0].hedgeLeg.side === "NO", "expected NO hedge leg");
-    assert(data[0].kalshiOrderbookSnapshotId === "00000000-0000-4000-8000-000000000301", "expected kalshi snapshot provenance");
-    assert(data[0].polymarketOrderbookSnapshotId === "00000000-0000-4000-8000-000000000302", "expected polymarket snapshot provenance");
+  }
+  case "opportunities": {
+    assert(data.data && Array.isArray(data.data), "expected data array in envelope");
+    assert(data.pagination && typeof data.pagination.total === "number" && typeof data.pagination.hasMore === "boolean", "expected pagination envelope with total + hasMore");
+    const items = data.data;
+    // pagination.total is the global record count; hasMore===false means the page holds the full set
+    assert(data.pagination.total === 3, "expected total to be the global record count");
+    assert(data.pagination.hasMore === false, "expected full dataset returned on first page");
+    // matches the 3 rows seeded in test/acceptance/seed.sql (ids ...0401/...0402/...0403).
+    // GET /v1/opportunities orders by detected_at DESC by default (see
+    // postgres-read-repositories.listOpportunities); the seed gives ...0401 the latest
+    // detected_at (12:00:01), so items[0] is deterministically ...0401 (opportunityId).
+    assert(items.length === 3, "expected all records on this page");
+    assert(items[0].id === opportunityId, "expected seeded opportunity id");
+    assert(items[0].pairId === "00000000-0000-4000-8000-000000000201", "expected seeded pair id");
+    assert(items[0].combinedCost === 0.93, "expected combinedCost 0.93");
+    assert(items[0].netEdge === 0.055, "expected netEdge 0.055");
+    assert(items[0].longLeg.venue === "kalshi", "expected kalshi long leg");
+    assert(items[0].hedgeLeg.side === "NO", "expected NO hedge leg");
+    assert(items[0].kalshiOrderbookSnapshotId === "00000000-0000-4000-8000-000000000301", "expected kalshi snapshot provenance");
+    assert(items[0].polymarketOrderbookSnapshotId === "00000000-0000-4000-8000-000000000302", "expected polymarket snapshot provenance");
     break;
+  }
   case "opportunityById":
     assert(data.id === opportunityId, "expected seeded opportunity id");
     assert(data.maxTradableUsd === 12, "expected maxTradableUsd 12");

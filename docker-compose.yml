@@ -1,5 +1,11 @@
 version: '3.8'
 
+# Memory budget for 8 GB VPS (2 vCPU, 100 GB NVMe):
+#   postgres: 1536M  — shared buffers + working set
+#   api:      1536M  — NestJS + read-model queries
+#   worker:   3G     — scan loop, market fetch, LLM inference
+#   OS/Docker overhead: ~2G headroom
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -23,7 +29,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
+          memory: 1536M
         reservations:
           memory: 512M
     networks:
@@ -39,8 +45,20 @@ services:
     environment:
       - NODE_ENV=production
       - DATABASE_URL=postgresql://${DB_USER:-arbitrage_user}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-arbitrage}
+      - PORT=${API_PORT:-3000}
       - SENTRY_DSN=${SENTRY_DSN}
-      - API_PORT=${API_PORT:-3000}
+      - SENTRY_SEND_DEFAULT_PII=${SENTRY_SEND_DEFAULT_PII:-false}
+      - SENTRY_TRACES_SAMPLE_RATE=${SENTRY_TRACES_SAMPLE_RATE:-0}
+      - LLM_PROMPT_SAMPLE_RATE=${LLM_PROMPT_SAMPLE_RATE:-0}
+      - SENTRY_MONITOR_SLUG=${SENTRY_MONITOR_SLUG:-arbitrage-agents-scan}
+      - LLM_ENABLED=${LLM_ENABLED:-false}
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:11434/api/chat}
+      - LLM_MODEL=${LLM_MODEL:-glm-5.2:cloud}
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - LLM_REQUEST_TIMEOUT_MS=${LLM_REQUEST_TIMEOUT_MS:-30000}
+      - SCANNER_LLM_PROMPT_VERSION=${SCANNER_LLM_PROMPT_VERSION:-scanner-v1}
+      - SCANNER_LLM_MAX_EVALUATIONS_PER_SCAN=${SCANNER_LLM_MAX_EVALUATIONS_PER_SCAN:-25}
+      # Legacy vars (not read by app, kept for backward compat)
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
     ports:
@@ -57,7 +75,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
+          memory: 1536M
         reservations:
           memory: 256M
     networks:
@@ -73,8 +91,21 @@ services:
     environment:
       - NODE_ENV=production
       - DATABASE_URL=postgresql://${DB_USER:-arbitrage_user}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-arbitrage}
-      - SENTRY_DSN=${SENTRY_DSN}
       - WORKER_SCAN_INTERVAL_MINUTES=${WORKER_SCAN_INTERVAL_MINUTES:-15}
+      - WORKER_SHUTDOWN_TIMEOUT_MS=${WORKER_SHUTDOWN_TIMEOUT_MS:-30000}
+      - SENTRY_DSN=${SENTRY_DSN}
+      - SENTRY_SEND_DEFAULT_PII=${SENTRY_SEND_DEFAULT_PII:-false}
+      - SENTRY_TRACES_SAMPLE_RATE=${SENTRY_TRACES_SAMPLE_RATE:-0}
+      - LLM_PROMPT_SAMPLE_RATE=${LLM_PROMPT_SAMPLE_RATE:-0}
+      - SENTRY_MONITOR_SLUG=${SENTRY_MONITOR_SLUG:-arbitrage-agents-scan}
+      - LLM_ENABLED=${LLM_ENABLED:-false}
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:11434/api/chat}
+      - LLM_MODEL=${LLM_MODEL:-glm-5.2:cloud}
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - LLM_REQUEST_TIMEOUT_MS=${LLM_REQUEST_TIMEOUT_MS:-30000}
+      - SCANNER_LLM_PROMPT_VERSION=${SCANNER_LLM_PROMPT_VERSION:-scanner-v1}
+      - SCANNER_LLM_MAX_EVALUATIONS_PER_SCAN=${SCANNER_LLM_MAX_EVALUATIONS_PER_SCAN:-25}
+      # Legacy vars (not read by app, kept for backward compat)
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
@@ -84,7 +115,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: 3G
         reservations:
           memory: 512M
     networks:

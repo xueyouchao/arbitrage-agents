@@ -5,7 +5,8 @@ describe("LlmCostCalculator", () => {
   const pricing = new LlmCostCalculator({
     "gpt-4o": { promptPer1M: 2.5, completionPer1M: 10.0 },
     "gpt-4o-mini": { promptPer1M: 0.15, completionPer1M: 0.6 },
-    "minimax-m3:cloud": { promptPer1M: 0.2, completionPer1M: 0.8 }
+    "minimax-m3:cloud": { promptPer1M: 0.2, completionPer1M: 0.8 },
+    "glm-5.2:cloud": { promptPer1M: 0.2, completionPer1M: 0.8 }
   });
 
   it("computes cost from prompt and completion tokens using model pricing", () => {
@@ -32,9 +33,9 @@ describe("LlmCostCalculator", () => {
   });
 
   it("uses the project default model pricing", () => {
-    // minimax-m3:cloud is the default model in app-config
+    // glm-5.2:cloud is the default model in app-config
     // 10K prompt × $0.20/1M = 0.002, 5K completion × $0.80/1M = 0.004
-    const cost = pricing.calculate("minimax-m3:cloud", { promptTokens: 10_000, completionTokens: 5_000 });
+    const cost = pricing.calculate("glm-5.2:cloud", { promptTokens: 10_000, completionTokens: 5_000 });
     expect(cost).toBeCloseTo(0.002 + 0.004, 8); // $0.006
   });
 });

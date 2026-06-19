@@ -41,6 +41,7 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   "gpt-4.1-nano":       { promptPer1M: 0.10, completionPer1M: 0.40 },
   "o3-mini":            { promptPer1M: 1.10, completionPer1M: 4.40 },
   "minimax-m3:cloud":   { promptPer1M: 0.20, completionPer1M: 0.80 },
+  "glm-5.2:cloud":      { promptPer1M: 0.20, completionPer1M: 0.80 },
 };
 
 const defaultCalculator = new LlmCostCalculator(DEFAULT_PRICING);
