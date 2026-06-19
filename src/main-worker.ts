@@ -63,17 +63,15 @@ async function bootstrap() {
 
     if (!shuttingDown) {
       console.log(`[worker] Sleeping ${intervalMinutes} min until next scan...`);
-      await new Promise<void>((resolve) => {
-        const onTerm = () => { clearTimeout(timer); resolve(); };
-        const onInt  = () => { clearTimeout(timer); resolve(); };
-        const timer = setTimeout(() => {
-          process.removeListener("SIGTERM", onTerm);
-          process.removeListener("SIGINT", onInt);
-          resolve();
-        }, intervalMs);
-        process.once("SIGTERM", onTerm);
-        process.once("SIGINT", onInt);
-      });
+      // Poll shuttingDown every second so we wake quickly on SIGTERM/SIGINT
+      // without needing temporary signal handlers. The main process.on
+      // handlers (above) set shuttingDown = true, and this loop exits
+      // within 1 second.
+      const pollMs = 1000;
+      const deadline = Date.now() + intervalMs;
+      while (!shuttingDown && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, pollMs));
+      }
     }
   }
 }
