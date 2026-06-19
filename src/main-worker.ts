@@ -6,7 +6,9 @@ import {
   DEFAULT_INTERVAL_MINUTES,
   DEFAULT_SHUTDOWN_TIMEOUT_MS,
   parseScanIntervalMinutes,
+  parsePositiveFiniteNumber,
   waitForScanToSettle,
+  createInterruptibleSleep,
 } from "./contexts/scanner/worker-runtime-helpers";
 
 // Production worker entry point.
@@ -28,10 +30,19 @@ import {
 // exits within Docker's stop grace period rather than being
 // force-killed (which would strand DB connections and Sentry check-ins).
 //
-// The interval parsing and shutdown-wait helpers live in
+// The interval parsing and shutdown/sleep helpers live in
 // ./contexts/scanner/worker-runtime-helpers so they can be unit-tested
 // without importing this entry point (which would pull the Nest
 // dependency graph into coverage instrumentation).
+//
+// Signal handling: there is exactly ONE persistent shutdown handler per
+// signal (process.on("SIGTERM"/"SIGINT") below). The interval sleep is
+// interruptible via a transient listener (added/removed per sleep by
+// createInterruptibleSleep) that ONLY resolves the sleep — it does not
+// call shutdown. The persistent handler owns shutdown; the transient
+// listener just lets the sleep end promptly so the loop re-checks
+// `shuttingDown` and exits. This split is explicit and scoped, not
+// accidental duplication.
 
 async function bootstrap() {
   const app = await NestFactory.createApplicationContext(WorkerAppModule);
@@ -43,12 +54,25 @@ async function bootstrap() {
   );
   const intervalMs = intervalMinutes * 60 * 1000;
 
-  const shutdownTimeoutMs = parseScanIntervalMinutes(
+  // The shutdown timeout is in milliseconds — parse it with the generic
+  // positive-finite helper, NOT the minutes-named one, so the value is
+  // not misread as minutes (e.g. WORKER_SHUTDOWN_TIMEOUT_MS=60000 means
+  // 60 seconds, not 60000 minutes).
+  const shutdownTimeoutMs = parsePositiveFiniteNumber(
     process.env.WORKER_SHUTDOWN_TIMEOUT_MS,
     DEFAULT_SHUTDOWN_TIMEOUT_MS,
   );
 
   const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  // Interruptible interval sleep backed by real timers and real process
+  // listeners. The transient listener added per sleep only resolves the
+  // sleep; it does NOT call shutdown (the persistent handler does).
+  const interruptibleSleep = createInterruptibleSleep({
+    sleep: realSleep,
+    addSignalListener: (sig, cb) => process.on(sig, cb),
+    removeSignalListener: (sig, cb) => process.removeListener(sig, cb),
+  });
 
   let shuttingDown = false;
   let scanInFlight = false;
@@ -79,6 +103,7 @@ async function bootstrap() {
     process.exit(0);
   };
 
+  // One persistent shutdown handler per signal.
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
   process.on("SIGINT", () => void shutdown("SIGINT"));
 
@@ -98,17 +123,10 @@ async function bootstrap() {
 
     if (!shuttingDown) {
       console.log(`[worker] Sleeping ${intervalMinutes} min until next scan...`);
-      await new Promise<void>((resolve) => {
-        const onTerm = () => { clearTimeout(timer); resolve(); };
-        const onInt  = () => { clearTimeout(timer); resolve(); };
-        const timer = setTimeout(() => {
-          process.removeListener("SIGTERM", onTerm);
-          process.removeListener("SIGINT", onInt);
-          resolve();
-        }, intervalMs);
-        process.once("SIGTERM", onTerm);
-        process.once("SIGINT", onInt);
-      });
+      // The transient listener inside interruptibleSleep resolves the sleep
+      // on signal; the loop condition `!shuttingDown` then exits because the
+      // persistent shutdown handler already set the flag.
+      await interruptibleSleep(intervalMs);
     }
   }
 }
