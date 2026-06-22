@@ -20,6 +20,13 @@ name: AI Code Review (PR-Agent, multi-model)
 # "Failed to generate code suggestions for PR" message comes from the
 # /improve command; if you still see it after this change, another PR-Agent
 # installation (GitHub App, another workflow, or repo-level config) is running.
+#
+# Re-review on push: the `on: pull_request` trigger below already includes
+# `synchronize` (fires on every commit pushed to a PR branch), but that only
+# makes the workflow *run*. PR-Agent's runner additionally gates each auto tool
+# on github_action_config.pr_actions, whose default list omits `synchronize`,
+# so follow-up pushes were silently skipped. Each job sets pr_actions below to
+# include `synchronize`, so reviews re-run on every push.
 
 on:
   pull_request:
@@ -59,6 +66,12 @@ jobs:
           github_action_config__auto_describe: "false"
           github_action_config__auto_improve: "false"
 
+          # Re-run review on every commit pushed to the PR (synchronize),
+          # not just on open/reopen/ready_for_review. Without this, PR-Agent's
+          # runner skips the auto tools on follow-up pushes because its
+          # default pr_actions list omits "synchronize".
+          github_action_config__pr_actions: '["opened", "synchronize", "reopened", "ready_for_review", "review_requested"]'
+
           config__model: "openrouter/nex-agi/nex-n2-pro:free"
           config__fallback_models: '["openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"]'
           config__custom_model_max_tokens: "8000"
@@ -96,6 +109,12 @@ jobs:
           github_action_config__auto_describe: "false"
           github_action_config__auto_improve: "false"
 
+          # Re-run review on every commit pushed to the PR (synchronize),
+          # not just on open/reopen/ready_for_review. Without this, PR-Agent's
+          # runner skips the auto tools on follow-up pushes because its
+          # default pr_actions list omits "synchronize".
+          github_action_config__pr_actions: '["opened", "synchronize", "reopened", "ready_for_review", "review_requested"]'
+
           config__model: "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
           config__fallback_models: '["openrouter/nex-agi/nex-n2-pro:free"]'
           config__custom_model_max_tokens: "8000"
@@ -124,6 +143,12 @@ jobs:
           github_action_config__auto_review: "true"
           github_action_config__auto_describe: "false"
           github_action_config__auto_improve: "false"
+
+          # Re-run review on every commit pushed to the PR (synchronize),
+          # not just on open/reopen/ready_for_review. Without this, PR-Agent's
+          # runner skips the auto tools on follow-up pushes because its
+          # default pr_actions list omits "synchronize".
+          github_action_config__pr_actions: '["opened", "synchronize", "reopened", "ready_for_review", "review_requested"]'
 
           config__model: "openai/minimax-m3:cloud"
           config__fallback_models: '["openai/kimi-k2.7-code:cloud"]'
@@ -159,6 +184,12 @@ jobs:
           github_action_config__auto_describe: "false"
           github_action_config__auto_improve: "false"
 
+          # Re-run review on every commit pushed to the PR (synchronize),
+          # not just on open/reopen/ready_for_review. Without this, PR-Agent's
+          # runner skips the auto tools on follow-up pushes because its
+          # default pr_actions list omits "synchronize".
+          github_action_config__pr_actions: '["opened", "synchronize", "reopened", "ready_for_review", "review_requested"]'
+
           config__model: "openai/kimi-k2.7-code:cloud"
           config__fallback_models: '["openai/deepseek-v4-flash:cloud"]'
           config__custom_model_max_tokens: "8000"
@@ -189,6 +220,12 @@ jobs:
           github_action_config__auto_review: "true"
           github_action_config__auto_describe: "false"
           github_action_config__auto_improve: "false"
+
+          # Re-run review on every commit pushed to the PR (synchronize),
+          # not just on open/reopen/ready_for_review. Without this, PR-Agent's
+          # runner skips the auto tools on follow-up pushes because its
+          # default pr_actions list omits "synchronize".
+          github_action_config__pr_actions: '["opened", "synchronize", "reopened", "ready_for_review", "review_requested"]'
 
           config__model: "openai/deepseek-v4-flash:cloud"
           config__fallback_models: '["openai/minimax-m3:cloud"]'
