@@ -1,7 +1,6 @@
-import { Inject, Injectable, OnModuleDestroy } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { Pool } from "pg";
-import { APP_CONFIG } from "../../config/config.module";
-import { AppConfig } from "../../config/app-config";
+import { DATABASE_POOL } from "../shared/database/database-tokens";
 import {
   MarketReadModel,
   MarketReadRepository,
@@ -18,18 +17,19 @@ import {
   ScanRunReadRepository
 } from "./read-models";
 
+// The shared `DATABASE_POOL` is injected; this repository no longer
+// constructs its own `Pool` or owns `pool.end()`. Pool lifetime is owned
+// solely by `DatabasePoolHolder` in the shared database infrastructure
+// module, which calls `pool.end()` once during `onApplicationShutdown`
+// after every consumer (api + scanner) has finished its last query.
 @Injectable()
 export class PostgresReadRepositories
-  implements OpportunityReadRepository, MarketReadRepository, ScanRunReadRepository, PaperTradeSimulationReadRepository, OnModuleDestroy
+  implements OpportunityReadRepository, MarketReadRepository, ScanRunReadRepository, PaperTradeSimulationReadRepository
 {
   private readonly pool: Pool;
 
-  constructor(@Inject(APP_CONFIG) config: AppConfig) {
-    this.pool = new Pool({ connectionString: config.databaseUrl });
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    await this.pool.end();
+  constructor(@Inject(DATABASE_POOL) pool: Pool) {
+    this.pool = pool;
   }
 
   async listOpportunities(params?: {
