@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:acceptance": "bash test/acceptance/run-api-acceptance.sh",
+    "test:acceptance:docker": "bash test/acceptance/run-api-acceptance-with-docker.sh",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
     "smoke:sentry-monitor": "node dist/src/sentry-monitor-smoke.js",
