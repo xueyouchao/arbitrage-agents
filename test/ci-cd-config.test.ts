@@ -56,11 +56,40 @@ describe("CI/CD Pipeline Configuration", () => {
   it("coverage configuration has thresholds defined", async () => {
     const configPath = join(process.cwd(), "vitest.config.ts");
     const content = await readFile(configPath, "utf8");
-    
+
     expect(content).toContain("thresholds");
     expect(content).toContain("lines");
     expect(content).toContain("functions");
     expect(content).toContain("branches");
     expect(content).toContain("statements");
+  });
+
+  it("deploy-production job runs migrations before the code swap and rolls back code (not the DB) on health failure", async () => {
+    const workflowPath = join(process.cwd(), ".github/workflows/ci-cd.yml");
+    const content = await readFile(workflowPath, "utf8");
+    const parsed = yaml.parse(content);
+
+    const deploy = parsed.jobs["deploy-production"];
+    expect(deploy).toBeDefined();
+    // Production deploys are gated behind the quality gate and main pushes.
+    expect(deploy.needs).toContain("quality-gate");
+    expect(deploy.if).toContain("refs/heads/main");
+
+    const script: string = deploy.steps[0].with.script;
+
+    // Migrations must run BEFORE the rebuild/restart so a migration
+    // failure never touches the live app.
+    const migrateIdx = script.indexOf("npm run db:migrate");
+    const rebuildIdx = script.indexOf("docker compose up -d --build");
+    expect(migrateIdx).toBeGreaterThan(-1);
+    expect(rebuildIdx).toBeGreaterThan(-1);
+    expect(migrateIdx).toBeLessThan(rebuildIdx);
+
+    // Rollback records and checks out the pre-deploy SHA (not HEAD~1,
+    // which can point at the wrong ref after a merge), and explicitly
+    // does NOT revert the database.
+    expect(script).toContain("PRE_DEPLOY_SHA=$(git rev-parse HEAD)");
+    expect(script).toContain('git checkout "$PRE_DEPLOY_SHA" -- .');
+    expect(script).toMatch(/NOT reverted|intentionally NOT reverted/i);
   });
 });

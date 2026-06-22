@@ -248,6 +248,22 @@ jobs:
           fi
 
   # ---- Production Deploy ----
+  # Deploy order is deliberate and risk-ordered:
+  #   1. Pull code.
+  #   2. Run migrations AGAINST THE NEW CODE while the OLD containers are
+  #      still serving traffic. A migration failure aborts here before the
+  #      running app is touched — no rollback needed.
+  #   3. Rebuild + restart (the code swap).
+  #   4. Health-check the new app.
+  #   5. On health failure, roll back CODE only (git checkout <pre-deploy
+  #      SHA> + rebuild). The database is intentionally NOT rolled back.
+  #      This is safe ONLY because migrations MUST be backward-compatible
+  #      (additive: new tables/columns, new constraints, new indexes).
+  #      Destructive ops (DROP TABLE/COLUMN/CONSTRAINT, RENAME, DELETE)
+  #      must be split across two deploys: ship the additive change first,
+  #      defer the removal to a later deploy once no running code
+  #      references the old shape. A forward-migrated DB must keep working
+  #      with the rolled-back old code.
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
@@ -269,8 +285,18 @@ jobs:
             APP_DIR="/opt/arbitrage-agents"
             cd "$APP_DIR"
 
+            echo "=== Recording pre-deploy commit (for rollback) ==="
+            PRE_DEPLOY_SHA=$(git rev-parse HEAD)
+
             echo "=== Pulling latest code ==="
             git pull origin main
+
+            # Run migrations BEFORE rebuilding/restarting so a migration
+            # failure never touches the live app. The new code is on disk
+            # but the OLD containers are still running. If this exits
+            # non-zero, the still-running old containers are unaffected.
+            echo "=== Running database migrations (pre-swap) ==="
+            docker compose exec -T api npm run db:migrate
 
             echo "=== Rebuilding and restarting services ==="
             docker compose up -d --build
@@ -278,19 +304,20 @@ jobs:
             echo "=== Waiting for services to be healthy ==="
             sleep 15
 
-            echo "=== Running database migrations ==="
-            docker compose exec -T api npm run db:migrate
-
             echo "=== Verifying health endpoint ==="
             HEALTH=$(curl -sf http://localhost:3000/health || echo "UNHEALTHY")
             if echo "$HEALTH" | grep -q "ok"; then
               echo "✅ Deployment successful — API is healthy"
             else
-              echo "❌ Health check failed, rolling back..."
-              git reflog | head -5
-              git checkout HEAD~1 -- .
+              echo "❌ Health check failed, rolling back application code..."
+              echo "=== Rolling back to pre-deploy SHA: $PRE_DEPLOY_SHA ==="
+              git checkout "$PRE_DEPLOY_SHA" -- .
               docker compose up -d --build
-              echo "⏪ Rolled back to previous version"
+              echo "⏪ Application code rolled back to $PRE_DEPLOY_SHA"
+              echo "NOTE: database migrations are intentionally NOT reverted."
+              echo "NOTE: the rolled-back code must remain compatible with the"
+              echo "NOTE: forward-migrated schema (additive migrations only)."
+              echo "NOTE: investigate the health failure manually before re-deploying."
               exit 1
             fi
 
