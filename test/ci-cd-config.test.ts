@@ -92,4 +92,36 @@ describe("CI/CD Pipeline Configuration", () => {
     expect(script).toContain('git checkout "$PRE_DEPLOY_SHA" -- .');
     expect(script).toMatch(/NOT reverted|intentionally NOT reverted/i);
   });
+
+  it("deploy-production health check uses a bounded retry loop (not a fixed sleep + single curl)", async () => {
+    const workflowPath = join(process.cwd(), ".github/workflows/ci-cd.yml");
+    const content = await readFile(workflowPath, "utf8");
+    const parsed = yaml.parse(content);
+
+    const script: string = parsed.jobs["deploy-production"].steps[0].with.script;
+
+    // A loop construct exists (bash `for ... in ... seq` or `while ... do`).
+    expect(script).toMatch(/for .* in .*\bseq\b|while .*\bdo\b/i);
+
+    // The loop body contains a sleep (poll interval).
+    expect(script).toMatch(/sleep [0-9]+/);
+
+    // The health probe (curl /health + grep -q "ok") is INSIDE the loop body.
+    // Assert the loop construct appears before the success/failure branch,
+    // so the probe repeats inside the loop rather than running once after a
+    // single fixed sleep.
+    const loopIdx = script.search(/for .* in .*\bseq\b|while .*\bdo\b/i);
+    const successIdx = script.indexOf('✅ Deployment successful');
+    expect(loopIdx).toBeGreaterThan(-1);
+    expect(successIdx).toBeGreaterThan(-1);
+    expect(loopIdx).toBeLessThan(successIdx);
+
+    // The curl ... /health probe must appear (it runs each iteration).
+    expect(script).toMatch(/curl[^\n]*\/health/);
+    expect(script).toMatch(/grep -q "ok"/);
+
+    // The old fragile form — bare `sleep 15` immediately before the
+    // "Verifying health" echo with no surrounding loop — must be gone.
+    expect(script).not.toMatch(/sleep 15\s*\n\s*echo "=== Verifying health/);
+  });
 });

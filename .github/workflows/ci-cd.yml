@@ -264,6 +264,29 @@ jobs:
   #      defer the removal to a later deploy once no running code
   #      references the old shape. A forward-migrated DB must keep working
   #      with the rolled-back old code.
+  #
+  #      FORBIDDEN IN A SINGLE DEPLOY (they break the OLD running code
+  #      during the pre-swap window when migrations run before the rebuild):
+  #        - adding a NOT NULL column WITHOUT a DEFAULT
+  #          (e.g. `ALTER TABLE t ADD COLUMN c BIGINT NOT NULL;` — the old
+  #          code cannot INSERT because it does not know to supply `c`,
+  #          and Postgres rejects the row).
+  #        - changing a column TYPE in place
+  #          (e.g. `ALTER TABLE t ALTER COLUMN c TYPE BIGINT;` — the old
+  #          code may write values the new type rejects, or reads may
+  #          change shape mid-window).
+  #        - any DROP or RENAME of a table/column/constraint/index/FK
+  #          (e.g. `DROP INDEX ...`, `DROP COLUMN ...`, `DROP
+  #          CONSTRAINT ...`, `RENAME COLUMN ...` — the old code still
+  #          references the old shape and errors out).
+  #      Each of these MUST be split across two deploys:
+  #        deploy N: ship the additive/compat shim (new nullable column
+  #          with a default, new table, new index concurrently, dual-write
+  #          in the app code, keep the old column/shape in place).
+  #        deploy N+1 (or later, once no running code references the old
+  #          shape): ship the removal/rename/type-change backfill.
+  #      The pre-swap window is only safe while the DB is strictly MORE
+  #      permissive than what the old code expects.
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
@@ -301,12 +324,17 @@ jobs:
             echo "=== Rebuilding and restarting services ==="
             docker compose up -d --build
 
-            echo "=== Waiting for services to be healthy ==="
-            sleep 15
-
-            echo "=== Verifying health endpoint ==="
-            HEALTH=$(curl -sf http://localhost:3000/health || echo "UNHEALTHY")
-            if echo "$HEALTH" | grep -q "ok"; then
+            echo "=== Verifying health endpoint (retry up to 120s) ==="
+            HEALTHY=false
+            for _ in $(seq 1 24); do
+              HEALTH=$(curl -sf http://localhost:3000/health || echo "UNHEALTHY")
+              if echo "$HEALTH" | grep -q "ok"; then
+                HEALTHY=true
+                break
+              fi
+              sleep 5
+            done
+            if [ "$HEALTHY" = "true" ]; then
               echo "✅ Deployment successful — API is healthy"
             else
               echo "❌ Health check failed, rolling back application code..."
