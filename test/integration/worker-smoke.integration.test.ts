@@ -110,6 +110,19 @@ describe("Worker e2e smoke test against Postgres", () => {
     expect(checkInClient.checkIns.map((c) => c.status)).toEqual(["in_progress", "ok"]);
     expect(checkInClient.checkIns[0].checkInId).toBe(checkInClient.checkIns[1].checkInId);
     expect(checkInClient.checkIns[0].slug).toBe("arbitrage-agents-scan");
+
+    // Regression: ScannerModule must inject PaperTradeSimulator into
+    // ReadOnlyScanner so live scans persist paper_trade_simulations rows.
+    // Without the wiring, /v1/opportunities/:id/paper-trades is always
+    // empty even when opportunities are detected. We assert the wiring
+    // directly (rather than via persisted rows) because the seeded
+    // fixture intentionally yields no opportunities, and the contract
+    // we are guarding is the DI wiring, not the fixture's edge.
+    const wiredScanner = app.get(ReadOnlyScanner);
+    // `dependencies` is private at the type level; read it for the test.
+    const deps = (wiredScanner as unknown as { dependencies: { paperTradeSimulator?: unknown } }).dependencies;
+    expect(deps.paperTradeSimulator).toBeDefined();
+    expect(deps.paperTradeSimulator?.constructor?.name).toBe("PaperTradeSimulator");
   });
 
   it("resumes a fully-succeeded run without re-invoking the inner scanner", async () => {

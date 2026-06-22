@@ -15,6 +15,7 @@ import { SentryScanTelemetryReporter } from "./sentry-scan-telemetry-reporter";
 import { KalshiPublicVenueClient, PolymarketPublicVenueClient } from "../venues/infrastructure/http-venue-clients";
 import { VenueClient } from "../venues/domain/venue-market";
 import { AbandonedScanDetector } from "./abandoned-scan-detector";
+import { PaperTradeSimulator } from "../arbitrage/domain/paper-trade-simulator";
 import { PostgresScanStepRepository } from "./postgres-scan-step-repository";
 import { PostgresScannerRepository } from "./postgres-scanner-repository";
 import { ReadOnlyScanner, ScannerLlmGateway } from "./read-only-scanner";
@@ -113,6 +114,15 @@ const WORKER_ID = randomUUID();
       },
       inject: [LLM_EVALUATION_REPOSITORY, APP_CONFIG]
     },
+    // Phase 3 #6: production paper-trade simulator. Uses default target
+    // notionals [5, 25, 100, executableSizeUsd] and 25 bps adverse
+    // selection. Injected into ReadOnlyScanner so live scans persist
+    // paper_trade_simulations rows for every emitted opportunity, which
+    // /v1/opportunities/:id/paper-trades and the runbook then surface.
+    // The simulator degrades to a partial-fill record on malformed input
+    // and is wrapped per-opportunity in try/catch inside the scanner, so
+    // it cannot fail the scan.
+    { provide: PaperTradeSimulator, useFactory: () => new PaperTradeSimulator() },
     {
       provide: ReadOnlyScanner,
       useFactory: (
@@ -120,6 +130,7 @@ const WORKER_ID = randomUUID();
         polymarketClient: VenueClient,
         repository: ScannerRepository,
         llmGateway: ScannerLlmGateway,
+        paperTradeSimulator: PaperTradeSimulator,
         config: AppConfig
       ) =>
         new ReadOnlyScanner({
@@ -127,6 +138,7 @@ const WORKER_ID = randomUUID();
           polymarketClient,
           repository,
           llmGateway,
+          paperTradeSimulator,
           llmPromptVersion: config.scannerLlmPromptVersion,
           llmModel: config.llmModel,
           scannerLlmMaxEvaluationsPerScan: config.scannerLlmMaxEvaluationsPerScan,
@@ -135,7 +147,7 @@ const WORKER_ID = randomUUID();
           // (Sentry SDK drops events when not initialised).
           telemetryReporter: config.sentryDsn ? new SentryScanTelemetryReporter() : undefined
         }),
-      inject: [KALSHI_VENUE_CLIENT, POLYMARKET_VENUE_CLIENT, SCANNER_REPOSITORY, SCANNER_LLM_GATEWAY, APP_CONFIG]
+      inject: [KALSHI_VENUE_CLIENT, POLYMARKET_VENUE_CLIENT, SCANNER_REPOSITORY, SCANNER_LLM_GATEWAY, PaperTradeSimulator, APP_CONFIG]
     },
     {
       provide: ResumableScanner,
