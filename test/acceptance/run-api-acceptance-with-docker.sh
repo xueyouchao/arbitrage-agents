@@ -15,10 +15,13 @@ DATABASE_URL="postgres://${DB_USER}:${DB_PASS}@127.0.0.1:${DB_PORT}/${DB_NAME}"
 # Resolve a working docker invocation: prefer plain `docker` (works when the
 # user is in the docker group), fall back to passwordless `sudo docker`.
 # Mirrors the detection logic in test/integration/postgres-test-database.ts.
+# Probe with `docker info` (daemon socket access) rather than `docker run
+# hello-world`, so a network/image-pull failure isn't misreported as a
+# permissions problem.
 DOCKER=()
-if command -v docker >/dev/null 2>&1 && docker run --rm hello-world >/dev/null 2>&1; then
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   DOCKER=(docker)
-elif sudo -n docker run --rm hello-world >/dev/null 2>&1; then
+elif sudo -n docker info >/dev/null 2>&1; then
   DOCKER=(sudo -n docker)
 else
   printf 'docker is required for this acceptance wrapper; tried `docker` and `sudo -n docker`\n' >&2
