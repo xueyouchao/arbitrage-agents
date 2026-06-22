@@ -40,6 +40,9 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: arbitrage-api
+    # Run as host UID/GID 1000 (ubuntu) so any host-visible files written by
+    # the container are owned by the host user (no EACCES on host-side gates).
+    user: "1000:1000"
     restart: unless-stopped
     command: npm run start:prod:api
     environment:
@@ -86,6 +89,8 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: arbitrage-worker
+    # Run as host UID/GID 1000 (ubuntu); see api service for rationale.
+    user: "1000:1000"
     restart: unless-stopped
     command: npm run start:prod:worker
     environment:

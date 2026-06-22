@@ -30,13 +30,16 @@ RUN npm ci --only=production
 # Copy built application
 COPY --from=builder /app/dist ./dist
 
-# Create non-root user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
+# The base image (node:20-alpine) ships a `node` user at UID/GID 1000, which
+# matches the host `ubuntu` user. Reuse it instead of creating a new user:
+# this keeps the container UID aligned with the host user so any host-visible
+# files written by the container (dist/, node_modules/ via bind-mounts or copy)
+# are owned by the host user — no EACCES on host-side npm gates.
 
-# Change ownership of the app directory
-RUN chown -R nodejs:nodejs /app
-USER nodejs
+# Change ownership of the app directory (dist + node_modules are copied in
+# above as root) so the non-root node user can execute its own binaries.
+RUN chown -R node:node /app
+USER node
 
 # Expose API port
 EXPOSE 3000
