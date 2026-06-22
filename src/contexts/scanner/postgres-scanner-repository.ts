@@ -13,18 +13,19 @@ import {
   ReviewedNormalizedMarket,
   ScannerRepository
 } from "./scanner-repository";
-import { SCANNER_DB_POOL } from "./scanner-tokens";
+import { DATABASE_POOL } from "../shared/database/database-tokens";
 import { ScanResult } from "./scanner-result";
 import { LlmEvaluationRecord } from "../llm/application/llm-evaluation";
 
 @Injectable()
 export class PostgresScannerRepository implements ScannerRepository {
-  // Phase 4: the SCANNER_DB_POOL is owned by the scanner module's
-  // `onApplicationShutdown` (see `ScannerDbPoolHolder`). The repository
-  // no longer implements `OnModuleDestroy` because that hook ran before
-  // its sibling consumers (e.g. `PostgresScanStepRepository`) and called
-  // `pool.end()`, producing use-after-end errors on graceful shutdown.
-  constructor(@Inject(SCANNER_DB_POOL) private readonly pool: Pool) {}
+  // The shared `DATABASE_POOL` is owned by `DatabasePoolHolder` in the
+  // shared database infrastructure module, which calls `pool.end()` once
+  // during `onApplicationShutdown` after every consumer (api + scanner)
+  // has finished its last query. This repository no longer owns pool
+  // lifetime — the original Phase 4 `ScannerDbPoolHolder` is superseded
+  // by the shared holder.
+  constructor(@Inject(DATABASE_POOL) private readonly pool: Pool) {}
 
   async saveScanRun(scanRun: ScanResult): Promise<void> {
     await saveScanRun(this.pool, scanRun);

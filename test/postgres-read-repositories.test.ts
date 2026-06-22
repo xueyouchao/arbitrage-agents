@@ -9,6 +9,13 @@ vi.mock("pg", () => ({
   Pool: vi.fn(() => ({ query: poolQuery, end: poolEnd }))
 }));
 
+// The shared DATABASE_POOL is injected; the repository no longer
+// constructs its own Pool. Tests build the injected pool the same way
+// the real DatabaseModule would (new Pool({...})), then hand it in.
+function injectedPool(): Pool {
+  return new Pool({ connectionString: "postgres://test" });
+}
+
 describe("PostgresReadRepositories", () => {
   beforeEach(() => {
     poolQuery.mockReset();
@@ -16,14 +23,32 @@ describe("PostgresReadRepositories", () => {
     vi.mocked(Pool).mockClear();
   });
 
+  it("does not own pool lifecycle: injects DATABASE_POOL and implements neither OnModuleDestroy nor a pool.end() call", async () => {
+    const pool = injectedPool();
+    const repository = new PostgresReadRepositories(pool);
+
+    // The repository must NOT be its own lifecycle owner — the shared
+    // DatabasePoolHolder is the single owner of pool.end().
+    expect((repository as unknown as { onModuleDestroy?: unknown }).onModuleDestroy).toBeUndefined();
+
+    poolEnd.mockClear();
+    // Running a query must not end the pool.
+    poolQuery.mockResolvedValue({ rows: [{ total: "0" }] });
+    await repository.listMarkets();
+    expect(poolEnd).not.toHaveBeenCalled();
+  });
+
   it("lists and gets opportunities with Phase 3 fields, JSONB arrays, numeric coercion, nullable snapshots, and ISO dates", async () => {
-    const repository = new PostgresReadRepositories({ databaseUrl: "postgres://test" } as never);
+    const repository = new PostgresReadRepositories(injectedPool());
     const row = opportunityRow({ notional_edges: [{ targetNotionalUsd: 5, grossEdge: "0.07", estimatedFees: 0.01, estimatedSlippage: 0.004, netEdge: 0.056, fillable: true }] });
     poolQuery.mockResolvedValueOnce({ rows: [{ total: "1" }] }).mockResolvedValueOnce({ rows: [row] }).mockResolvedValueOnce({ rows: [{ ...row, notional_edges: JSON.stringify(row.notional_edges), kalshi_orderbook_snapshot_id: null }] });
 
     const listed = await repository.listOpportunities();
     const found = await repository.getOpportunity("opp-1");
 
+    // The repository must not construct its own Pool — only the
+    // injectedPool() helper above called `new Pool` (exactly once).
+    expect(Pool).toHaveBeenCalledTimes(1);
     expect(Pool).toHaveBeenCalledWith({ connectionString: "postgres://test" });
     expect(poolQuery.mock.calls[0][0]).toContain("count(*)");
     expect(poolQuery.mock.calls[1][0]).toContain("kalshi_orderbook_snapshot_id");
@@ -59,7 +84,7 @@ describe("PostgresReadRepositories", () => {
   });
 
   it("maps malformed opportunity notional_edges to an empty array and returns undefined for a missing opportunity", async () => {
-    const repository = new PostgresReadRepositories({ databaseUrl: "postgres://test" } as never);
+    const repository = new PostgresReadRepositories(injectedPool());
     poolQuery
       .mockResolvedValueOnce({ rows: [{ total: "1" }] })
       .mockResolvedValueOnce({ rows: [opportunityRow({ notional_edges: "not-json" })] })
@@ -81,7 +106,7 @@ describe("PostgresReadRepositories", () => {
   });
 
   it("maps latest scan run metrics and falls back to safe defaults for missing or invalid rows", async () => {
-    const repository = new PostgresReadRepositories({ databaseUrl: "postgres://test" } as never);
+    const repository = new PostgresReadRepositories(injectedPool());
     poolQuery
       .mockResolvedValueOnce({ rows: [{ id: "scan-1", status: "succeeded", started_at: new Date("2026-06-03T12:00:00.000Z"), completed_at: "2026-06-03T12:00:01.000Z", metrics: { marketsScanned: 2, opportunitiesFound: 1 } }] })
       .mockResolvedValueOnce({ rows: [{ id: "scan-2", status: "weird", started_at: "2026-06-03T12:00:02.000Z", completed_at: null, metrics: { marketsScanned: "2", opportunitiesFound: Number.NaN, failureCategory: "processing", failureReason: "bad parse" } }] })
@@ -117,7 +142,7 @@ describe("PostgresReadRepositories", () => {
   });
 
   it("maps markets and coerces nullable numeric/date fields", async () => {
-    const repository = new PostgresReadRepositories({ databaseUrl: "postgres://test" } as never);
+    const repository = new PostgresReadRepositories(injectedPool());
     poolQuery.mockResolvedValueOnce({ rows: [{ total: "1" }] }).mockResolvedValueOnce({ rows: [{
       id: "market-1",
       venue: "kalshi",
@@ -154,7 +179,7 @@ describe("PostgresReadRepositories", () => {
   });
 
   it("lists paper-trade simulations for an opportunity and coerces numeric fields", async () => {
-    const repository = new PostgresReadRepositories({ databaseUrl: "postgres://test" } as never);
+    const repository = new PostgresReadRepositories(injectedPool());
     poolQuery.mockResolvedValueOnce({ rows: [{
       id: "sim-1",
       opportunity_id: "opp-1",

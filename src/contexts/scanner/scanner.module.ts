@@ -20,15 +20,14 @@ import { PostgresScanStepRepository } from "./postgres-scan-step-repository";
 import { PostgresScannerRepository } from "./postgres-scanner-repository";
 import { ReadOnlyScanner, ScannerLlmGateway } from "./read-only-scanner";
 import { ResumableScanner } from "./resumable-scanner";
-import { ScannerDbPoolHolder } from "./scanner-db-pool-holder";
 import { ScannerRepository } from "./scanner-repository";
 import { ScanStepRepository } from "./scan-step";
+import { DATABASE_POOL } from "../shared/database/database-tokens";
 import {
   KALSHI_VENUE_CLIENT,
   LLM_EVALUATION_REPOSITORY,
   POLYMARKET_VENUE_CLIENT,
   SCAN_STEP_REPOSITORY,
-  SCANNER_DB_POOL,
   SCANNER_LLM_GATEWAY,
   SCANNER_REPOSITORY,
   SENTRY_CHECK_IN_CLIENT
@@ -45,11 +44,10 @@ const WORKER_ID = randomUUID();
 
 @Module({
   providers: [
-    {
-      provide: SCANNER_DB_POOL,
-      useFactory: (config: AppConfig) => new Pool({ connectionString: config.databaseUrl }),
-      inject: [APP_CONFIG]
-    },
+    // The Postgres pool is now provided by the shared `DatabaseModule`
+    // (`DATABASE_POOL`, owned by `DatabasePoolHolder`). This module
+    // injects it; it no longer owns a scanner-scoped pool or its
+    // lifetime. See `src/contexts/shared/database/database.module.ts`.
     { provide: KALSHI_VENUE_CLIENT, useFactory: () => new KalshiPublicVenueClient() },
     { provide: POLYMARKET_VENUE_CLIENT, useFactory: () => new PolymarketPublicVenueClient() },
     PostgresScannerRepository,
@@ -57,24 +55,12 @@ const WORKER_ID = randomUUID();
     {
       provide: LLM_EVALUATION_REPOSITORY,
       useFactory: (pool: Pool) => new PostgresLlmEvaluationRepository(pool),
-      inject: [SCANNER_DB_POOL]
+      inject: [DATABASE_POOL]
     },
     {
       provide: SCAN_STEP_REPOSITORY,
       useFactory: (pool: Pool) => new PostgresScanStepRepository(pool),
-      inject: [SCANNER_DB_POOL]
-    },
-    // Phase 4: dedicated pool lifecycle holder. Implements
-    // `onApplicationShutdown` (which runs after every module's
-    // `onModuleDestroy`) so all in-flight consumers have finished their
-    // last query before the pool is ended. This replaces the previous
-    // `PostgresScannerRepository.onModuleDestroy` call to `pool.end()`
-    // that produced use-after-end errors on graceful shutdown when the
-    // sibling `PostgresScanStepRepository` was still flushing heartbeats.
-    {
-      provide: ScannerDbPoolHolder,
-      useFactory: (pool: Pool) => new ScannerDbPoolHolder(pool),
-      inject: [SCANNER_DB_POOL]
+      inject: [DATABASE_POOL]
     },
     {
       // Phase 4: the Sentry check-in client is real when SENTRY_DSN is
