@@ -250,12 +250,19 @@ jobs:
   # ---- Production Deploy ----
   # Deploy order is deliberate and risk-ordered:
   #   1. Pull code.
-  #   2. Run migrations AGAINST THE NEW CODE while the OLD containers are
-  #      still serving traffic. A migration failure aborts here before the
-  #      running app is touched — no rollback needed.
-  #   3. Rebuild + restart (the code swap).
-  #   4. Health-check the new app.
-  #   5. On health failure, roll back CODE only (git checkout <pre-deploy
+  #   2. Build the NEW image WITHOUT swapping the running containers
+  #      (`docker compose build api`). The old containers keep serving
+  #      on the previous image; a build failure never touches the live app.
+  #   3. Run migrations in a ONE-SHOT container from the NEW image
+  #      (`docker compose run --rm --no-deps api npm run db:migrate`). This
+  #      is critical: the api service bakes `drizzle/*.sql` into the image
+  #      at build time (Dockerfile `COPY . .`, no source volume mount), so
+  #      running migrations via `docker compose exec` would use the OLD
+  #      image's migration set and silently skip any new migration. A
+  #      migration failure here aborts before the live app is swapped.
+  #   4. Rebuild + restart (the code swap: `docker compose up -d --build`).
+  #   5. Health-check the new app.
+  #   6. On health failure, roll back CODE only (git checkout <pre-deploy
   #      SHA> + rebuild). The database is intentionally NOT rolled back.
   #      This is safe ONLY because migrations MUST be backward-compatible
   #      (additive: new tables/columns, new constraints, new indexes).
@@ -314,12 +321,21 @@ jobs:
             echo "=== Pulling latest code ==="
             git pull origin main
 
-            # Run migrations BEFORE rebuilding/restarting so a migration
-            # failure never touches the live app. The new code is on disk
-            # but the OLD containers are still running. If this exits
-            # non-zero, the still-running old containers are unaffected.
-            echo "=== Running database migrations (pre-swap) ==="
-            docker compose exec -T api npm run db:migrate
+            # Build the NEW image WITHOUT swapping the running containers,
+            # so a build failure never touches the live app. The old
+            # containers keep serving on the previous image.
+            echo "=== Building new image (pre-swap) ==="
+            docker compose build api
+
+            # Run migrations in a ONE-SHOT container from the NEW image.
+            # The api service bakes drizzle/*.sql into the image at build
+            # time (Dockerfile `COPY . .`, no source volume mount), so the
+            # new image is the only thing that can see a newly-added
+            # migration file. `run --rm --no-deps` does NOT touch the
+            # running api container and exits after the command. If this
+            # fails, the live old containers are unaffected.
+            echo "=== Running database migrations (new image, pre-swap) ==="
+            docker compose run --rm --no-deps api npm run db:migrate
 
             echo "=== Rebuilding and restarting services ==="
             docker compose up -d --build

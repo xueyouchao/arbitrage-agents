@@ -77,13 +77,31 @@ describe("CI/CD Pipeline Configuration", () => {
 
     const script: string = deploy.steps[0].with.script;
 
-    // Migrations must run BEFORE the rebuild/restart so a migration
-    // failure never touches the live app.
-    const migrateIdx = script.indexOf("npm run db:migrate");
-    const rebuildIdx = script.indexOf("docker compose up -d --build");
-    expect(migrateIdx).toBeGreaterThan(-1);
-    expect(rebuildIdx).toBeGreaterThan(-1);
-    expect(migrateIdx).toBeLessThan(rebuildIdx);
+    // Migrations must run AGAINST THE NEW IMAGE, not the old running
+    // container. The api service bakes drizzle/*.sql into the image at
+    // build time (Dockerfile `COPY . .`, no source volume mount), so
+    // `docker compose exec` would run the OLD image's migration set and
+    // silently skip any new migration. The safe pattern is:
+    //   1. `docker compose build api`  — build the new image WITHOUT
+    //      swapping the running containers (a failure here never
+    //      touches the live app).
+    //   2. `docker compose run --rm --no-deps api npm run db:migrate`
+    //      — run migrations in a one-shot container from the NEW image.
+    //   3. `docker compose up -d --build` — swap.
+    const buildIdx = script.indexOf("docker compose build api");
+    const migrateRunIdx = script.indexOf("docker compose run --rm --no-deps api npm run db:migrate");
+    const swapIdx = script.indexOf("docker compose up -d --build");
+    expect(buildIdx).toBeGreaterThan(-1);
+    expect(migrateRunIdx).toBeGreaterThan(-1);
+    expect(swapIdx).toBeGreaterThan(-1);
+    // Order: build new image → migrate on it → swap.
+    expect(buildIdx).toBeLessThan(migrateRunIdx);
+    expect(migrateRunIdx).toBeLessThan(swapIdx);
+
+    // The old broken form — running migrations via `exec` against the
+    // OLD running container, whose baked-in migration set is stale —
+    // must be gone.
+    expect(script).not.toContain("docker compose exec -T api npm run db:migrate");
 
     // Rollback records and checks out the pre-deploy SHA (not HEAD~1,
     // which can point at the wrong ref after a merge), and explicitly
