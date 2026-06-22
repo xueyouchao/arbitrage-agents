@@ -246,3 +246,124 @@ jobs:
           else
             echo "✅ Quality Gate PASSED"
           fi
+
+  # ---- Production Deploy ----
+  # Deploy order is deliberate and risk-ordered:
+  #   1. Pull code.
+  #   2. Build the NEW image WITHOUT swapping the running containers
+  #      (`docker compose build api`). The old containers keep serving
+  #      on the previous image; a build failure never touches the live app.
+  #   3. Run migrations in a ONE-SHOT container from the NEW image
+  #      (`docker compose run --rm --no-deps api npm run db:migrate`). This
+  #      is critical: the api service bakes `drizzle/*.sql` into the image
+  #      at build time (Dockerfile `COPY . .`, no source volume mount), so
+  #      running migrations via `docker compose exec` would use the OLD
+  #      image's migration set and silently skip any new migration. A
+  #      migration failure here aborts before the live app is swapped.
+  #   4. Rebuild + restart (the code swap: `docker compose up -d --build`).
+  #   5. Health-check the new app.
+  #   6. On health failure, roll back CODE only (git checkout <pre-deploy
+  #      SHA> + rebuild). The database is intentionally NOT rolled back.
+  #      This is safe ONLY because migrations MUST be backward-compatible
+  #      (additive: new tables/columns, new constraints, new indexes).
+  #      Destructive ops (DROP TABLE/COLUMN/CONSTRAINT, RENAME, DELETE)
+  #      must be split across two deploys: ship the additive change first,
+  #      defer the removal to a later deploy once no running code
+  #      references the old shape. A forward-migrated DB must keep working
+  #      with the rolled-back old code.
+  #
+  #      FORBIDDEN IN A SINGLE DEPLOY (they break the OLD running code
+  #      during the pre-swap window when migrations run before the rebuild):
+  #        - adding a NOT NULL column WITHOUT a DEFAULT
+  #          (e.g. `ALTER TABLE t ADD COLUMN c BIGINT NOT NULL;` — the old
+  #          code cannot INSERT because it does not know to supply `c`,
+  #          and Postgres rejects the row).
+  #        - changing a column TYPE in place
+  #          (e.g. `ALTER TABLE t ALTER COLUMN c TYPE BIGINT;` — the old
+  #          code may write values the new type rejects, or reads may
+  #          change shape mid-window).
+  #        - any DROP or RENAME of a table/column/constraint/index/FK
+  #          (e.g. `DROP INDEX ...`, `DROP COLUMN ...`, `DROP
+  #          CONSTRAINT ...`, `RENAME COLUMN ...` — the old code still
+  #          references the old shape and errors out).
+  #      Each of these MUST be split across two deploys:
+  #        deploy N: ship the additive/compat shim (new nullable column
+  #          with a default, new table, new index concurrently, dual-write
+  #          in the app code, keep the old column/shape in place).
+  #        deploy N+1 (or later, once no running code references the old
+  #          shape): ship the removal/rename/type-change backfill.
+  #      The pre-swap window is only safe while the DB is strictly MORE
+  #      permissive than what the old code expects.
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [quality-gate]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: production
+      url: http://${{ secrets.VPS_HOST }}:3000/health
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+
+            APP_DIR="/opt/arbitrage-agents"
+            cd "$APP_DIR"
+
+            echo "=== Recording pre-deploy commit (for rollback) ==="
+            PRE_DEPLOY_SHA=$(git rev-parse HEAD)
+
+            echo "=== Pulling latest code ==="
+            git pull origin main
+
+            # Build the NEW image WITHOUT swapping the running containers,
+            # so a build failure never touches the live app. The old
+            # containers keep serving on the previous image.
+            echo "=== Building new image (pre-swap) ==="
+            docker compose build api
+
+            # Run migrations in a ONE-SHOT container from the NEW image.
+            # The api service bakes drizzle/*.sql into the image at build
+            # time (Dockerfile `COPY . .`, no source volume mount), so the
+            # new image is the only thing that can see a newly-added
+            # migration file. `run --rm --no-deps` does NOT touch the
+            # running api container and exits after the command. If this
+            # fails, the live old containers are unaffected.
+            echo "=== Running database migrations (new image, pre-swap) ==="
+            docker compose run --rm --no-deps api npm run db:migrate
+
+            echo "=== Rebuilding and restarting services ==="
+            docker compose up -d --build
+
+            echo "=== Verifying health endpoint (retry up to 120s) ==="
+            HEALTHY=false
+            for _ in $(seq 1 24); do
+              HEALTH=$(curl -sf http://localhost:3000/health || echo "UNHEALTHY")
+              if echo "$HEALTH" | grep -q "ok"; then
+                HEALTHY=true
+                break
+              fi
+              sleep 5
+            done
+            if [ "$HEALTHY" = "true" ]; then
+              echo "✅ Deployment successful — API is healthy"
+            else
+              echo "❌ Health check failed, rolling back application code..."
+              echo "=== Rolling back to pre-deploy SHA: $PRE_DEPLOY_SHA ==="
+              git checkout "$PRE_DEPLOY_SHA" -- .
+              docker compose up -d --build
+              echo "⏪ Application code rolled back to $PRE_DEPLOY_SHA"
+              echo "NOTE: database migrations are intentionally NOT reverted."
+              echo "NOTE: the rolled-back code must remain compatible with the"
+              echo "NOTE: forward-migrated schema (additive migrations only)."
+              echo "NOTE: investigate the health failure manually before re-deploying."
+              exit 1
+            fi
+
+            echo "=== Service status ==="
+            docker compose ps

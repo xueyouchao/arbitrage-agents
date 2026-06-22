@@ -110,6 +110,14 @@ describe("Worker e2e smoke test against Postgres", () => {
     expect(checkInClient.checkIns.map((c) => c.status)).toEqual(["in_progress", "ok"]);
     expect(checkInClient.checkIns[0].checkInId).toBe(checkInClient.checkIns[1].checkInId);
     expect(checkInClient.checkIns[0].slug).toBe("arbitrage-agents-scan");
+
+    // The production paper-trade wiring P0 (ScannerModule must inject
+    // PaperTradeSimulator so live scans persist paper_trade_simulations
+    // rows for emitted opportunities) is guarded at the behavior level in
+    // test/scanner-paper-trade-wiring.test.ts, which drives a real scan
+    // producing opportunities and asserts persisted sims. That avoids the
+    // fragile private-state / constructor.name introspection previously
+    // used here.
   });
 
   it("resumes a fully-succeeded run without re-invoking the inner scanner", async () => {
