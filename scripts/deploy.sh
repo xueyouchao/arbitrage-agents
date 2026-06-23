@@ -12,9 +12,10 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Check if running as root
+# Check if running as root (or via sudo). Privileged operations below
+# (Docker install, writing /opt, /etc/nginx, crontab, chown) require this.
 if [ "$EUID" -ne 0 ]; then
-    echo -e "${RED}Please run as root or with sudo${NC}"
+    echo -e "${RED}Please run as root or with sudo:  sudo bash scripts/deploy.sh${NC}"
     exit 1
 fi
 
@@ -46,6 +47,21 @@ if ! docker compose version &> /dev/null; then
     echo -e "${GREEN}✓ Docker Compose installed${NC}"
 else
     echo -e "${GREEN}✓ Docker Compose already installed${NC}"
+fi
+
+# Grant the invoking (non-root) user access to docker so daily `docker compose`
+# operations (build, logs, restart, migrate) work without sudo. This assumes the
+# deploy was started via `sudo bash scripts/deploy.sh`; $SUDO_USER is the real
+# user. A re-login is required for the new group to take effect.
+if [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
+    if ! id -nG "$SUDO_USER" 2>/dev/null | grep -qw docker; then
+        usermod -aG docker "$SUDO_USER"
+        echo -e "${GREEN}✓ Added '$SUDO_USER' to the docker group (log out/in for it to take effect)${NC}"
+    else
+        echo -e "${GREEN}✓ '$SUDO_USER' already in the docker group${NC}"
+    fi
+else
+    echo -e "${YELLOW}Note: run via 'sudo bash scripts/deploy.sh' as the ubuntu user to auto-grant docker group access.${NC}"
 fi
 
 echo ""
