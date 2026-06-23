@@ -94,7 +94,7 @@ owns the connection pool and its lifetime, imported once by `ApiAppModule` and
 | 5 | **Deploy with Docker Compose** | `docker compose up -d --build` → `docker compose ps` → `docker compose logs -f`. | Services: `postgres` (health-gated), `api` (:3000, localhost-only), `worker`. API/worker both depend on `postgres` healthy. |
 | 6 | **Run database migrations** | `docker compose exec api npm run db:migrate` (or `docker compose exec -T api npm run db:migrate` for non-interactive runs). | Runs `drizzle-kit migrate` against `DATABASE_URL`. Pool is created by the shared `DatabaseModule`. |
 | 7 | **Set up Nginx reverse proxy (HTTPS)** | `apt-get install -y nginx certbot python3-certbot-nginx` → create `/etc/nginx/sites-available/arbitrage-api` (proxy to `localhost:3000`) → `ln -s …/sites-enabled/` → `nginx -t && systemctl reload nginx` → `certbot --nginx -d api.yourdomain.com`. | API binds `127.0.0.1:3000`; Nginx is the public edge. `nginx/arbitrage-api.conf` is in the repo. |
-| 8 | **Set up automated backups** | Create `/opt/arbitrage-agents/backup.sh` running `docker compose exec -T postgres pg_dump -U $DB_USER $DB_NAME > /opt/backups/.../db_$(date +%Y%m%d_%H%M%S).sql`, retain 7 days; add `0 2 * * *` crontab entry. | Backs up the `postgres` container via `pg_dump`. |
+| 8 | **Set up automated backups** | Create `/opt/arbitrage-agents/backup.sh` (sources `.env` so `$DB_USER`/`$DB_NAME` are set under cron), running `docker compose exec -T postgres pg_dump -U $DB_USER $DB_NAME > /opt/backups/.../db_$(date +%Y%m%d_%H%M%S).sql`, retain 7 days; add `0 2 * * *` crontab entry. | Backs up the `postgres` container via `pg_dump`. The script must `source .env` — cron runs with a minimal env, so without it `$DB_USER`/`$DB_NAME` are empty and `pg_dump` fails. |
 
 ### Environment variables for Step 4 (`main` branch)
 
@@ -176,11 +176,25 @@ certbot --nginx -d api.yourdomain.com
 # Step 8 — Backup script + cron
 cat > /opt/arbitrage-agents/backup.sh <<'EOF'
 #!/bin/bash
+set -e
+
 BACKUP_DIR="/opt/backups/arbitrage-agents"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 mkdir -p $BACKUP_DIR
+
+# Source environment so $DB_USER / $DB_NAME are set. cron runs this script with
+# a minimal environment (no .env), so without sourcing, those vars are empty
+# and pg_dump fails ("role \"\" does not exist"). docker compose loads .env for
+# the *container*, but $DB_USER/$DB_NAME here are expanded by the cron shell.
+source /opt/arbitrage-agents/.env
+
+# Run from the app dir so `docker compose` finds docker-compose.yml.
+cd /opt/arbitrage-agents
 docker compose exec -T postgres pg_dump -U $DB_USER $DB_NAME > $BACKUP_DIR/db_$TIMESTAMP.sql
+
+# Keep only last 7 days of backups
 find $BACKUP_DIR -name "db_*.sql" -mtime +7 -delete
+
 echo "Backup completed: $TIMESTAMP"
 EOF
 chmod +x /opt/arbitrage-agents/backup.sh
