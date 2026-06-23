@@ -112,10 +112,15 @@ if [ ! -f "$APP_DIR/.env" ]; then
     echo ""
     read -p "Press Enter when you've configured .env..."
 
-    # Set secure permissions
+    # Set secure permissions. The operator (SUDO_USER, e.g. ubuntu) must be able
+    # to read .env, because `docker compose` loads it via the CLI process that
+    # runs as that user — not as root via the daemon. root:root + 600 would make
+    # it unreadable to the operator, breaking `docker compose up`, migrations,
+    # and backups. Own it to the operator and keep it mode 600 (owner-only read,
+    # unreadable by other system users).
     chmod 600 $APP_DIR/.env
-    chown root:root $APP_DIR/.env
-    echo -e "${GREEN}✓ Environment file configured with secure permissions${NC}"
+    chown "${SUDO_USER:-ubuntu}":"${SUDO_USER:-ubuntu}" $APP_DIR/.env
+    echo -e "${GREEN}✓ Environment file configured with secure permissions (owner: ${SUDO_USER:-ubuntu}, mode 600)${NC}"
 else
     echo -e "${GREEN}✓ Environment file already exists${NC}"
 fi

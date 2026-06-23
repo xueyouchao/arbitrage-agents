@@ -90,7 +90,7 @@ owns the connection pool and its lifetime, imported once by `ApiAppModule` and
 | 1 | **Provision VPS** | Choose DigitalOcean / Linode / Hetzner / Vultr ($10–20/mo). 2 vCPU, 4GB RAM, 40GB SSD, Ubuntu 22.04/24.04 LTS. | 8 GB VPS recommended — compose memory budget is postgres 1536M + api 1536M + worker 3G. |
 | 2 | **Install Docker** | `ssh ubuntu@<vps>` → `sudo curl -fsSL https://get.docker.com \| sudo sh` → `sudo apt-get install -y docker-compose-plugin` → `sudo usermod -aG docker ubuntu` → **log out/in** → verify `docker --version` and `docker compose version` (no `sudo` needed). | Installs with `sudo` under the unprivileged `ubuntu` account; adding `ubuntu` to the `docker` group lets daily `docker compose` ops run without `sudo`. `scripts/deploy.sh` (run via `sudo bash`) also performs this `usermod` step. |
 | 3 | **Clone repository (`main`)** | `mkdir -p /opt/arbitrage-agents && cd /opt/arbitrage-agents` → `git clone https://github.com/<user>/arbitrage-agents.git .` → `git checkout main`. | **Deploy from `main`**, not the old `phase-7-deploy` branch. |
-| 4 | **Configure environment** | `cp .env.example .env` → `nano .env` → `chmod 600 .env && chown root:root .env`. | **Required:** `DB_PASSWORD` (strong), `SENTRY_DSN`. See env var table below. |
+| 4 | **Configure environment** | `cp .env.example .env` → `nano .env` → `chmod 600 .env && chown ubuntu:ubuntu .env`. | **Required:** `DB_PASSWORD` (strong), `SENTRY_DSN`. See env var table below. Owner must be the operator (`ubuntu`) who runs `docker compose` non-root (Step 2) — `docker compose` reads `.env` via the CLI process as that user, so `root:root` + 600 would make it unreadable and break `up`/migrate/backup. |
 | 5 | **Deploy with Docker Compose** | `docker compose up -d --build` → `docker compose ps` → `docker compose logs -f`. | Services: `postgres` (health-gated), `api` (:3000, localhost-only), `worker`. API/worker both depend on `postgres` healthy. |
 | 6 | **Run database migrations** | `docker compose exec api npm run db:migrate` (or `docker compose exec -T api npm run db:migrate` for non-interactive runs). | Runs `drizzle-kit migrate` against `DATABASE_URL`. Pool is created by the shared `DatabaseModule`. |
 | 7 | **Set up Nginx reverse proxy (HTTPS)** | `apt-get install -y nginx certbot python3-certbot-nginx` → create `/etc/nginx/sites-available/arbitrage-api` (proxy to `localhost:3000`) → `ln -s …/sites-enabled/` → `nginx -t && systemctl reload nginx` → `certbot --nginx -d api.yourdomain.com`. | API binds `127.0.0.1:3000`; Nginx is the public edge. `nginx/arbitrage-api.conf` is in the repo. |
@@ -280,9 +280,12 @@ docker compose ps
 For VPS deployment, we use `.env` file with strict file permissions:
 
 ```bash
-# Restrict access to .env file
+# Restrict access to .env file. Owner is the operator (e.g. ubuntu) who runs
+# `docker compose` non-root — `docker compose` reads .env via the CLI process
+# as that user, so root:root + 600 would make it unreadable and break
+# `up`/migrate/backup. Mode 600 keeps it unreadable by other system users.
 chmod 600 /opt/arbitrage-agents/.env
-chown root:root /opt/arbitrage-agents/.env
+chown ubuntu:ubuntu /opt/arbitrage-agents/.env
 ```
 
 ### Future: Upgrade to Vault (if needed)
