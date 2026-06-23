@@ -110,6 +110,15 @@ echo ""
 
 cd $APP_DIR
 
+# One-time recovery: remove stale build artifacts that may be owned by root
+# or a different UID (e.g. 1001) from prior containerized runs. Running as root
+# here lets us delete root-owned dist/coverage/node_modules so the subsequent
+# build (now executed by containers running as UID 1000) and any host-side
+# npm gates do not hit EACCES on these paths.
+echo "Cleaning stale build artifacts (if any)..."
+rm -rf dist coverage node_modules
+echo -e "${GREEN}✓ Stale artifacts cleared${NC}"
+
 echo "Building and starting services..."
 docker compose up -d --build
 
