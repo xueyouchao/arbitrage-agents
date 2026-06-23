@@ -74,112 +74,86 @@ This document outlines the production deployment strategy for the Arbitrage Agen
 
 ## Deployment Steps
 
-### Step 1: Provision VPS
+The table below is the canonical, up-to-date sequence for the **`main`** branch.
+It reflects the Postgres pool centralization (PR #35: a single shared `DatabaseModule`
+owns the connection pool and its lifetime, imported once by `ApiAppModule` and
+`WorkerAppModule`), the worker scan loop + graceful shutdown (PR #27 / #31), and the
+`PaperTradeSimulator` wired into production scanner DI (PR #32). The
+`docker-compose.yml` stack runs three services: `postgres`, `api`, `worker`.
 
-Choose a provider:
-- **DigitalOcean**: Droplet ($10-20/mo)
-- **Linode**: Nanode/Linode ($10-20/mo)
-- **Hetzner**: Cloud VM (€4-8/mo, excellent value)
-- **Vultr**: Compute ($10-20/mo)
+> **One-line automated path:** `sudo bash scripts/deploy.sh` performs Steps 2–8
+> interactively. The table below documents what it does so you can also run
+> the steps by hand.
 
-### Step 2: Install Docker
+| # | Step | Command / Action | Notes for `main` |
+|---|------|-------------------|------------------|
+| 1 | **Provision VPS** | Choose DigitalOcean / Linode / Hetzner / Vultr ($10–20/mo). 2 vCPU, 4GB RAM, 40GB SSD, Ubuntu 22.04/24.04 LTS. | 8 GB VPS recommended — compose memory budget is postgres 1536M + api 1536M + worker 3G. |
+| 2 | **Install Docker** | `ssh ubuntu@<vps>` → `sudo curl -fsSL https://get.docker.com \| sudo sh` → `sudo apt-get install -y docker-compose-plugin` → `sudo usermod -aG docker ubuntu` → **log out/in** → verify `docker --version` and `docker compose version` (no `sudo` needed). | Installs with `sudo` under the unprivileged `ubuntu` account; adding `ubuntu` to the `docker` group lets daily `docker compose` ops run without `sudo`. `scripts/deploy.sh` (run via `sudo bash`) also performs this `usermod` step. |
+| 3 | **Clone repository (`main`)** | `mkdir -p /opt/arbitrage-agents && cd /opt/arbitrage-agents` → `git clone https://github.com/<user>/arbitrage-agents.git .` → `git checkout main`. | **Deploy from `main`**, not the old `phase-7-deploy` branch. |
+| 4 | **Configure environment** | `cp .env.example .env` → `nano .env` → `chmod 600 .env && chown ubuntu:ubuntu .env`. | **Required:** `DB_PASSWORD` (strong), `SENTRY_DSN`. See env var table below. Owner must be the operator (`ubuntu`) who runs `docker compose` non-root (Step 2) — `docker compose` reads `.env` via the CLI process as that user, so `root:root` + 600 would make it unreadable and break `up`/migrate/backup. |
+| 5 | **Deploy with Docker Compose** | `docker compose up -d --build` → `docker compose ps` → `docker compose logs -f`. | Services: `postgres` (health-gated), `api` (:3000, localhost-only), `worker`. API/worker both depend on `postgres` healthy. |
+| 6 | **Run database migrations** | `docker compose exec api npm run db:migrate` (or `docker compose exec -T api npm run db:migrate` for non-interactive runs). | Runs `drizzle-kit migrate` against `DATABASE_URL`. Pool is created by the shared `DatabaseModule`. |
+| 7 | **Set up Nginx reverse proxy (HTTPS)** | `apt-get install -y nginx certbot python3-certbot-nginx` → create `/etc/nginx/sites-available/arbitrage-api` (proxy to `localhost:3000`) → `ln -s …/sites-enabled/` → `nginx -t && systemctl reload nginx` → `certbot --nginx -d api.yourdomain.com`. | API binds `127.0.0.1:3000`; Nginx is the public edge. `nginx/arbitrage-api.conf` is in the repo. |
+| 8 | **Set up automated backups** | Create `/opt/arbitrage-agents/backup.sh` (sources `.env` so `$DB_USER`/`$DB_NAME` are set under cron), running `docker compose exec -T postgres pg_dump -U $DB_USER $DB_NAME > /opt/backups/.../db_$(date +%Y%m%d_%H%M%S).sql`, retain 7 days; add `0 2 * * *` crontab entry. | Backs up the `postgres` container via `pg_dump`. The script must `source .env` — cron runs with a minimal env, so without it `$DB_USER`/`$DB_NAME` are empty and `pg_dump` fails. |
 
-```bash
-# SSH into VPS
-ssh root@your-vps-ip
+### Environment variables for Step 4 (`main` branch)
 
-# Install Docker
-curl -fsSL https://get.docker.com | sh
+From `.env.example` + `docker-compose.yml`. Variables marked **required** must be
+set before `docker compose up`.
 
-# Install Docker Compose
-apt-get install -y docker-compose-plugin
+| Variable | Used by | Default | Required for prod | Notes |
+|----------|---------|---------|-------------------|-------|
+| `DB_USER` | compose (postgres init) | `arbitrage_user` | — | Postgres role. |
+| `DB_NAME` | compose (postgres init) | `arbitrage` | — | Postgres database. |
+| `DB_PASSWORD` | compose (postgres + `DATABASE_URL`) | _(empty)_ | **Yes** | Strong password. |
+| `API_PORT` | compose (api port) | `3000` | — | Bound to `127.0.0.1`. |
+| `DATABASE_URL` | app (both api + worker) | `postgres://postgres:postgres@localhost:5432/arbitrage_agents` | **Yes** | In compose, constructed from `DB_USER`/`DB_PASSWORD`/`DB_NAME`. |
+| `SENTRY_DSN` | api + worker | _(empty)_ | **Yes** | Observability. |
+| `SENTRY_MONITOR_SLUG` | worker | `arbitrage-agents-scan` | — | Sentry monitor slug. |
+| `SENTRY_TRACES_SAMPLE_RATE` | api + worker | `0` | — | 0 = no traces (free tier). |
+| `LLM_ENABLED` | scanner | `false` | — | Enable LLM-assisted market matching. |
+| `LLM_BASE_URL` | scanner | `http://host.docker.internal:11434/api/chat` | — | Ollama-compatible endpoint. |
+| `LLM_MODEL` | scanner | `glm-5.2:cloud` | — | Model id. |
+| `LLM_PROVIDER` | scanner | `ollama` | — | Provider label. |
+| `WORKER_SCAN_INTERVAL_MINUTES` | worker | `15` | — | Clamped to `[1, 1440]` (PR #31). |
+| `WORKER_SHUTDOWN_TIMEOUT_MS` | worker | `30000` | — | Bounded graceful-shutdown wait (PR #27). |
+| `OLLAMA_BASE_URL` / `DASHSCOPE_API_KEY` / `OPENROUTER_API_KEY` | compose legacy passthrough | — | — | Not read by app; kept for backward compat. |
 
-# Verify installation
-docker --version
-docker compose version
-```
+> The old `VENUE_A_API_KEY` / `VENUE_B_API_KEY` vars in prior versions of this
+> doc are **not** part of the current `.env.example` — drop them unless you wire
+> venue-specific auth yourself.
 
-### Step 3: Clone Repository
-
-```bash
-# Create deployment directory
-mkdir -p /opt/arbitrage-agents
-cd /opt/arbitrage-agents
-
-# Clone repository
-git clone https://github.com/your-username/arbitrage-agents.git .
-git checkout phase-7-deploy
-```
-
-### Step 4: Configure Environment
-
-```bash
-# Copy example environment file
-cp .env.example .env
-
-# Edit with production values
-nano .env
-```
-
-**Required Environment Variables:**
-
-```env
-# Database
-DB_USER=arbitrage_user
-DB_PASSWORD=<strong-password>
-DB_NAME=arbitrage
-
-# Sentry
-SENTRY_DSN=https://<key>@sentry.io/<project-id>
-
-# API Configuration
-API_PORT=3000
-NODE_ENV=production
-
-# Worker Configuration
-WORKER_SCAN_INTERVAL_MINUTES=15
-
-# Venue API Keys (if needed)
-VENUE_A_API_KEY=<key>
-VENUE_B_API_KEY=<key>
-```
-
-### Step 5: Deploy with Docker Compose
+### Inline reference commands (Step 2 / Step 5 / Step 6 / Step 8)
 
 ```bash
-# Build and start all services
+# Step 2 — Install Docker (as ubuntu, with sudo)
+ssh ubuntu@<vps>
+sudo curl -fsSL https://get.docker.com | sudo sh
+sudo apt-get install -y docker-compose-plugin
+sudo usermod -aG docker ubuntu
+# log out and back in so the new group takes effect, then:
+docker --version && docker compose version   # works without sudo
+```
+
+```bash
+# Step 5 — Deploy
 docker compose up -d --build
-
-# Check status
 docker compose ps
-
-# View logs
-docker compose logs -f
-
-# View specific service logs
 docker compose logs -f api
 docker compose logs -f worker
 ```
 
-### Step 6: Run Database Migrations
-
 ```bash
-# Run migrations inside the API container
+# Step 6 — Migrate
 docker compose exec api npm run db:migrate
 ```
 
-### Step 7: Set Up Nginx Reverse Proxy (HTTPS)
-
 ```bash
-# Install Nginx
-apt-get install -y nginx certbot python3-certbot-nginx
-
-# Create Nginx configuration
+# Step 7 — Nginx config
 cat > /etc/nginx/sites-available/arbitrage-api <<'EOF'
 server {
     listen 80;
     server_name api.yourdomain.com;
-
     location / {
         proxy_pass http://localhost:3000;
         proxy_http_version 1.1;
@@ -193,27 +167,29 @@ server {
     }
 }
 EOF
-
-# Enable site
 ln -s /etc/nginx/sites-available/arbitrage-api /etc/nginx/sites-enabled/
-nginx -t
-systemctl reload nginx
-
-# Get SSL certificate
+nginx -t && systemctl reload nginx
 certbot --nginx -d api.yourdomain.com
 ```
 
-### Step 8: Set Up Automated Backups
-
 ```bash
-# Create backup script
+# Step 8 — Backup script + cron
 cat > /opt/arbitrage-agents/backup.sh <<'EOF'
 #!/bin/bash
+set -e
+
 BACKUP_DIR="/opt/backups/arbitrage-agents"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 mkdir -p $BACKUP_DIR
 
-# Backup PostgreSQL
+# Source environment so $DB_USER / $DB_NAME are set. cron runs this script with
+# a minimal environment (no .env), so without sourcing, those vars are empty
+# and pg_dump fails ("role \"\" does not exist"). docker compose loads .env for
+# the *container*, but $DB_USER/$DB_NAME here are expanded by the cron shell.
+source /opt/arbitrage-agents/.env
+
+# Run from the app dir so `docker compose` finds docker-compose.yml.
+cd /opt/arbitrage-agents
 docker compose exec -T postgres pg_dump -U $DB_USER $DB_NAME > $BACKUP_DIR/db_$TIMESTAMP.sql
 
 # Keep only last 7 days of backups
@@ -221,10 +197,7 @@ find $BACKUP_DIR -name "db_*.sql" -mtime +7 -delete
 
 echo "Backup completed: $TIMESTAMP"
 EOF
-
 chmod +x /opt/arbitrage-agents/backup.sh
-
-# Add to crontab (daily at 2 AM)
 crontab -l | { cat; echo "0 2 * * * /opt/arbitrage-agents/backup.sh >> /var/log/arbitrage-backup.log 2>&1"; } | crontab -
 ```
 
@@ -321,9 +294,12 @@ docker compose ps
 For VPS deployment, we use `.env` file with strict file permissions:
 
 ```bash
-# Restrict access to .env file
+# Restrict access to .env file. Owner is the operator (e.g. ubuntu) who runs
+# `docker compose` non-root — `docker compose` reads .env via the CLI process
+# as that user, so root:root + 600 would make it unreadable and break
+# `up`/migrate/backup. Mode 600 keeps it unreadable by other system users.
 chmod 600 /opt/arbitrage-agents/.env
-chown root:root /opt/arbitrage-agents/.env
+chown ubuntu:ubuntu /opt/arbitrage-agents/.env
 ```
 
 ### Future: Upgrade to Vault (if needed)

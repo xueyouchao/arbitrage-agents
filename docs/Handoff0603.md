@@ -426,7 +426,8 @@
     - Verified: `.env.example` contains no private keys, seed phrases, or wallet signing variables. Codebase grep confirms no execution/trading/wallet adapters exist.
   - [x] No autonomous execution is enabled: production jobs may ingest, persist, score, alert, and present data for human review only.
   - [x] API reads only from Postgres; API does not trigger scans, venues, or LLM.
-  - [ ] Build, typecheck, test, and migration gates must pass before production launch or promotion.
+  - [x] Build, typecheck, test, and migration gates must pass before production launch or promotion.
+    - Verified 2026-06-23: `npm run build && npm run typecheck && npm test && npm run db:migrate` all pass.
 
   Phase 0 — Baseline stabilization
 
@@ -441,8 +442,8 @@
   Gate:
 
   - [x] production-readiness checklist proves no production deployment can place orders
-  - [ ] readiness checklist exists and is reviewed before launch
-  - [ ] tests/build/typecheck/migration gates green
+  - [x] readiness checklist exists and is reviewed before launch
+  - [x] tests/build/typecheck/migration gates green
 
   ---
   Phase 1 — Real production ingestion
