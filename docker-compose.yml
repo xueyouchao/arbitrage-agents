@@ -117,6 +117,14 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # P0 fix: the shared Dockerfile image defines a healthcheck that probes
+    # localhost:3000/health, which only the API serves. The worker is a
+    # background loop, not an HTTP service, so that probe fails and the
+    # container is marked (unhealthy) despite scans succeeding. Disable the
+    # inherited healthcheck for the worker service; rely on scan metrics and
+    # Sentry check-ins for liveness instead.
+    healthcheck:
+      disable: true
     deploy:
       resources:
         limits:
