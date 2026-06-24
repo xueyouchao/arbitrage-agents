@@ -140,8 +140,33 @@ echo "Cleaning stale build artifacts (if any)..."
 rm -rf dist coverage node_modules
 echo -e "${GREEN}✓ Stale artifacts cleared${NC}"
 
-echo "Building and starting services..."
-docker compose up -d --build
+echo "Building images and starting Postgres first..."
+docker compose up -d --build postgres
+
+echo ""
+echo "Waiting for Postgres to be healthy..."
+docker compose exec -T postgres pg_isready -U "${DB_USER:-arbitrage_user}" -d "${DB_NAME:-arbitrage}" || true
+until docker compose ps postgres | grep -q "(healthy)"; do
+    sleep 2
+    echo -n "."
+done
+echo ""
+echo -e "${GREEN}✓ Postgres is healthy${NC}"
+
+echo ""
+echo -e "${YELLOW}Step 6: Running database migrations${NC}"
+echo ""
+
+# Start a temporary API container just to run migrations. We run it here before
+# the worker so the schema exists before the worker attempts to read/write it.
+echo "Running migrations..."
+docker compose run --rm api npm run db:migrate
+
+echo -e "${GREEN}✓ Database migrations completed${NC}"
+
+echo ""
+echo "Starting API and Worker..."
+docker compose up -d --build api worker
 
 echo ""
 echo "Waiting for services to start..."
@@ -150,15 +175,6 @@ sleep 10
 echo ""
 echo "Service status:"
 docker compose ps
-
-echo ""
-echo -e "${YELLOW}Step 6: Running database migrations${NC}"
-echo ""
-
-echo "Running migrations..."
-docker compose exec -T api npm run db:migrate
-
-echo -e "${GREEN}✓ Database migrations completed${NC}"
 
 echo ""
 echo -e "${YELLOW}Step 7: Setting up automated backups${NC}"
