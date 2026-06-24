@@ -30,6 +30,10 @@ RUN npm ci --only=production
 # Copy built application
 COPY --from=builder /app/dist ./dist
 
+# Copy Drizzle config and migrations so `npm run db:migrate` works in prod
+COPY --from=builder /app/drizzle.config.ts ./
+COPY --from=builder /app/drizzle ./drizzle
+
 # The base image (node:20-alpine) ships a `node` user at UID/GID 1000, which
 # matches the host `ubuntu` user. Reuse it instead of creating a new user:
 # this keeps the container UID aligned with the host user so any host-visible
