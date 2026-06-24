@@ -224,6 +224,12 @@ export class ReadOnlyScanner {
     const snapshots = [...kalshiMarkets, ...polymarketMarkets];
     const fetchMetrics: ScanMetrics = { ...emptyMetrics(), marketsScanned: snapshots.length };
     const llmBudget = newLlmScanBudget(this.dependencies);
+    if (this.dependencies.llmGateway && llmBudget.maxEvaluations > 0) {
+      console.log(
+        `[scanner:llm:budget] scanId=${scanId} model=${this.dependencies.llmModel ?? "scanner-default"} ` +
+          `totalCap=${llmBudget.maxEvaluations} normalizationCap=${llmBudget.maxNormalizationEvaluations} equivalenceCap=${llmBudget.maxEquivalenceEvaluations}`
+      );
+    }
     let normalizedMarketReviews: ReviewedNormalizedMarket[];
     let normalizedMarkets: NormalizedMarket[];
     let orderbookSnapshots: OrderbookSnapshotArtifact[];
@@ -292,6 +298,15 @@ export class ReadOnlyScanner {
         ...llmMetrics(llmBudget)
       }
     };
+
+    if (this.dependencies.llmGateway && llmBudget.maxEvaluations > 0) {
+      console.log(
+        `[scanner:llm:usage] scanId=${scanId} fresh=${llmBudget.freshEvaluations} ` +
+          `skipped=${llmBudget.skipped} cacheHits=${llmBudget.cacheHits} ` +
+          `promptTokens=${llmBudget.promptTokens} completionTokens=${llmBudget.completionTokens} ` +
+          `estimatedCostUsd=${llmBudget.estimatedCostUsd.toFixed(6)} latencyMs=${llmBudget.latencyMs}`
+      );
+    }
 
     // Report opportunity telemetry before persistence (informational,
     // not tied to persistence outcome). Each call is isolated so one
@@ -445,6 +460,9 @@ export class ReadOnlyScanner {
     try {
       record = await this.dependencies.llmGateway.evaluate(request);
     } catch (error) {
+      console.warn(
+        `[scanner:llm:fallback] ${request.taskType} failed for model=${request.model}: ${sanitizeProviderErrorMessage(error)}`
+      );
       record = {
         ...request,
         id: randomUUID(),

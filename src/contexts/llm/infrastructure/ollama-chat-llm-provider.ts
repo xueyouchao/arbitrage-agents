@@ -6,6 +6,12 @@ export interface OllamaChatLlmProviderOptions {
   model: string;
   timeoutMs: number;
   fetchImpl?: typeof fetch;
+  /**
+   * Optional non-standard `think` flag used by some cloud-tagged Ollama
+   * models. Standard Ollama ignores unknown request keys, so the default
+   * `false` is safe for both plain Ollama and cloud-routed endpoints.
+   */
+  think?: boolean;
 }
 
 interface OllamaChatResponse {
@@ -24,6 +30,31 @@ export class OllamaChatLlmProvider {
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
+  /**
+   * Lightweight reachability check against the Ollama `/api/tags` endpoint.
+   * Best-effort only: a failed ping is logged by the caller but never blocks
+   * scanning, because the first real `/api/chat` call already degrades to a
+   * deterministic fallback on failure.
+   */
+  async ping(): Promise<{ ok: boolean; status?: number; error?: string }> {
+    const pingUrl = this.options.baseUrl.replace(/\/api\/chat\/?$/, "/api/tags");
+    const controller = new AbortController();
+    const timeoutMs = Math.min(this.options.timeoutMs, 5000);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await this.fetchImpl(pingUrl, {
+        method: "GET",
+        signal: controller.signal
+      });
+      return { ok: response.ok, status: response.status };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   async evaluate(request: LlmEvaluationRequest): Promise<LlmProviderResult> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.options.timeoutMs);
@@ -36,7 +67,7 @@ export class OllamaChatLlmProvider {
         body: JSON.stringify({
           model: this.options.model,
           stream: false,
-          think: false,
+          ...(this.options.think !== undefined ? { think: this.options.think } : { think: false }),
           options: { temperature: 0, num_ctx: 16_000 },
           messages: [{ role: "user", content: promptFor(request) }]
         }),
