@@ -49,8 +49,6 @@ export class KalshiPublicVenueClient implements VenueClient {
     const orderbook = getObject(body.orderbook_fp) ?? getObject(body.orderbook) ?? body;
     const yesBids = parseLevels(orderbook.yes_dollars ?? orderbook.yes);
     const noBids = parseLevels(orderbook.no_dollars ?? orderbook.no);
-    const bestYesBid = bestBid(yesBids);
-    const bestNoBid = bestBid(noBids);
     const yesDepth = yesAskDepthFromNoBids(noBids);
     const noDepth = noAskDepthFromYesBids(yesBids);
     const yesAsk = yesDepth[0]?.price ?? 1;
@@ -66,7 +64,7 @@ export class KalshiPublicVenueClient implements VenueClient {
       yesDepth,
       noDepth,
       capturedAt: new Date().toISOString(),
-      stale: !bestYesBid || !bestNoBid,
+      stale: !yesDepth.length || !noDepth.length,
       rawPayload: body
     };
   }

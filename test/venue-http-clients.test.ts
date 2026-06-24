@@ -125,6 +125,32 @@ describe("public venue HTTP clients", () => {
     ]);
   });
 
+  it("does not mark Kalshi books stale when bid-only payload derives usable YES/NO asks", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({
+        orderbook_fp: {
+          yes_dollars: [["0.067", "100"]],
+          no_dollars: [["0.933", "100"]]
+        }
+      }), { status: 200 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const books = await new KalshiPublicVenueClient("https://kalshi.test", { retryDelayMs: 0 }).listOrderbooks([
+      snapshot("kalshi", "KPROD-1", {})
+    ]);
+
+    expect(books).toEqual([
+      expect.objectContaining({
+        marketId: "KPROD-1",
+        venue: "kalshi",
+        yesAsk: 0.067,
+        noAsk: 0.933,
+        stale: false
+      })
+    ]);
+  });
+
   it("maps Polymarket market fallback fields and token ID array/outcome ordering", async () => {
     const fetchMock = vi
       .fn()
@@ -151,6 +177,28 @@ describe("public venue HTTP clients", () => {
       noDepth: [{ price: 0.81, size: 5 }, { price: 0.83, size: 3 }],
       stale: false
     })]);
+  });
+
+  it("does not mark Polymarket books stale for production ask payload shape", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ asks: [{ price: "0.067", size: "200" }, { price: "0.07", size: "300" }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ asks: [{ price: "0.934", size: "150" }] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const books = await new PolymarketPublicVenueClient("https://gamma.test", "https://clob.test", { retryDelayMs: 0 }).listOrderbooks([
+      snapshot("polymarket", "condition-prod", { clobTokenIds: JSON.stringify(["yes-token", "no-token"]), outcomes: JSON.stringify(["Yes", "No"]) })
+    ]);
+
+    expect(books).toEqual([
+      expect.objectContaining({
+        marketId: "condition-prod",
+        venue: "polymarket",
+        yesAsk: 0.067,
+        noAsk: 0.934,
+        stale: false
+      })
+    ]);
   });
 
   it("drops Polymarket books with missing or malformed token IDs and marks empty CLOB books stale", async () => {
