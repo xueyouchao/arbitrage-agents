@@ -5,8 +5,8 @@ import { LlmEvaluationRecord, LlmEvaluationRequest } from "../llm/application/ll
 import { CandidatePair, EquivalenceDecision } from "../matching/domain/candidate-pair";
 import { CandidatePairGenerator } from "../matching/domain/candidate-pair-generator";
 import { DeterministicEquivalencePolicy } from "../matching/domain/equivalence-policy";
-import { CryptoMarketNormalizer } from "../matching/domain/crypto-market-normalizer";
-import { CryptoAsset, EventType, MarketOperator, NormalizedMarket, PayoffType, Topic } from "../matching/domain/normalized-market";
+import { MarketNormalizer } from "../matching/domain/market-normalizer";
+import { EventType, MarketOperator, NormalizedMarket, PayoffType, Topic } from "../matching/domain/normalized-market";
 import { sanitizeFailureReason } from "../shared/sanitize-failure-reason";
 import { VenueClient } from "../venues/domain/venue-market";
 import { ScanArtifactAssembler } from "./scan-artifact-assembler";
@@ -69,7 +69,7 @@ interface LlmScanBudget {
 }
 
 export class ReadOnlyScanner {
-  private readonly normalizer = new CryptoMarketNormalizer();
+  private readonly normalizer = new MarketNormalizer();
   private readonly pairGenerator = new CandidatePairGenerator();
   private readonly equivalencePolicy = new DeterministicEquivalencePolicy();
   private readonly opportunityCalculator = new OpportunityCalculator();
@@ -617,7 +617,7 @@ function applyLlmNormalization(market: NormalizedMarket, llmEvaluation: LlmEvalu
 interface LlmNormalizationOutput {
   topic: Topic;
   eventType: EventType;
-  asset: CryptoAsset | null;
+  asset: string | null;
   threshold: number | null;
   operator: MarketOperator | null;
   deadline: string | null;
@@ -631,7 +631,7 @@ interface LlmNormalizationOutput {
 function conservativeNormalizationMerge(market: NormalizedMarket, normalized: LlmNormalizationOutput): {
   topic: MergeResult<Topic>;
   eventType: MergeResult<EventType>;
-  asset: MergeResult<CryptoAsset | undefined>;
+  asset: MergeResult<string | undefined>;
   threshold: MergeResult<number | undefined>;
   operator: MergeResult<MarketOperator | undefined>;
   deadline: MergeResult<string | undefined>;
