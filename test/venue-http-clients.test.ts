@@ -249,7 +249,7 @@ describe("public venue HTTP clients", () => {
     expect(fetchMock).toHaveBeenCalledTimes(16);
   });
 
-  it("counts retries and applies deterministic jitter-free backoff", async () => {
+  it("counts retries and applies deterministic backoff", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const fetchMock = vi
       .fn()
