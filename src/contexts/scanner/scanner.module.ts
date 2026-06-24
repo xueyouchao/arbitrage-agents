@@ -48,8 +48,14 @@ const WORKER_ID = randomUUID();
     // (`DATABASE_POOL`, owned by `DatabasePoolHolder`). This module
     // injects it; it no longer owns a scanner-scoped pool or its
     // lifetime. See `src/contexts/shared/database/database.module.ts`.
-    { provide: KALSHI_VENUE_CLIENT, useFactory: () => new KalshiPublicVenueClient() },
-    { provide: POLYMARKET_VENUE_CLIENT, useFactory: () => new PolymarketPublicVenueClient() },
+    {
+      provide: KALSHI_VENUE_CLIENT,
+      useFactory: () => new KalshiPublicVenueClient(undefined, { concurrency: 5, retries: 3, timeoutMs: 15_000 })
+    },
+    {
+      provide: POLYMARKET_VENUE_CLIENT,
+      useFactory: () => new PolymarketPublicVenueClient(undefined, undefined, { concurrency: 8, retries: 3, timeoutMs: 15_000 })
+    },
     PostgresScannerRepository,
     { provide: SCANNER_REPOSITORY, useExisting: PostgresScannerRepository },
     {

@@ -5,12 +5,16 @@ interface PublicHttpOptions {
   timeoutMs?: number;
   retries?: number;
   retryDelayMs?: number;
+  concurrency?: number;
+  jitter?: () => number;
 }
 
 const DEFAULT_HTTP_OPTIONS: Required<PublicHttpOptions> = {
-  timeoutMs: 5_000,
-  retries: 2,
-  retryDelayMs: 100
+  timeoutMs: 15_000,
+  retries: 3,
+  retryDelayMs: 500,
+  concurrency: 1,
+  jitter: Math.random
 };
 
 export class KalshiPublicVenueClient implements VenueClient {
@@ -37,7 +41,7 @@ export class KalshiPublicVenueClient implements VenueClient {
   }
 
   async listOrderbooks(markets: VenueMarketSnapshot[]): Promise<MarketBook[]> {
-    return Promise.all(markets.map((market) => this.listOrderbook(market)));
+    return mapWithConcurrency(markets, (market) => this.listOrderbook(market), this.httpOptions.concurrency ?? DEFAULT_HTTP_OPTIONS.concurrency);
   }
 
   private async listOrderbook(market: VenueMarketSnapshot): Promise<MarketBook> {
@@ -97,7 +101,11 @@ export class PolymarketPublicVenueClient implements VenueClient {
   }
 
   async listOrderbooks(markets: VenueMarketSnapshot[]): Promise<MarketBook[]> {
-    const books = await Promise.all(markets.map((market) => this.listOrderbook(market)));
+    const books = await mapWithConcurrency(
+      markets,
+      (market) => this.listOrderbook(market),
+      this.httpOptions.concurrency ?? DEFAULT_HTTP_OPTIONS.concurrency
+    );
     return books.filter((book): book is MarketBook => book !== undefined);
   }
 
@@ -140,15 +148,22 @@ export class PolymarketPublicVenueClient implements VenueClient {
 
 async function fetchPublicJson<T>(url: string, label: string, options: PublicHttpOptions): Promise<T> {
   const mergedOptions = { ...DEFAULT_HTTP_OPTIONS, ...options };
+  const jitter = mergedOptions.jitter;
   let lastError: unknown;
+  let totalBackoffMs = 0;
+  let attemptsMade = 0;
 
   for (let attempt = 0; attempt <= mergedOptions.retries; attempt += 1) {
+    attemptsMade = attempt + 1;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), mergedOptions.timeoutMs);
     try {
       const response = await fetch(url, { method: "GET", signal: controller.signal });
       if (response.ok) return (await response.json()) as T;
-      if (!isRetryableStatus(response.status)) throw new Error(`${label} failed: ${response.status}`);
+      if (!isRetryableStatus(response.status)) {
+        lastError = new Error(`${label} failed: ${response.status}`);
+        break;
+      }
       lastError = new Error(`${label} failed: ${response.status}`);
     } catch (error) {
       lastError = error;
@@ -156,10 +171,25 @@ async function fetchPublicJson<T>(url: string, label: string, options: PublicHtt
     } finally {
       clearTimeout(timeout);
     }
-    await delay(mergedOptions.retryDelayMs * 2 ** attempt);
+    if (attempt < mergedOptions.retries) {
+      const delayMs = Math.round(mergedOptions.retryDelayMs * 2 ** attempt * (0.75 + jitter() * 0.5));
+      totalBackoffMs += delayMs;
+      await delay(delayMs);
+    }
   }
 
-  throw lastError instanceof Error ? lastError : new Error(`${label} failed`);
+  throw formatFetchError(label, lastError, attemptsMade, totalBackoffMs);
+}
+
+function formatFetchError(label: string, lastError: unknown, attempts: number, totalBackoffMs: number): Error {
+  const suffix = ` after ${attempts} attempt${attempts === 1 ? "" : "s"} (total backoff ${totalBackoffMs}ms)`;
+  if (lastError instanceof Error) {
+    if (lastError.message.includes(label)) {
+      return new Error(`${lastError.message}${suffix}`);
+    }
+    return new Error(`${label} failed: ${lastError.message}${suffix}`);
+  }
+  return new Error(`${label} failed${suffix}`);
 }
 
 function isRetryableStatus(status: number): boolean {
@@ -168,12 +198,57 @@ function isRetryableStatus(status: number): boolean {
 
 function isNonRetryableHttpError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  const status = Number(error.message.match(/failed: (\d{3})$/)?.[1]);
+  const status = Number(error.message.match(/failed: (\d{3})(?: after |$)/)?.[1]);
   return Number.isFinite(status) && !isRetryableStatus(status);
 }
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function mapWithConcurrency<T, R>(
+  items: T[],
+  mapper: (item: T, index: number) => Promise<R>,
+  concurrency: number
+): Promise<R[]> {
+  if (concurrency <= 0) throw new Error("concurrency must be positive");
+  if (items.length === 0) return [];
+  const results = new Array<R>(items.length);
+  let index = 0;
+  let running = 0;
+  let resolved = 0;
+  let settled = false;
+
+  return new Promise((resolve, reject) => {
+    function startNext(): void {
+      if (settled) return;
+      while (running < concurrency && index < items.length) {
+        const currentIndex = index++;
+        running += 1;
+        mapper(items[currentIndex], currentIndex)
+          .then(
+            (value) => {
+              results[currentIndex] = value;
+            },
+            (error) => {
+              settled = true;
+              reject(error);
+            }
+          )
+          .finally(() => {
+            if (settled) return;
+            running -= 1;
+            resolved += 1;
+            if (resolved === items.length) {
+              resolve(results);
+            } else {
+              startNext();
+            }
+          });
+      }
+    }
+    startNext();
+  });
 }
 
 function getObject(value: unknown): Record<string, unknown> | undefined {

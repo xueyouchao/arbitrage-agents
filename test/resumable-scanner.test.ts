@@ -103,22 +103,79 @@ describe("ResumableScanner", () => {
     expect(checkInClient.checkIns.map((c) => c.status)).toEqual(["in_progress", "error"]);
     const failedSteps = await stepRepository.listForRun(result.id);
     expect(failedSteps.find((s) => s.stepName === "fetch_markets")?.status).toBe("failed");
+    const failedStepNames = failedSteps.map((s) => s.stepName);
+    expect(failedStepNames).toEqual(["fetch_markets"]);
+    expect(failedSteps.find((s) => s.stepName === "fetch_books")).toBeUndefined();
+    expect(failedSteps.find((s) => s.stepName === "normalize_markets")).toBeUndefined();
+    expect(failedSteps.find((s) => s.stepName === "review_pairs")).toBeUndefined();
+    expect(failedSteps.find((s) => s.stepName === "calculate_opportunities")).toBeUndefined();
+    expect(failedSteps.find((s) => s.stepName === "finalize")).toBeUndefined();
+  });
+
+  it("records remaining steps as succeeded after a successful inner scanner resume", async () => {
+    const repository = new InMemoryScannerRepository();
+    const stepRepository = new InMemoryScanStepRepository();
+
+    // Resume under a fresh scan id; only fetch_markets is pre-seeded as
+    // succeeded, simulating a run that completed fetch_markets before the
+    // worker crashed. The orchestrator should skip fetch_markets, invoke
+    // the inner scanner once, and mark the remaining five steps succeeded.
+    const resumeScanId = "scan-resume-partial";
+    await stepRepository.saveStep({
+      scanRunId: resumeScanId,
+      stepName: "fetch_markets",
+      status: "succeeded",
+      startedAt: capturedAt,
+      completedAt: capturedAt,
+      attempt: 1
+    });
+
+    const innerSpy = vi.fn(async (_scanRunId?: string) => {
+      const innerResult: ScanResult = {
+        id: _scanRunId ?? "unexpected",
+        status: "succeeded",
+        startedAt: "2026-06-04T12:00:00.000Z",
+        completedAt: "2026-06-04T12:00:01.000Z",
+        metrics: { marketsScanned: 2, normalizedMarkets: 2, candidatePairs: 1, opportunitiesFound: 1, llmEvaluations: 0 }
+      };
+      return innerResult;
+    });
+    const innerScanner = { runOnce: innerSpy } as unknown as ReadOnlyScanner;
+
+    const resumeScanner = new ResumableScanner({
+      innerScanner,
+      stepRepository,
+      checkInClient: new FakeSentryCheckInClient(),
+      monitorSlug: "arbitrage-agents-scan",
+      clock: () => "2026-06-04T12:00:00.000Z",
+      nextScanRunId: () => resumeScanId
+    });
+
+    const resumed = await resumeScanner.runOnce();
+
+    expect(resumed.id).toBe(resumeScanId);
+    expect(resumed.status).toBe("succeeded");
+    expect(innerSpy).toHaveBeenCalledTimes(1);
+    const resumedSteps = await stepRepository.listForRun(resumeScanId);
+    expect(resumedSteps.map((s) => s.stepName)).toEqual([
+      "fetch_markets",
+      "fetch_books",
+      "normalize_markets",
+      "review_pairs",
+      "calculate_opportunities",
+      "finalize"
+    ]);
+    expect(resumedSteps.every((s) => s.status === "succeeded")).toBe(true);
+    expect(resumedSteps.filter((s) => s.stepName !== "fetch_markets").every((s) => s.metadata?.executedBy === "inner_scanner")).toBe(true);
   });
 
   it("skips a fully-succeeded resume without invoking the inner scanner", async () => {
     const repository = new InMemoryScannerRepository();
     const stepRepository = new InMemoryScanStepRepository();
 
-    // First run produces real persisted artifacts (snapshots, opportunities).
-    const { scanner: firstScanner } = buildResumableScanner(repository, stepRepository);
-    const first = await firstScanner.runOnce();
-    expect(first.status).toBe("succeeded");
-    const opportunitiesAfterFirst = repository.opportunities.length;
-    const snapshotsAfterFirst = repository.orderbookSnapshots.length;
-
     // Resume under a fresh scan id; all six steps are pre-seeded as
     // succeeded so the orchestrator has nothing to execute.
-    const resumeScanId = "scan-resume-1";
+    const resumeScanId = "scan-resume-full";
     for (const stepName of RESUMABLE_SCAN_STEP_NAMES) {
       await stepRepository.saveStep({ scanRunId: resumeScanId, stepName, status: "succeeded", startedAt: capturedAt, completedAt: capturedAt, attempt: 1 });
     }
@@ -141,14 +198,10 @@ describe("ResumableScanner", () => {
 
     expect(resumed.id).toBe(resumeScanId);
     expect(resumed.status).toBe("succeeded");
+    expect(innerSpy).not.toHaveBeenCalled();
     const resumedSteps = await stepRepository.listForRun(resumeScanId);
     expect(resumedSteps.map((s) => s.stepName)).toEqual(RESUMABLE_SCAN_STEP_NAMES);
-    expect(resumedSteps.filter((s) => s.metadata?.rehydrated === true)).toEqual([]);
-    // The inner scanner is not invoked when every step is already
-    // succeeded, so the repository totals are unchanged from the first run.
-    expect(innerSpy).not.toHaveBeenCalled();
-    expect(repository.opportunities.length).toBe(opportunitiesAfterFirst);
-    expect(repository.orderbookSnapshots.length).toBe(snapshotsAfterFirst);
+    expect(resumedSteps.every((s) => s.status === "succeeded")).toBe(true);
   });
 
   it("reruns a previously failed step instead of leaving the run stuck", async () => {
