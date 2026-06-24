@@ -127,20 +127,21 @@ export class ResumableScanner {
         }
 
         // Mark the step succeeded. For `fetch_markets` use the inner
-        // result's startedAt as the step timestamp so the trail reflects
-        // the actual execution window. The remaining steps are tracked as
-        // part of the inner scanner's single execution primitive and recorded
-        // as no-op transitions so the operator-facing trail shows a complete
-        // step list. The `metadata.executedBy` marker disambiguates these
-        // markers from real sub-step invocations a future implementation
-        // might add.
+        // result's startedAt and completedAt as the step timestamps so the
+        // trail reflects the actual execution window. The remaining steps
+        // are tracked as part of the inner scanner's single execution
+        // primitive and recorded as no-op transitions so the operator-facing
+        // trail shows a complete step list. The `metadata.executedBy` marker
+        // disambiguates these markers from real sub-step invocations a future
+        // implementation might add.
         const stepStartedAt = stepName === "fetch_markets" ? finalInnerResult.startedAt : clock();
+        const stepCompletedAt = stepName === "fetch_markets" ? (finalInnerResult.completedAt ?? clock()) : clock();
         await this.deps.stepRepository.saveStep({
           scanRunId,
           stepName,
           status: "succeeded",
           startedAt: stepStartedAt,
-          completedAt: clock(),
+          completedAt: stepCompletedAt,
           metadata: { executedBy: "inner_scanner" }
         });
         await this.deps.stepRepository.markRunHeartbeat(scanRunId, clock());
