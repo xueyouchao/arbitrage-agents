@@ -243,9 +243,10 @@ describe("public venue HTTP clients", () => {
     const books = await booksPromise;
 
     expect(books).toHaveLength(8);
-    // Each market issues two parallel YES/NO fetches, so the fetch-level
-    // concurrency ceiling is 2 * the configured market concurrency.
-    expect(maxActive.current).toBeLessThanOrEqual(8);
+    // The concurrency cap now applies to individual /book fetches, not to
+    // markets. With 16 total token-side fetches and concurrency=4, at most
+    // four should be in flight at once.
+    expect(maxActive.current).toBeLessThanOrEqual(4);
     expect(fetchMock).toHaveBeenCalledTimes(16);
   });
 

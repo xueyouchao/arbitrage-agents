@@ -10,7 +10,10 @@ interface PublicHttpOptions {
 }
 
 const DEFAULT_HTTP_OPTIONS: Required<PublicHttpOptions> = {
-  timeoutMs: 15_000,
+  // Keep the per-attempt timeout bounded: with retries:3 the worst case for a
+  // single hung request is 4 × 10s plus backoff. This limits the chance that
+  // a degraded endpoint pushes an entire scan past the abandoned threshold.
+  timeoutMs: 10_000,
   retries: 3,
   retryDelayMs: 500,
   concurrency: 1,
@@ -101,30 +104,61 @@ export class PolymarketPublicVenueClient implements VenueClient {
   }
 
   async listOrderbooks(markets: VenueMarketSnapshot[]): Promise<MarketBook[]> {
-    const books = await mapWithConcurrency(
-      markets,
-      (market) => this.listOrderbook(market),
-      this.httpOptions.concurrency ?? DEFAULT_HTTP_OPTIONS.concurrency
-    );
-    return books.filter((book): book is MarketBook => book !== undefined);
+    const tasks = this.buildBookSideTasks(markets);
+    if (tasks.length === 0) return [];
+
+    const concurrency = this.httpOptions.concurrency ?? DEFAULT_HTTP_OPTIONS.concurrency;
+    // Schedule individual /book fetches so the concurrency cap applies to the
+    // actual HTTP request pressure, not to the number of markets. Each market
+    // still requires both YES and NO sides, but the operator-configured
+    // concurrency value is now the total in-flight fetch ceiling.
+    const sides = await mapWithConcurrency(tasks, (task) => this.fetchBookSide(task), concurrency);
+
+    const yesByMarket = new Map<string, Record<string, unknown>>();
+    const noByMarket = new Map<string, Record<string, unknown>>();
+    for (let i = 0; i < tasks.length; i += 1) {
+      const task = tasks[i];
+      if (task.side === "yes") yesByMarket.set(task.market.venueMarketId, sides[i]);
+      else noByMarket.set(task.market.venueMarketId, sides[i]);
+    }
+
+    const books: MarketBook[] = [];
+    for (const market of markets) {
+      const yesBook = yesByMarket.get(market.venueMarketId);
+      const noBook = noByMarket.get(market.venueMarketId);
+      if (yesBook && noBook) books.push(this.buildBook(market, yesBook, noBook));
+    }
+    return books;
   }
 
-  private async listOrderbook(market: VenueMarketSnapshot): Promise<MarketBook | undefined> {
-    const tokenIds = extractPolymarketTokenIds(market.rawPayload);
-    if (!tokenIds?.yes || !tokenIds.no) return undefined;
+  private buildBookSideTasks(
+    markets: VenueMarketSnapshot[]
+  ): { market: VenueMarketSnapshot; side: "yes" | "no"; tokenId: string }[] {
+    const tasks: { market: VenueMarketSnapshot; side: "yes" | "no"; tokenId: string }[] = [];
+    for (const market of markets) {
+      const tokenIds = extractPolymarketTokenIds(market.rawPayload);
+      if (!tokenIds?.yes || !tokenIds.no) continue;
+      tasks.push({ market, side: "yes", tokenId: tokenIds.yes });
+      tasks.push({ market, side: "no", tokenId: tokenIds.no });
+    }
+    return tasks;
+  }
 
-    const [yesBook, noBook] = await Promise.all([
-      fetchPublicJson<Record<string, unknown>>(
-        `${this.clobBaseUrl}/book?token_id=${encodeURIComponent(tokenIds.yes)}`,
-        `Polymarket YES orderbook ${market.venueMarketId}`,
-        this.httpOptions
-      ),
-      fetchPublicJson<Record<string, unknown>>(
-        `${this.clobBaseUrl}/book?token_id=${encodeURIComponent(tokenIds.no)}`,
-        `Polymarket NO orderbook ${market.venueMarketId}`,
-        this.httpOptions
-      )
-    ]);
+  private async fetchBookSide(
+    task: { market: VenueMarketSnapshot; side: "yes" | "no"; tokenId: string }
+  ): Promise<Record<string, unknown>> {
+    return fetchPublicJson<Record<string, unknown>>(
+      `${this.clobBaseUrl}/book?token_id=${encodeURIComponent(task.tokenId)}`,
+      `Polymarket ${task.side.toUpperCase()} orderbook ${task.market.venueMarketId}`,
+      this.httpOptions
+    );
+  }
+
+  private buildBook(
+    market: VenueMarketSnapshot,
+    yesBook: Record<string, unknown>,
+    noBook: Record<string, unknown>
+  ): MarketBook {
     const yesDepth = parseObjectLevels(yesBook.asks).sort((a, b) => a.price - b.price);
     const noDepth = parseObjectLevels(noBook.asks).sort((a, b) => a.price - b.price);
     const yesAskLevel = bestAsk(yesDepth);
