@@ -15,14 +15,21 @@ import { ScanStepArtifact, ScanStepName, ScanStepRepository, ScanStepRow } from 
 
 export class InMemoryScannerRepository implements ScannerRepository {
   readonly scanRuns: ScanResult[] = [];
-  readonly snapshots: VenueMarketSnapshot[] = [];
+  // Phase 3 #6: collected by saveCompletedScan; exposed for test assertions
+  // and operator diagnostics on the in-memory adapter.
   readonly normalizedMarkets: NormalizedMarket[] = [];
   readonly candidatePairs: ReviewedCandidatePair[] = [];
   readonly orderbookSnapshots: OrderbookSnapshotArtifact[] = [];
   readonly opportunities: OpportunityWithSourceSnapshots[] = [];
-  // Phase 3 #6: collected by saveCompletedScan; exposed for test assertions
-  // and operator diagnostics on the in-memory adapter.
   readonly paperTradeSimulations: PaperTradeSimulation[] = [];
+  // Snapshots are stored per scan run so the in-memory adapter mirrors the
+  // Postgres idempotency contract: re-running the inner scanner on a resumed
+  // run replaces the prior snapshot set instead of appending duplicates.
+  private readonly snapshotsByScanRunId = new Map<string, VenueMarketSnapshot[]>();
+
+  get snapshots(): VenueMarketSnapshot[] {
+    return [...this.snapshotsByScanRunId.values()].flat();
+  }
 
   saveScanRun(scanRun: ScanResult): Promise<void> {
     const index = this.scanRuns.findIndex((existing) => existing.id === scanRun.id);
@@ -36,7 +43,9 @@ export class InMemoryScannerRepository implements ScannerRepository {
 
   saveCompletedScan(artifacts: CompletedScanArtifacts): Promise<CompletedScanResult> {
     const completedScanRun = artifacts.completeScanRun(artifacts.scanRun);
-    this.snapshots.push(...artifacts.snapshots);
+    // Replace, not append: this matches Postgres `delete ... where scan_run_id = $1`
+    // followed by inserts within the same transaction.
+    this.snapshotsByScanRunId.set(artifacts.scanRun.id, [...artifacts.snapshots]);
     this.normalizedMarkets.push(...artifacts.normalizedMarkets.map((review) => review.market));
     this.candidatePairs.push(...artifacts.candidatePairs);
     this.orderbookSnapshots.push(...artifacts.orderbookSnapshots);

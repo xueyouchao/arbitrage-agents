@@ -106,6 +106,15 @@ async function saveScanRun(queryable: Queryable, scanRun: ScanResult): Promise<v
 }
 
 async function saveSnapshots(queryable: Queryable, scanRunId: string, snapshots: VenueMarketSnapshot[]): Promise<void> {
+  // Idempotency: the inner scanner is re-invoked on a resumed run, and it
+  // always re-fetches market snapshots. Replace the prior set for this run
+  // within the same transaction so the resume path converges on a single
+  // snapshot set rather than appending duplicates.
+  await queryable.query(
+    `delete from venue_market_snapshots where scan_run_id = $1`,
+    [scanRunId]
+  );
+
   for (const snapshot of snapshots) {
     await queryable.query(
       `insert into venue_market_snapshots (scan_run_id, venue, venue_market_id, raw_payload, captured_at)
