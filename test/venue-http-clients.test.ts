@@ -181,6 +181,38 @@ describe("public venue HTTP clients", () => {
     ]);
   });
 
+  it("falls back through title/ticker when Kalshi subtitle pair is empty", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({
+        markets: [
+          {
+            id: "KXEMPTY-SUB",
+            event_ticker: "KXEMPTY-SUB-EVENT",
+            market_ticker: "KXEMPTY-SUB-MARKET",
+            title: "Title fallback",
+            subtitle: "",
+            rules_primary: "",
+            settlement_sources: "",
+            description: "",
+            yes_sub_title: "",
+            no_sub_title: ""
+          }
+        ]
+      }), { status: 200 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const markets = await new KalshiPublicVenueClient("https://kalshi.test", { retryDelayMs: 0 }).listMarkets();
+
+    expect(markets).toEqual([
+      expect.objectContaining({
+        venueMarketId: "KXEMPTY-SUB",
+        title: "Title fallback",
+        rawResolutionText: "Title fallback"
+      })
+    ]);
+  });
+
   it("retries thrown network errors and surfaces the last failure after retry exhaustion", async () => {
     const fetchMock = vi
       .fn()

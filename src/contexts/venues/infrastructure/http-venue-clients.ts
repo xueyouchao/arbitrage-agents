@@ -36,8 +36,14 @@ export class KalshiPublicVenueClient implements VenueClient {
     return (body.markets ?? []).map((market) => ({
       venue: "kalshi" as const,
       venueMarketId: String(market.ticker ?? market.id ?? market.market_ticker),
-      title: String(market.title ?? market.subtitle ?? market.ticker ?? ""),
-      rawResolutionText: String(market.rules_primary ?? market.settlement_sources ?? market.title ?? ""),
+      title: firstNonEmptyString(market.title, market.subtitle, market.ticker),
+      rawResolutionText: firstNonEmptyString(
+        market.rules_primary,
+        market.settlement_sources,
+        kalshiSubtitlePair(market.yes_sub_title, market.no_sub_title),
+        market.title,
+        market.ticker
+      ),
       rawPayload: market,
       capturedAt
     }));
@@ -371,4 +377,27 @@ function parseStringArray(value: unknown): string[] {
   } catch (_error) {
     return [];
   }
+}
+
+/**
+ * Returns the first non-empty (after trim) string value, or "" if none qualify.
+ * Treats empty strings the same as undefined/null so they don't block fallback.
+ */
+function firstNonEmptyString(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim() !== "") return value;
+  }
+  return "";
+}
+
+/**
+ * Builds a "YES: … / NO: …" subtitle pair from Kalshi yes/no subtitle fields.
+ * Returns undefined when both fields are empty or missing so that callers can
+ * fall through to other resolution-text candidates (title, ticker, etc.).
+ */
+function kalshiSubtitlePair(yes: unknown, no: unknown): string | undefined {
+  const yesStr = typeof yes === "string" ? yes.trim() : "";
+  const noStr = typeof no === "string" ? no.trim() : "";
+  if (yesStr === "" && noStr === "") return undefined;
+  return `YES: ${yesStr} / NO: ${noStr}`;
 }
