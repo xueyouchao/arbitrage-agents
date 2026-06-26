@@ -104,7 +104,7 @@ function parseArgs(argv: string[]): CliOptions {
   }
 
   // --- post-parse validation ---
-  if (!Number.isFinite(opts.minEdge) || opts.minEdge < 0) {
+  if (!opts.noFilter && (!Number.isFinite(opts.minEdge) || opts.minEdge < 0)) {
     console.error(`Error: --min-edge must be a non-negative number, got "${opts.minEdge}".`);
     process.exit(1);
   }
