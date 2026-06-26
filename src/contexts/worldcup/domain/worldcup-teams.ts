@@ -76,7 +76,7 @@ const ALIAS_TABLE: ReadonlyArray<readonly [string, readonly string[]]> = [
 /** Pre-built map: alias (lowercased, trimmed) → canonical team code. */
 const LOOKUP = new Map<string, string>();
 /** Aliases 3+ chars for substring matching (avoids checking short aliases like "us" on every call). */
-const SUBSTRING_ALIASES: ReadonlyArray<readonly [string, string]> = [];
+const SUBSTRING_ALIASES: Array<[string, string]> = [];
 
 for (const [canonical, aliases] of ALIAS_TABLE) {
   // Map the canonical code to itself as a fallback.
