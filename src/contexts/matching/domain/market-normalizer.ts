@@ -478,17 +478,46 @@ function parseDeadline(text: string): string | undefined {
     return new Date(Date.UTC(year, 0, day, 0, 0, 0)).toISOString();
   }
 
-  // Generic month-day-year phrase: "by December 31, 2026", "on November 5, 2024"
-  const monthYearMatch = text.match(
-    /(?:by|on|at|before)\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+([0-9]{1,2}),?\s*([0-9]{4})/i
-  );
-  if (monthYearMatch) {
-    const month = monthNameToIndex(monthYearMatch[1]);
-    const day = Number(monthYearMatch[2]);
-    const year = Number(monthYearMatch[3]);
-    if (month !== undefined) {
-      return new Date(Date.UTC(year, month, day, 0, 0, 0)).toISOString();
+  // Generic month-day-year phrases with prepositions/keywords.
+  // Collect all matches, preferring resolution keywords (resolves, by, before,
+  // expires) over generic "on"/"at" dates, and preferring the latest date
+  // when multiple candidates exist. This prevents an early "on <event date>"
+  // from shadowing a later "resolves by <deadline>".
+  const monthYearPattern =
+    /(?:(resolves?|expires?)\s+)?(by\s+|before\s+|until\s+|on\s+|at\s+)(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+([0-9]{1,2}),?\s*([0-9]{4})/gi;
+
+  const resolutionDates: number[] = [];
+  const genericDates: number[] = [];
+
+  let monthYearMatch: RegExpExecArray | null;
+  while ((monthYearMatch = monthYearPattern.exec(text)) !== null) {
+    const prefixKeyword = monthYearMatch[1]?.toLowerCase();
+    const preposition = monthYearMatch[2]?.toLowerCase().trim();
+    const month = monthNameToIndex(monthYearMatch[3]);
+    const day = Number(monthYearMatch[4]);
+    const year = Number(monthYearMatch[5]);
+    if (month === undefined) continue;
+
+    const ts = Date.UTC(year, month, day, 0, 0, 0);
+    if (!Number.isFinite(ts)) continue;
+
+    const isResolution =
+      prefixKeyword !== undefined ||
+      preposition === "by" ||
+      preposition === "before" ||
+      preposition === "until";
+
+    if (isResolution) {
+      resolutionDates.push(ts);
+    } else {
+      genericDates.push(ts);
     }
+  }
+
+  const candidates =
+    resolutionDates.length > 0 ? resolutionDates : genericDates;
+  if (candidates.length > 0) {
+    return new Date(Math.max(...candidates)).toISOString();
   }
 
   // Just a year with an event name: "2026 FIFA World Cup" -> final is July 19, 2026.
