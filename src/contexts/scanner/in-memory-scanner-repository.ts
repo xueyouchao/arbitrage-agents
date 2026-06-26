@@ -14,49 +14,68 @@ import { ScanResult } from "./scanner-result";
 import { ScanStepArtifact, ScanStepName, ScanStepRepository, ScanStepRow } from "./scan-step";
 
 export class InMemoryScannerRepository implements ScannerRepository {
-  readonly scanRuns: ScanResult[] = [];
-  // Phase 3 #6: collected by saveCompletedScan; exposed for test assertions
-  // and operator diagnostics on the in-memory adapter.
-  readonly normalizedMarkets: NormalizedMarket[] = [];
-  readonly candidatePairs: ReviewedCandidatePair[] = [];
-  readonly orderbookSnapshots: OrderbookSnapshotArtifact[] = [];
-  readonly opportunities: OpportunityWithSourceSnapshots[] = [];
-  readonly paperTradeSimulations: PaperTradeSimulation[] = [];
-  // Snapshots are stored per scan run so the in-memory adapter mirrors the
-  // Postgres idempotency contract: re-running the inner scanner on a resumed
-  // run replaces the prior snapshot set instead of appending duplicates.
+  // All per-scan artifact collections are keyed by scanRun.id so that a
+  // resumed run (which re-invokes saveCompletedScan with the same id)
+  // replaces the prior set instead of appending duplicates. This mirrors
+  // the Postgres idempotency contract: `delete ... where scan_run_id = $1`
+  // (for snapshots) and upserts / `on conflict do update` for the rest,
+  // all within the same transaction.
+  private readonly scanRunsById = new Map<string, ScanResult>();
+  private readonly normalizedMarketsByScanRunId = new Map<string, NormalizedMarket[]>();
+  private readonly candidatePairsByScanRunId = new Map<string, ReviewedCandidatePair[]>();
+  private readonly orderbookSnapshotsByScanRunId = new Map<string, OrderbookSnapshotArtifact[]>();
+  private readonly opportunitiesByScanRunId = new Map<string, OpportunityWithSourceSnapshots[]>();
+  private readonly paperTradeSimulationsByScanRunId = new Map<string, PaperTradeSimulation[]>();
   private readonly snapshotsByScanRunId = new Map<string, VenueMarketSnapshot[]>();
 
+  /** Collected by saveCompletedScan; exposed for test assertions and
+   * operator diagnostics on the in-memory adapter. Each getter flattens
+   * the per-scan-run Map values so callers see a single flat array. */
+  get scanRuns(): ScanResult[] {
+    return [...this.scanRunsById.values()];
+  }
+  get normalizedMarkets(): NormalizedMarket[] {
+    return [...this.normalizedMarketsByScanRunId.values()].flat();
+  }
+  get candidatePairs(): ReviewedCandidatePair[] {
+    return [...this.candidatePairsByScanRunId.values()].flat();
+  }
+  get orderbookSnapshots(): OrderbookSnapshotArtifact[] {
+    return [...this.orderbookSnapshotsByScanRunId.values()].flat();
+  }
+  get opportunities(): OpportunityWithSourceSnapshots[] {
+    return [...this.opportunitiesByScanRunId.values()].flat();
+  }
+  get paperTradeSimulations(): PaperTradeSimulation[] {
+    return [...this.paperTradeSimulationsByScanRunId.values()].flat();
+  }
   get snapshots(): VenueMarketSnapshot[] {
     return [...this.snapshotsByScanRunId.values()].flat();
   }
 
   saveScanRun(scanRun: ScanResult): Promise<void> {
-    const index = this.scanRuns.findIndex((existing) => existing.id === scanRun.id);
-    if (index === -1) {
-      this.scanRuns.push(scanRun);
-    } else {
-      this.scanRuns[index] = scanRun;
-    }
+    this.scanRunsById.set(scanRun.id, scanRun);
     return Promise.resolve();
   }
 
   saveCompletedScan(artifacts: CompletedScanArtifacts): Promise<CompletedScanResult> {
     const completedScanRun = artifacts.completeScanRun(artifacts.scanRun);
-    // Replace, not append: this matches Postgres `delete ... where scan_run_id = $1`
-    // followed by inserts within the same transaction.
-    this.snapshotsByScanRunId.set(artifacts.scanRun.id, [...artifacts.snapshots]);
-    this.normalizedMarkets.push(...artifacts.normalizedMarkets.map((review) => review.market));
-    this.candidatePairs.push(...artifacts.candidatePairs);
-    this.orderbookSnapshots.push(...artifacts.orderbookSnapshots);
-    this.opportunities.push(...artifacts.opportunities);
-    this.paperTradeSimulations.push(...artifacts.paperTradeSimulations);
-    this.scanRuns.push(completedScanRun);
+    const scanRunId = artifacts.scanRun.id;
+    // Replace, not append: each collection is keyed by scanRunId so a
+    // resumed run converges on a single artifact set rather than
+    // appending duplicates.
+    this.snapshotsByScanRunId.set(scanRunId, [...artifacts.snapshots]);
+    this.normalizedMarketsByScanRunId.set(scanRunId, artifacts.normalizedMarkets.map((review) => review.market));
+    this.candidatePairsByScanRunId.set(scanRunId, [...artifacts.candidatePairs]);
+    this.orderbookSnapshotsByScanRunId.set(scanRunId, [...artifacts.orderbookSnapshots]);
+    this.opportunitiesByScanRunId.set(scanRunId, [...artifacts.opportunities]);
+    this.paperTradeSimulationsByScanRunId.set(scanRunId, [...artifacts.paperTradeSimulations]);
+    this.scanRunsById.set(scanRunId, completedScanRun);
     return Promise.resolve(completedScanRun);
   }
 
   listScanRuns(): Promise<readonly ScanResult[]> {
-    return Promise.resolve([...this.scanRuns]);
+    return Promise.resolve([...this.scanRunsById.values()]);
   }
 }
 
