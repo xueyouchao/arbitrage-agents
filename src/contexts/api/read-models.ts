@@ -10,6 +10,7 @@ export type ApiEventType =
   | "fed_rate_decision" | "cpi_range"
   | "winner" | "total" | "nomination" | "yes_no";
 export type ApiMarketOperator = ">" | ">=" | "<" | "<=" | "=" | "between";
+export type ApiAsset = string;
 export type ApiPayoffType = "at_time" | "any_time_before" | "range" | "settlement_value";
 
 export interface ApiPriceLevel {
@@ -83,7 +84,7 @@ export interface MarketReadModel {
   rawResolutionText: string;
   topic: ApiTopic;
   eventType: ApiEventType;
-  asset?: string;
+  asset?: ApiAsset;
   threshold?: number;
   operator?: ApiMarketOperator;
   deadline?: string;
