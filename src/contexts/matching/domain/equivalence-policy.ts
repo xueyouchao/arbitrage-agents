@@ -58,7 +58,9 @@ function materialMismatchReasonsFor(pair: CandidatePair): string[] {
 }
 
 function thresholdsMatch(left?: number, right?: number): boolean {
-  return left !== undefined && right !== undefined && Math.abs(left - right) < 0.000001;
+  if (left === undefined && right === undefined) return true;
+  if (left === undefined || right === undefined) return false;
+  return Math.abs(left - right) < 0.000001;
 }
 
 function deadlinesMatch(left?: string, right?: string): boolean {
