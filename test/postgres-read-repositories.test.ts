@@ -178,6 +178,46 @@ describe("PostgresReadRepositories", () => {
     });
   });
 
+  it("maps broader normalized market topics, event types, and non-crypto asset strings", async () => {
+    const repository = new PostgresReadRepositories(injectedPool());
+    poolQuery.mockResolvedValueOnce({ rows: [{ total: "1" }] }).mockResolvedValueOnce({ rows: [{
+      id: "market-2",
+      venue: "polymarket",
+      venue_market_id: "P2",
+      title: "Will Trump win the 2028 GOP nomination?",
+      raw_resolution_text: "Resolves YES if Donald J. Trump wins the 2028 Republican presidential nomination.",
+      topic: "politics",
+      event_type: "nomination",
+      asset: "TRUMP",
+      threshold: null,
+      operator: null,
+      deadline: "2028-07-31T00:00:00.000Z",
+      timezone: "America/New_York",
+      resolution_source: "https://projects.fivethirtyeight.com/2028-election-forecast/",
+      payoff_type: "settlement_value",
+      ambiguity_flags: [],
+      confidence: "0.88"
+    }] });
+
+    const result = await repository.listMarkets();
+    expect(result.data[0]).toMatchObject({
+      id: "market-2",
+      venue: "polymarket",
+      venueMarketId: "P2",
+      topic: "politics",
+      eventType: "nomination",
+      asset: "TRUMP",
+      threshold: undefined,
+      operator: undefined,
+      deadline: "2028-07-31T00:00:00.000Z",
+      timezone: "America/New_York",
+      resolutionSource: "https://projects.fivethirtyeight.com/2028-election-forecast/",
+      payoffType: "settlement_value",
+      ambiguityFlags: [],
+      confidence: 0.88
+    });
+  });
+
   it("lists paper-trade simulations for an opportunity and coerces numeric fields", async () => {
     const repository = new PostgresReadRepositories(injectedPool());
     poolQuery.mockResolvedValueOnce({ rows: [{
