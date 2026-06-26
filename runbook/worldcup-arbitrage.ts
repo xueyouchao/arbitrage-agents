@@ -41,21 +41,40 @@ function parseArgs(argv: string[]): CliOptions {
     feeRate: 0.01,
   };
 
+  function consumeValue(index: number, label: string): string {
+    if (index >= argv.length) {
+      console.error(`Error: --${label} requires a value.`);
+      process.exit(1);
+    }
+    const val = argv[index];
+    if (val.startsWith("--")) {
+      console.error(`Error: --${label} expected a value, got "${val}".`);
+      process.exit(1);
+    }
+    return val;
+  }
+
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     switch (arg) {
       case "--json":
         opts.json = true;
         break;
-      case "--min-edge":
-        opts.minEdge = parseFloat(argv[++i] ?? "0");
+      case "--min-edge": {
+        const raw = consumeValue(++i, "min-edge");
+        opts.minEdge = parseFloat(raw);
         break;
-      case "--notional":
-        opts.notionals = (argv[++i] ?? "5,25,100").split(",").map((s) => parseFloat(s.trim())).filter((n) => Number.isFinite(n) && n > 0);
+      }
+      case "--notional": {
+        const raw = consumeValue(++i, "notional");
+        opts.notionals = raw.split(",").map((s) => parseFloat(s.trim())).filter((n) => Number.isFinite(n) && n > 0);
         break;
-      case "--fee-rate":
-        opts.feeRate = parseFloat(argv[++i] ?? "0.01");
+      }
+      case "--fee-rate": {
+        const raw = consumeValue(++i, "fee-rate");
+        opts.feeRate = parseFloat(raw);
         break;
+      }
       case "--help":
         printUsage();
         process.exit(0);
@@ -63,6 +82,20 @@ function parseArgs(argv: string[]): CliOptions {
       default:
         console.warn(`Unknown option: ${arg}. Use --help for usage.`);
     }
+  }
+
+  // --- post-parse validation ---
+  if (!Number.isFinite(opts.minEdge) || opts.minEdge < 0) {
+    console.error(`Error: --min-edge must be a non-negative number, got "${opts.minEdge}".`);
+    process.exit(1);
+  }
+  if (!Number.isFinite(opts.feeRate) || opts.feeRate <= 0 || opts.feeRate >= 1) {
+    console.error(`Error: --fee-rate must be a number between 0 and 1 (exclusive), got "${opts.feeRate}".`);
+    process.exit(1);
+  }
+  if (opts.notionals.length === 0) {
+    console.error("Error: --notional must specify at least one positive number (e.g. \"5,25,100\").");
+    process.exit(1);
   }
 
   return opts;
