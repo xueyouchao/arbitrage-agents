@@ -28,6 +28,7 @@ config();
 
 interface CliOptions {
   json: boolean;
+  noFilter: boolean;
   minEdge: number;
   notionals: number[];
   feeRate: number;
@@ -36,6 +37,7 @@ interface CliOptions {
 function parseArgs(argv: string[]): CliOptions {
   const opts: CliOptions = {
     json: false,
+    noFilter: false,
     minEdge: 0,
     notionals: [5, 25, 100],
     feeRate: 0.01,
@@ -60,6 +62,9 @@ function parseArgs(argv: string[]): CliOptions {
       case "--json":
         opts.json = true;
         break;
+      case "--no-filter":
+        opts.noFilter = true;
+        break;
       case "--min-edge": {
         const raw = consumeValue(++i, "min-edge");
         opts.minEdge = parseFloat(raw);
@@ -67,7 +72,16 @@ function parseArgs(argv: string[]): CliOptions {
       }
       case "--notional": {
         const raw = consumeValue(++i, "notional");
-        opts.notionals = raw.split(",").map((s) => parseFloat(s.trim())).filter((n) => Number.isFinite(n) && n > 0);
+        const tokens = raw.split(",").map((s) => s.trim());
+        const filtered = tokens.filter((s) => {
+          const n = parseFloat(s);
+          return Number.isFinite(n) && n > 0;
+        }).map((s) => parseFloat(s));
+        const skipped = tokens.length - filtered.length;
+        if (skipped > 0) {
+          console.warn(`Warning: --notional ignored ${skipped} invalid value(s) (must be positive numbers).`);
+        }
+        opts.notionals = filtered;
         break;
       }
       case "--fee-rate": {
@@ -82,6 +96,11 @@ function parseArgs(argv: string[]): CliOptions {
       default:
         console.warn(`Unknown option: ${arg}. Use --help for usage.`);
     }
+  }
+
+  // --no-filter overrides minEdge to include everything (check before validation)
+  if (opts.noFilter) {
+    opts.minEdge = -Infinity;
   }
 
   // --- post-parse validation ---
@@ -111,6 +130,7 @@ function printUsage(): void {
   console.log("  --min-edge <n>     Minimum net edge to report (default: 0)");
   console.log("  --notional <n>     Comma-separated paper-trade notionals (default: 5,25,100)");
   console.log("  --fee-rate <n>     Fee rate for both venues (default: 0.01)");
+  console.log("  --no-filter        Include opportunities with zero or negative edge");
   console.log("  --help             Show this help");
 }
 
