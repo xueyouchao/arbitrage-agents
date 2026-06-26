@@ -12,8 +12,8 @@ import { LlmEvaluationRequest } from "./application/llm-evaluation";
 export const SCANNER_LLM_NORMALIZATION_VERSION = "v1";
 export const SCANNER_LLM_EQUIVALENCE_VERSION = "v1";
 
-export const SCANNER_TOPICS = ["crypto", "macro"] as const;
-export const SCANNER_EVENT_TYPES = ["price_above", "price_below", "fed_rate_decision", "cpi_range"] as const;
+export const SCANNER_TOPICS = ["crypto", "macro", "sports", "politics", "current_events"] as const;
+export const SCANNER_EVENT_TYPES = ["price_above", "price_below", "fed_rate_decision", "cpi_range", "winner", "total", "nomination", "yes_no"] as const;
 export const SCANNER_CRYPTO_ASSETS = ["BTC", "ETH"] as const;
 export const SCANNER_OPERATORS = [">", ">=", "<", "<=", "=", "between"] as const;
 export const SCANNER_PAYOFF_TYPES = ["at_time", "any_time_before", "range", "settlement_value"] as const;
@@ -27,7 +27,7 @@ export function marketNormalizationSchema(): ZodType<Record<string, unknown>> {
     .object({
       topic: z.enum(SCANNER_TOPICS),
       eventType: z.enum(SCANNER_EVENT_TYPES),
-      asset: z.enum(SCANNER_CRYPTO_ASSETS).nullable(),
+      asset: z.string().min(1).nullable(),
       threshold: z.coerce.number().finite().nullable(),
       operator: z.enum(SCANNER_OPERATORS).nullable(),
       deadline: z.string().datetime().nullable(),
@@ -67,7 +67,7 @@ export function describeScannerSchema(taskType: LlmEvaluationRequest["taskType"]
     return {
       topic: `${SCANNER_TOPICS.join("|")}`,
       eventType: `${SCANNER_EVENT_TYPES.join("|")}`,
-      asset: `${SCANNER_CRYPTO_ASSETS.join("|")}|null`,
+      asset: `non-empty string|null`,
       threshold: "number|null",
       operator: `${SCANNER_OPERATORS.join("|")}|null`,
       deadline: "ISO-8601 string|null",
