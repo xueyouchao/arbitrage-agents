@@ -445,6 +445,9 @@ export class ReadOnlyScanner {
     try {
       record = await this.dependencies.llmGateway.evaluate(request);
     } catch (error) {
+      console.warn(
+        `[scanner:llm:fallback] ${request.taskType} failed for model=${request.model}: ${sanitizeProviderErrorMessage(error)}`
+      );
       // Issue #47: a thrown/failed evaluation must not consume the per-scan
       // budget. Increment skipped so metrics reflect the degradation, then
       // return the failed record without touching evaluations/freshEvaluations

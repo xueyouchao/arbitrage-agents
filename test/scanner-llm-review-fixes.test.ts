@@ -544,7 +544,6 @@ describe("Review fix #11 — LLM gateway exceptions are isolated", () => {
 describe("Review fix #47 — Thrown LLM evaluations do not consume per-scan budget", () => {
   it("counts a failed LLM evaluation as skipped instead of fresh so remaining budget is preserved", async () => {
     let calls = 0;
-    const llmRepository = new InMemoryLlmEvaluationRepository();
     const llmGateway: { evaluate(request: LlmEvaluationRequest): Promise<LlmEvaluationRecord> } = {
       async evaluate(request) {
         calls += 1;
@@ -629,11 +628,13 @@ describe("Review fix #47 — Thrown LLM evaluations do not consume per-scan budg
 
     // Issue #47: a thrown evaluation must count as skipped, not fresh, so the
     // remaining per-scan budget is preserved for later successful calls.
+    // 4 fresh = 3 successful normalization + 1 successful equivalence;
+    // 2 skipped = 1 (throw) + 1 (2nd equivalence pair over equiv-budget cap of 1).
     expect(result.status).toBe("succeeded");
-    expect(result.metrics.llmEvaluations).toBe(3);
-    expect(result.metrics.llmEvaluationsSkipped).toBe(1);
+    expect(result.metrics.llmEvaluations).toBe(4);
+    expect(result.metrics.llmEvaluationsSkipped).toBe(2);
     expect(repository.normalizedMarkets).toHaveLength(4);
-    expect(repository.candidatePairs).toHaveLength(1);
+    expect(repository.candidatePairs).toHaveLength(2);
     // The first market should have fallen back to deterministic normalization
     // while the other three markets received the successful LLM review.
     expect(repository.normalizedMarkets[0].confidence).toBeLessThan(0.8);
