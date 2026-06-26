@@ -98,14 +98,8 @@ function parseArgs(argv: string[]): CliOptions {
     }
   }
 
-  // --no-filter: set minEdge to an unambiguously impossible netEdge value so no
-  // opportunity gets filtered out, regardless of edge calculation details.
-  if (opts.noFilter) {
-    opts.minEdge = -1_000_000;
-  }
-
   // --- post-parse validation ---
-  if (!opts.noFilter && (!Number.isFinite(opts.minEdge) || opts.minEdge < 0)) {
+  if (!Number.isFinite(opts.minEdge) || opts.minEdge < 0) {
     console.error(`Error: --min-edge must be a non-negative number, got "${opts.minEdge}".`);
     process.exit(1);
   }
@@ -160,6 +154,7 @@ async function main(): Promise<void> {
   console.error("Scanning venues...");
   const result = await finder.find({
     minNetEdge: opts.minEdge,
+    noFilter: opts.noFilter,
     feeRate: opts.feeRate,
     paperTradeNotionals: opts.notionals,
   });

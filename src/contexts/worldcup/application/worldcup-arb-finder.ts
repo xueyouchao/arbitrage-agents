@@ -56,8 +56,10 @@ export interface WorldCupArbFinderOptions {
   scanTimeUtc?: string;
   /** Flat fee-rate for both venues when no venue-specific fee model is supplied. Default: 0.01. */
   feeRate?: number;
-  /** Minimum net edge to surface. Default: 0 (any non-negative net edge). */
+  /** Minimum net edge to surface. Default: 0 (any non-negative net edge). Ignored when noFilter=true. */
   minNetEdge?: number;
+  /** When true, skip edge filtering entirely — return all opportunities. Default: false. */
+  noFilter?: boolean;
   /** Target USD notionals for paper-trade simulation. Default: [5, 25, 100]. */
   paperTradeNotionals?: number[];
   /** Adverse selection bps applied to hedge leg in paper-trade sim. Default: 25. */
@@ -147,7 +149,7 @@ export class WorldCupArbFinder {
           now: scanTimeUtc,
           feeRate: opts.feeRate,
           slippageRate: 0.005,
-          minNetEdge: opts.minNetEdge,
+          minNetEdge: opts.noFilter ? -Infinity : opts.minNetEdge,
           feeModels: {},
         }
       );
