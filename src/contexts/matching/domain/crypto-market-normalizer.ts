@@ -99,7 +99,6 @@ function parseDeadline(text: string): string | undefined {
     const year = Number(janMatch[2]);
     const date = new Date(Date.UTC(year, 0, day, 0, 0, 0));
     if (date.getUTCDate() !== day) return undefined;
-    if (!Number.isFinite(date.getTime())) return undefined;
     return date.toISOString();
   }
 
