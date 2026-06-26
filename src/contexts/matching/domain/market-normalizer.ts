@@ -308,11 +308,20 @@ function parseThreshold(
   }
 
   if (topic === "macro") {
-    // Preserve simple percentage / basis point thresholds if present.
+    // Reject bare year-like numbers (e.g. "between 2024 and 2025") unless they
+    // carry an explicit unit (% / bps / points). This avoids treating years as
+    // economic thresholds.
     const macroMatch = lower.match(
-      /(?:above|below|greater than|less than|between)\s+(\d+(?:\.\d+)?)%?/
+      /(?:above|below|greater than|less than|between)\s+(\d+(?:\.\d+)?)(%|\s*(?:bps|basis points?|points?))?/i
     );
-    if (macroMatch) return numericThresholdFromMatch(macroMatch);
+    if (macroMatch) {
+      const value = Number(macroMatch[1]);
+      const unit = macroMatch[2] ?? "";
+      const hasUnit = /%|bps|basis|point/.test(unit);
+      if (hasUnit || !isYearLikeNumber(value)) {
+        return numericThresholdFromMatch(macroMatch);
+      }
+    }
   }
 
   return undefined;
@@ -331,6 +340,10 @@ function parseCryptoThreshold(text: string): number | undefined {
   }
 
   return undefined;
+}
+
+function isYearLikeNumber(value: number): boolean {
+  return Number.isInteger(value) && value >= 1900 && value <= 2100;
 }
 
 function numericThresholdFromMatch(match: RegExpMatchArray): number | undefined {
