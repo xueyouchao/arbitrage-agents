@@ -470,14 +470,6 @@ function parseDeadline(text: string): string | undefined {
   const isoMatch = text.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/);
   if (isoMatch) return new Date(isoMatch[0]).toISOString();
 
-  // "Jan 1, 2026" / "January 1, 2026"
-  const janMatch = text.match(/Jan(?:uary)?\s+([0-9]{1,2}),\s*([0-9]{4})/i);
-  if (janMatch) {
-    const day = Number(janMatch[1]);
-    const year = Number(janMatch[2]);
-    return new Date(Date.UTC(year, 0, day, 0, 0, 0)).toISOString();
-  }
-
   // Generic month-day-year phrases with prepositions/keywords.
   // Collect all matches, preferring resolution keywords (resolves, by, before,
   // expires) over generic "on"/"at" dates, and preferring the latest date
