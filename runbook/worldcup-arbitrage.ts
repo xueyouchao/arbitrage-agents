@@ -98,9 +98,10 @@ function parseArgs(argv: string[]): CliOptions {
     }
   }
 
-  // --no-filter overrides minEdge to include everything (check before validation)
+  // --no-filter overrides minEdge to include everything (netEdge is always in [-1, 1],
+  // so -1 effectively includes all opportunities with no lower bound).
   if (opts.noFilter) {
-    opts.minEdge = -Infinity;
+    opts.minEdge = -1;
   }
 
   // --- post-parse validation ---
