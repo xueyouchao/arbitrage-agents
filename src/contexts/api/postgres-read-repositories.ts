@@ -350,8 +350,8 @@ interface MarketRow {
   venue_market_id: string;
   title: string;
   raw_resolution_text: string;
-  topic: string;
-  event_type: string;
+  topic: MarketReadModel["topic"];
+  event_type: MarketReadModel["eventType"];
   asset: string | null;
   threshold: string | null;
   operator: MarketReadModel["operator"] | null;

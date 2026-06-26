@@ -4,8 +4,11 @@ export type ApiVenue = "kalshi" | "polymarket";
 export type ApiContractSide = "YES" | "NO";
 export type ApiRiskLevel = "low" | "medium" | "high";
 export type ApiEquivalenceClass = "A" | "B" | "C" | "D";
-export type ApiTopic = string;
-export type ApiEventType = string;
+export type ApiTopic = "crypto" | "macro" | "sports" | "politics" | "current_events";
+export type ApiEventType =
+  | "price_above" | "price_below"
+  | "fed_rate_decision" | "cpi_range"
+  | "winner" | "total" | "nomination" | "yes_no";
 export type ApiMarketOperator = ">" | ">=" | "<" | "<=" | "=" | "between";
 export type ApiPayoffType = "at_time" | "any_time_before" | "range" | "settlement_value";
 
