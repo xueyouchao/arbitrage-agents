@@ -50,4 +50,77 @@ describe("CryptoMarketNormalizer", () => {
     expect(market.threshold).toBe(100000);
   });
 
+  it("returns undefined deadline for syntactically valid but semantically invalid ISO dates", () => {
+    const market = new CryptoMarketNormalizer().normalize(
+      snapshot({
+        title: "Will Bitcoin be above $100,000?",
+        rawResolutionText: "Resolves using Coinbase BTC/USD at 0000-00-00T00:00:00Z"
+      })
+    );
+
+    expect(market.deadline).toBeUndefined();
+    expect(market.ambiguityFlags).toContain("deadline_missing");
+  });
+
+  it("returns undefined deadline for invalid Jan-date combinations", () => {
+    const market = new CryptoMarketNormalizer().normalize(
+      snapshot({
+        title: "Will Bitcoin on Jan 32, 2026 be above $100,000?",
+        rawResolutionText: "Source unclear"
+      })
+    );
+
+    expect(market.deadline).toBeUndefined();
+    expect(market.ambiguityFlags).toContain("deadline_missing");
+  });
+
+  it("returns undefined deadline for out-of-range ISO month", () => {
+    const market = new CryptoMarketNormalizer().normalize(
+      snapshot({
+        title: "Will Bitcoin be above $100,000?",
+        rawResolutionText: "Resolves at 2026-13-01T00:00:00Z"
+      })
+    );
+
+    expect(market.deadline).toBeUndefined();
+    expect(market.ambiguityFlags).toContain("deadline_missing");
+  });
+
+  it("returns undefined deadline for out-of-range ISO day", () => {
+    const market = new CryptoMarketNormalizer().normalize(
+      snapshot({
+        title: "Will Bitcoin be above $100,000?",
+        rawResolutionText: "Resolves at 2026-01-32T00:00:00Z"
+      })
+    );
+
+    expect(market.deadline).toBeUndefined();
+    expect(market.ambiguityFlags).toContain("deadline_missing");
+  });
+
+  it("returns undefined deadline for out-of-range ISO hour", () => {
+    const market = new CryptoMarketNormalizer().normalize(
+      snapshot({
+        title: "Will Bitcoin be above $100,000?",
+        rawResolutionText: "Resolves at 2026-01-01T25:00:00Z"
+      })
+    );
+
+    expect(market.deadline).toBeUndefined();
+    expect(market.ambiguityFlags).toContain("deadline_missing");
+  });
+
+  it("returns correct ISO deadline for valid timestamps", () => {
+    const market = new CryptoMarketNormalizer().normalize(
+      snapshot({
+        title: "Will Bitcoin be above $100,000?",
+        rawResolutionText: "Resolves using Coinbase BTC/USD at 2026-01-01T00:00:00Z"
+      })
+    );
+
+    expect(market.deadline).toBe("2026-01-01T00:00:00.000Z");
+    expect(market.timezone).toBe("UTC");
+    expect(market.ambiguityFlags).not.toContain("deadline_missing");
+  });
+
 });

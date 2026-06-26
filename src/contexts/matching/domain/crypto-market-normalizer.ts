@@ -87,13 +87,20 @@ function parseResolutionSource(text: string): string | undefined {
 
 function parseDeadline(text: string): string | undefined {
   const isoMatch = text.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/);
-  if (isoMatch) return new Date(isoMatch[0]).toISOString();
+  if (isoMatch) {
+    const date = new Date(isoMatch[0]);
+    if (!Number.isFinite(date.getTime())) return undefined;
+    return date.toISOString();
+  }
 
   const janMatch = text.match(/Jan(?:uary)?\s+([0-9]{1,2}),\s*([0-9]{4})/i);
   if (janMatch) {
     const day = Number(janMatch[1]);
     const year = Number(janMatch[2]);
-    return new Date(Date.UTC(year, 0, day, 0, 0, 0)).toISOString();
+    const date = new Date(Date.UTC(year, 0, day, 0, 0, 0));
+    if (date.getUTCDate() !== day) return undefined;
+    if (!Number.isFinite(date.getTime())) return undefined;
+    return date.toISOString();
   }
 
   return undefined;
