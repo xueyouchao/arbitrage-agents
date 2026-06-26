@@ -184,7 +184,7 @@ function resultToJson(result: WorldCupArbResult): Record<string, unknown> {
     timings: result.timings,
     opportunities: result.opportunities.map((opp) => ({
       id: opp.opportunity.id,
-      team: opp.pair.kalshiMarket.teamCode?.toUpperCase(),
+      team: opp.pair.kalshiMarket.teamCode?.toUpperCase() ?? "?",
       marketType: opp.pair.kalshiMarket.marketType,
       opponent: opp.pair.kalshiMarket.opponentCode?.toUpperCase() ?? null,
       kalshiTitle: opp.pair.kalshiMarket.originalTitle,
@@ -283,7 +283,7 @@ function renderOpportunity(opp: WorldCupArbOpportunity): void {
     : "LONG Polymarket YES  +  LONG Kalshi NO";
 
   console.log("");
-  console.log(`  🎯 Team: ${kalshi.teamCode?.toUpperCase()}`);
+  console.log(`  🎯 Team: ${kalshi.teamCode?.toUpperCase() ?? "?"}`);
   console.log(`  📂 Type: ${kalshi.marketType}`);
   console.log(`  🔄 Direction: ${direction}`);
   console.log(`  💰 Gross Edge: ${(opp.opportunity.grossEdge * 100).toFixed(2)}%`);
