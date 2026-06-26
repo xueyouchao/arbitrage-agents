@@ -5,7 +5,7 @@ describe("InMemoryScanStepRepository", () => {
   it("byRunId groups steps by scanRunId", () => {
     const repo = new InMemoryScanStepRepository();
     repo.saveStep({ scanRunId: "run-1", stepName: "fetch_markets", status: "succeeded", startedAt: "2026-01-01", completedAt: "2026-01-01", metadata: {} });
-    repo.saveStep({ scanRunId: "run-1", stepName: "step2", status: "succeeded", startedAt: "2026-01-01", completedAt: "2026-01-01", metadata: {} });
+    repo.saveStep({ scanRunId: "run-1", stepName: "fetch_books", status: "succeeded", startedAt: "2026-01-01", completedAt: "2026-01-01", metadata: {} });
     repo.saveStep({ scanRunId: "run-2", stepName: "fetch_markets", status: "succeeded", startedAt: "2026-01-01", completedAt: "2026-01-01", metadata: {} });
     const byRunId = repo.byRunId;
     expect(byRunId.size).toBe(2);
@@ -21,7 +21,7 @@ describe("InMemoryScanStepRepository", () => {
     expect(step).toBeDefined();
     expect(step!.status).toBe("succeeded");
     expect(step!.attempt).toBe(2);
-    const missing = await repo.getStep("run-1", "nonexistent");
+    const missing = await repo.getStep("run-1", "normalize_markets");
     expect(missing).toBeUndefined();
   });
 
