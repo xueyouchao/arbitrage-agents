@@ -8,7 +8,7 @@ import { MarketBook } from "../src/contexts/arbitrage/domain/opportunity";
 import { InMemoryLlmEvaluationRepository } from "../src/contexts/llm/application/in-memory-llm-evaluation-repository";
 import { LlmEvaluationRecord, LlmEvaluationRequest } from "../src/contexts/llm/application/llm-evaluation";
 import { PersistedLlmGateway } from "../src/contexts/llm/application/persisted-llm-gateway";
-import { buildScannerLlmValidatorRegistry } from "../src/contexts/llm/scanner-llm-validators";
+import { buildScannerLlmValidatorRegistry, describeScannerSchema, marketEquivalenceSchema } from "../src/contexts/llm/scanner-llm-validators";
 import { OllamaChatLlmProvider } from "../src/contexts/llm/infrastructure/ollama-chat-llm-provider";
 import { venueMarketSnapshot } from "./helpers/markets";
 
@@ -704,5 +704,23 @@ describe("Review fix #14 & #15 — Scanner-owned schema, single source of truth"
     // Both tasks must be registered and versioned.
     expect(normalizeVersion).toBe("v1");
     expect(equivalenceVersion).toBe("v1");
+  });
+});
+
+describe("describeScannerSchema and marketEquivalenceSchema coverage", () => {
+  it("returns the market_equivalence prompt description when requested", () => {
+    const equivDesc = describeScannerSchema("market_equivalence");
+    expect(equivDesc.equivalent).toBe("boolean");
+    expect(equivDesc.confidence).toBe("number 0..1");
+    expect(equivDesc.explanation).toBe("non-empty string");
+
+    const schema = marketEquivalenceSchema();
+    const valid = schema.safeParse({ equivalent: true, confidence: 0.9, explanation: "reasons" });
+    expect(valid.success).toBe(true);
+  });
+
+  it("returns the fallback description for an unknown task type", () => {
+    const fallback = describeScannerSchema("anything_else" as any);
+    expect(fallback.explanation).toBe("non-empty string");
   });
 });
