@@ -225,7 +225,7 @@ export class ReadOnlyScanner {
     const fetchMetrics: ScanMetrics = { ...emptyMetrics(), marketsScanned: snapshots.length };
     const llmBudget = newLlmScanBudget(this.dependencies);
     if (this.dependencies.llmGateway && llmBudget.maxEvaluations > 0) {
-      console.error(
+      console.info(
         `[scanner:llm:budget] scanId=${scanId} model=${this.dependencies.llmModel ?? "scanner-default"} ` +
           `totalCap=${llmBudget.maxEvaluations} normalizationCap=${llmBudget.maxNormalizationEvaluations} equivalenceCap=${llmBudget.maxEquivalenceEvaluations}`
       );
@@ -300,7 +300,7 @@ export class ReadOnlyScanner {
     };
 
     if (this.dependencies.llmGateway && llmBudget.maxEvaluations > 0) {
-      console.error(
+      console.info(
         `[scanner:llm:usage] scanId=${scanId} fresh=${llmBudget.freshEvaluations} ` +
           `skipped=${llmBudget.skipped} cacheHits=${llmBudget.cacheHits} ` +
           `promptTokens=${llmBudget.promptTokens} completionTokens=${llmBudget.completionTokens} ` +

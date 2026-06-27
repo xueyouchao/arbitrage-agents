@@ -4,6 +4,7 @@ import { classifyWorldCupMarket, WorldCupMarketType, WorldCupNormalizedMarket } 
 import { buildWorldCupPairs, WorldCupCandidatePair } from "../src/contexts/worldcup/domain/worldcup-pair-matcher";
 import { classifyWorldCupPair } from "../src/contexts/worldcup/domain/worldcup-equivalence-policy";
 import { CandidatePair } from "../src/contexts/matching/domain/candidate-pair";
+import { NormalizedMarket } from "../src/contexts/matching/domain/normalized-market";
 
 /** Realistic Kalshi-style World Cup winner market (from production data). */
 function kalshiSnapshot(overrides: Partial<VenueMarketSnapshot> = {}): VenueMarketSnapshot {
@@ -185,11 +186,30 @@ describe("classifyWorldCupPair equivalence rejection branches", () => {
   ): WorldCupCandidatePair {
     const k = makeNormalized({ venue: "kalshi", ...kalshiOverrides });
     const p = makeNormalized({ venue: "polymarket", ...polyOverrides });
+    const normalized: NormalizedMarket = {
+      id: k.id,
+      venue: k.venue as NormalizedMarket["venue"],
+      venueMarketId: k.venueMarketId,
+      title: k.originalTitle,
+      rawResolutionText: "test",
+      topic: "sports",
+      eventType: "winner" as const,
+      asset: k.teamCode,
+      resolutionSource: "test",
+      payoffType: "at_time" as const,
+      ambiguityFlags: [],
+      confidence: 0.95,
+    };
     return {
       id: "test:pair",
       kalshiMarket: k,
       polymarketMarket: p,
-      genericPair: null as unknown as CandidatePair,
+      genericPair: {
+        id: "test:generic:pair",
+        kalshiMarket: normalized,
+        polymarketMarket: { ...normalized, venue: "polymarket", id: p.id, venueMarketId: p.venueMarketId },
+        reasons: ["cross_venue"],
+      },
       reasons: ["cross_venue"],
     };
   }
