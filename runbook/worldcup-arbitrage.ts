@@ -143,15 +143,26 @@ async function main(): Promise<void> {
   console.error("⚽ World Cup 2026 Cross-Venue Arbitrage Scanner");
   console.error("─".repeat(50));
 
+  function envInt(key: string, fallback: number): number {
+    const raw = process.env[key];
+    if (raw === undefined) return fallback;
+    const parsed = parseInt(raw, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      console.warn(`Warning: ${key}="${raw}" is not a positive integer, using default ${fallback}`);
+      return fallback;
+    }
+    return parsed;
+  }
+
   const kalshiClient = new KalshiPublicVenueClient(undefined, {
-    concurrency: parseInt(process.env.KALSHI_CONCURRENCY ?? "5", 10),
-    retries: parseInt(process.env.KALSHI_RETRIES ?? "3", 10),
-    timeoutMs: parseInt(process.env.KALSHI_TIMEOUT_MS ?? "15000", 10),
+    concurrency: envInt("KALSHI_CONCURRENCY", 5),
+    retries: envInt("KALSHI_RETRIES", 3),
+    timeoutMs: envInt("KALSHI_TIMEOUT_MS", 15000),
   });
   const polymarketClient = new PolymarketPublicVenueClient(undefined, undefined, {
-    concurrency: parseInt(process.env.POLY_CONCURRENCY ?? "8", 10),
-    retries: parseInt(process.env.POLY_RETRIES ?? "3", 10),
-    timeoutMs: parseInt(process.env.POLY_TIMEOUT_MS ?? "15000", 10),
+    concurrency: envInt("POLY_CONCURRENCY", 8),
+    retries: envInt("POLY_RETRIES", 3),
+    timeoutMs: envInt("POLY_TIMEOUT_MS", 15000),
   });
 
   const finder = new WorldCupArbFinder({
