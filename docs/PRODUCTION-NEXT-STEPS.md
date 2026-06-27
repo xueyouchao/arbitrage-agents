@@ -187,7 +187,41 @@ Required environment (in `.env`, consumed by `docker-compose.yml`):
 LLM-specific notes (only relevant once you flip `LLM_ENABLED=true`):
 
 - `LLM_BASE_URL` defaults to `http://host.docker.internal:11434/api/chat`. On **Linux Docker**, `host.docker.internal` does not resolve unless `extra_hosts: ["host.docker.internal:host-gateway"]` is added (or use the VPS host IP). Verify reachability before relying on it.
-- `LLM_MODEL` defaults to `minimax-m3:cloud`. The model your Ollama instance actually serves must match, or LLM calls will 404 once enabled. With `LLM_ENABLED=false` this is moot — the scanner runs deterministic-only matching (no equivalence promotion).
+- `LLM_MODEL` defaults to `glm-5.2:cloud`. The model your Ollama instance actually serves must match, or LLM calls will 404 once enabled. With `LLM_ENABLED=false` this is moot — the scanner runs deterministic-only matching (no equivalence promotion).
+- `SCANNER_LLM_MAX_EVALUATIONS_PER_SCAN` defaults to `25`. This is the fresh-evaluation cap per scan; cached evaluations do not count. The scanner splits the cap between `market_normalization` and `market_equivalence` so one task family cannot starve the other.
+
+#### Enabling LLM for a single controlled scan
+
+To test LLM-assisted normalization without changing the scheduled worker:
+
+1. Verify the Ollama endpoint from inside a worker container:
+   ```bash
+   docker compose run --rm --entrypoint sh worker -c \
+     "apk add --no-cache curl && curl -s ${LLM_BASE_URL%/api/chat}/api/tags | head"
+   ```
+2. Run a one-off worker container with `LLM_ENABLED=true` and a short shutdown timeout:
+   ```bash
+   docker compose run --rm \
+     -e LLM_ENABLED=true \
+     -e LLM_BASE_URL=http://host.docker.internal:11434/api/chat \
+     -e LLM_MODEL=glm-5.2:cloud \
+     -e SCANNER_LLM_MAX_EVALUATIONS_PER_SCAN=10 \
+     -e WORKER_SHUTDOWN_TIMEOUT_MS=120000 \
+     worker npm run start:prod:worker
+   ```
+   The container will start, run exactly one scan, then sleep until the next interval. Stop it with `Ctrl+C` after the first scan completes.
+3. Watch for these log lines:
+   - `[scanner:llm] Endpoint reachable: ...` (or a warning if it is not).
+   - `[scanner:llm:budget] ... totalCap=N normalizationCap=X equivalenceCap=Y`.
+   - `[scanner:llm:usage] ... fresh=N skipped=... estimatedCostUsd=...`.
+   - Any `[scanner:llm:fallback] ...` lines indicate the endpoint returned an error; the scan still completes with deterministic fallback.
+4. Inspect the result:
+   ```bash
+   docker compose exec api psql "$DATABASE_URL" -c \
+     "select status, metrics from scan_runs order by started_at desc limit 1;"
+   ```
+   Check `llmEvaluations` (fresh count), `llmEvaluationsSkipped`, `llmEstimatedCostUsd`, and `llmLatencyMs`.
+5. Revert: leave `.env` with `LLM_ENABLED=false` and restart the normal scheduled worker with `docker compose up -d --build worker`.
 
 Pass criteria:
 

@@ -5,8 +5,8 @@ import { LlmEvaluationRecord, LlmEvaluationRequest } from "../llm/application/ll
 import { CandidatePair, EquivalenceDecision } from "../matching/domain/candidate-pair";
 import { CandidatePairGenerator } from "../matching/domain/candidate-pair-generator";
 import { DeterministicEquivalencePolicy } from "../matching/domain/equivalence-policy";
-import { CryptoMarketNormalizer } from "../matching/domain/crypto-market-normalizer";
-import { CryptoAsset, EventType, MarketOperator, NormalizedMarket, PayoffType, Topic } from "../matching/domain/normalized-market";
+import { MarketNormalizer } from "../matching/domain/market-normalizer";
+import { EventType, MarketOperator, NormalizedMarket, PayoffType, Topic } from "../matching/domain/normalized-market";
 import { sanitizeFailureReason } from "../shared/sanitize-failure-reason";
 import { VenueClient } from "../venues/domain/venue-market";
 import { ScanArtifactAssembler } from "./scan-artifact-assembler";
@@ -69,7 +69,7 @@ interface LlmScanBudget {
 }
 
 export class ReadOnlyScanner {
-  private readonly normalizer = new CryptoMarketNormalizer();
+  private readonly normalizer = new MarketNormalizer();
   private readonly pairGenerator = new CandidatePairGenerator();
   private readonly equivalencePolicy = new DeterministicEquivalencePolicy();
   private readonly opportunityCalculator = new OpportunityCalculator();
@@ -224,6 +224,12 @@ export class ReadOnlyScanner {
     const snapshots = [...kalshiMarkets, ...polymarketMarkets];
     const fetchMetrics: ScanMetrics = { ...emptyMetrics(), marketsScanned: snapshots.length };
     const llmBudget = newLlmScanBudget(this.dependencies);
+    if (this.dependencies.llmGateway && llmBudget.maxEvaluations > 0) {
+      console.info(
+        `[scanner:llm:budget] scanId=${scanId} model=${this.dependencies.llmModel ?? "scanner-default"} ` +
+          `totalCap=${llmBudget.maxEvaluations} normalizationCap=${llmBudget.maxNormalizationEvaluations} equivalenceCap=${llmBudget.maxEquivalenceEvaluations}`
+      );
+    }
     let normalizedMarketReviews: ReviewedNormalizedMarket[];
     let normalizedMarkets: NormalizedMarket[];
     let orderbookSnapshots: OrderbookSnapshotArtifact[];
@@ -292,6 +298,15 @@ export class ReadOnlyScanner {
         ...llmMetrics(llmBudget)
       }
     };
+
+    if (this.dependencies.llmGateway && llmBudget.maxEvaluations > 0) {
+      console.info(
+        `[scanner:llm:usage] scanId=${scanId} fresh=${llmBudget.freshEvaluations} ` +
+          `skipped=${llmBudget.skipped} cacheHits=${llmBudget.cacheHits} ` +
+          `promptTokens=${llmBudget.promptTokens} completionTokens=${llmBudget.completionTokens} ` +
+          `estimatedCostUsd=${llmBudget.estimatedCostUsd.toFixed(6)} latencyMs=${llmBudget.latencyMs}`
+      );
+    }
 
     // Report opportunity telemetry before persistence (informational,
     // not tied to persistence outcome). Each call is isolated so one
@@ -445,6 +460,9 @@ export class ReadOnlyScanner {
     try {
       record = await this.dependencies.llmGateway.evaluate(request);
     } catch (error) {
+      console.warn(
+        `[scanner:llm:fallback] ${request.taskType} failed for model=${request.model}: ${sanitizeProviderErrorMessage(error)}`
+      );
       record = {
         ...request,
         id: randomUUID(),
@@ -617,7 +635,7 @@ function applyLlmNormalization(market: NormalizedMarket, llmEvaluation: LlmEvalu
 interface LlmNormalizationOutput {
   topic: Topic;
   eventType: EventType;
-  asset: CryptoAsset | null;
+  asset: string | null;
   threshold: number | null;
   operator: MarketOperator | null;
   deadline: string | null;
@@ -631,7 +649,7 @@ interface LlmNormalizationOutput {
 function conservativeNormalizationMerge(market: NormalizedMarket, normalized: LlmNormalizationOutput): {
   topic: MergeResult<Topic>;
   eventType: MergeResult<EventType>;
-  asset: MergeResult<CryptoAsset | undefined>;
+  asset: MergeResult<string | undefined>;
   threshold: MergeResult<number | undefined>;
   operator: MergeResult<MarketOperator | undefined>;
   deadline: MergeResult<string | undefined>;

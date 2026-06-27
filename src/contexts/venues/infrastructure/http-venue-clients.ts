@@ -35,9 +35,9 @@ export class KalshiPublicVenueClient implements VenueClient {
     const capturedAt = new Date().toISOString();
     return (body.markets ?? []).map((market) => ({
       venue: "kalshi" as const,
-      venueMarketId: String(market.ticker ?? market.id ?? market.market_ticker),
-      title: String(market.title ?? market.subtitle ?? market.ticker ?? ""),
-      rawResolutionText: String(market.rules_primary ?? market.settlement_sources ?? market.title ?? ""),
+      venueMarketId: String(market.ticker ?? market.id ?? market.market_ticker ?? "unknown"),
+      title: kalshiTitle(market),
+      rawResolutionText: kalshiResolutionText(market),
       rawPayload: market,
       capturedAt
     }));
@@ -56,8 +56,6 @@ export class KalshiPublicVenueClient implements VenueClient {
     const orderbook = getObject(body.orderbook_fp) ?? getObject(body.orderbook) ?? body;
     const yesBids = parseLevels(orderbook.yes_dollars ?? orderbook.yes);
     const noBids = parseLevels(orderbook.no_dollars ?? orderbook.no);
-    const bestYesBid = bestBid(yesBids);
-    const bestNoBid = bestBid(noBids);
     const yesDepth = yesAskDepthFromNoBids(noBids);
     const noDepth = noAskDepthFromYesBids(yesBids);
     const yesAsk = yesDepth[0]?.price ?? 1;
@@ -73,7 +71,7 @@ export class KalshiPublicVenueClient implements VenueClient {
       yesDepth,
       noDepth,
       capturedAt: new Date().toISOString(),
-      stale: !bestYesBid || !bestNoBid,
+      stale: !yesDepth.length || !noDepth.length,
       rawPayload: body
     };
   }
@@ -371,4 +369,54 @@ function parseStringArray(value: unknown): string[] {
   } catch (_error) {
     return [];
   }
+}
+
+function kalshiTitle(market: Record<string, unknown>): string {
+  return firstNonEmptyString(
+    market.title,
+    market.subtitle,
+    kalshiTickerDescription(market),
+    market.ticker,
+    market.id
+  ) ?? "";
+}
+
+function kalshiResolutionText(market: Record<string, unknown>): string {
+  return firstNonEmptyString(
+    market.rules_primary,
+    market.settlement_sources,
+    market.description,
+    market.subtitle,
+    kalshiSubtitlePair(market),
+    market.title,
+    kalshiTickerDescription(market),
+    market.ticker
+  ) ?? "";
+}
+
+function kalshiSubtitlePair(market: Record<string, unknown>): string | undefined {
+  const yes = market.yes_sub_title;
+  const no = market.no_sub_title;
+  if (yes === undefined && no === undefined) return undefined;
+  return `YES: ${String(yes ?? "")} / NO: ${String(no ?? "")}`.trim();
+}
+
+function kalshiTickerDescription(market: Record<string, unknown>): string | undefined {
+  const eventTicker = market.event_ticker;
+  const marketTicker = market.market_ticker;
+  if (eventTicker !== undefined && marketTicker !== undefined && eventTicker !== marketTicker) {
+    return `${String(eventTicker)} / ${String(marketTicker)}`;
+  }
+  if (eventTicker !== undefined) return String(eventTicker);
+  if (marketTicker !== undefined) return String(marketTicker);
+  return undefined;
+}
+
+function firstNonEmptyString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    const str = String(value).trim();
+    if (str.length > 0) return str;
+  }
+  return undefined;
 }

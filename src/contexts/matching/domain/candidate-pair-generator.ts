@@ -55,6 +55,12 @@ function bucketKey(market: NormalizedMarket): string {
 }
 
 function thresholdsMatch(left?: number, right?: number): boolean {
+  // Non-numeric markets (sports winner, politics election, current-event
+  // yes/no) have no threshold. Treat undefined-on-both as compatible so they
+  // can still produce candidate pairs.
+  if (left === undefined && right === undefined) {
+    return true;
+  }
   if (left === undefined || right === undefined) {
     return false;
   }

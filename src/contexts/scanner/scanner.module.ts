@@ -82,16 +82,41 @@ const WORKER_ID = randomUUID();
     },
     {
       provide: SCANNER_LLM_GATEWAY,
-      useFactory: (repository: LlmEvaluationRepository, config: AppConfig) => {
+      useFactory: async (repository: LlmEvaluationRepository, config: AppConfig) => {
         if (!config.llmEnabled) return undefined;
         const provider = new OllamaChatLlmProvider({
           baseUrl: config.llmBaseUrl,
           model: config.llmModel,
           timeoutMs: config.llmRequestTimeoutMs
         });
+        // Issue #4: warn loudly when the LLM endpoint is not reachable so
+        // operators see a misconfigured `LLM_BASE_URL` / firewall rule
+        // immediately instead of only via Sentry (which may be disabled).
+        // Scanning continues regardless; real evaluations fall back to
+        // deterministic logic when the provider throws.
+        const ping = await provider.ping();
+        if (!ping.ok) {
+          console.warn(
+            `[scanner:llm] Endpoint unreachable: ${config.llmBaseUrl} ` +
+              `(status=${ping.status ?? "n/a"}, error=${ping.error ?? "unknown"}). ` +
+              "LLM-assisted normalization will degrade to deterministic fallback until the endpoint recovers."
+          );
+        } else {
+          console.log(
+            `[scanner:llm] Endpoint reachable: ${config.llmBaseUrl} (status=${ping.status}). ` +
+              `Model=${config.llmModel}, timeoutMs=${config.llmRequestTimeoutMs}, ` +
+              `maxEvaluationsPerScan=${config.scannerLlmMaxEvaluationsPerScan}.`
+          );
+        }
         // Use the built-in default pricing table. If the production
         // model is not in the table, add it to DEFAULT_PRICING in
         // llm-cost-calculator.ts or pass an override via options.
+        if (!DEFAULT_PRICING[config.llmModel]) {
+          console.warn(
+            `[scanner:llm] No pricing row for model ${config.llmModel}; ` +
+              "estimatedCostUsd will be zero until DEFAULT_PRICING is updated."
+          );
+        }
         const costCalculator = new LlmCostCalculator(DEFAULT_PRICING);
         // Trace reporter is only active when Sentry is configured.
         // Without a DSN the Sentry SDK silently drops spans/metrics.

@@ -178,6 +178,96 @@ describe("PostgresReadRepositories", () => {
     });
   });
 
+  it("maps markets with widened topic/event_type/asset types (politics, nomination, TRUMP)", async () => {
+    const repository = new PostgresReadRepositories(injectedPool());
+    poolQuery.mockResolvedValueOnce({ rows: [{ total: "1" }] }).mockResolvedValueOnce({ rows: [{
+      id: "market-politics-1",
+      venue: "polymarket",
+      venue_market_id: "P-POLITICS-1",
+      title: "Will Trump win the nomination?",
+      raw_resolution_text: "Associated Press",
+      topic: "politics",
+      event_type: "nomination",
+      asset: "TRUMP",
+      threshold: null,
+      operator: null,
+      deadline: null,
+      timezone: null,
+      resolution_source: "AP",
+      payoff_type: "settlement_value",
+      ambiguity_flags: [],
+      confidence: "0.88"
+    }] });
+
+    const result = await repository.listMarkets();
+    expect(result.data[0]).toMatchObject({
+      id: "market-politics-1",
+      topic: "politics",
+      eventType: "nomination",
+      asset: "TRUMP",
+      venue: "polymarket",
+      payoffType: "settlement_value",
+      confidence: 0.88
+    });
+  });
+
+  it("maps markets with sports/current_events topic and winner/yes_no event types", async () => {
+    const repository = new PostgresReadRepositories(injectedPool());
+    poolQuery.mockResolvedValueOnce({ rows: [{ total: "2" }] }).mockResolvedValueOnce({ rows: [
+      {
+        id: "market-sports-1",
+        venue: "kalshi",
+        venue_market_id: "K-SPORTS-1",
+        title: "Will the Lakers win?",
+        raw_resolution_text: "NBA official",
+        topic: "sports",
+        event_type: "winner",
+        asset: null,
+        threshold: null,
+        operator: null,
+        deadline: null,
+        timezone: null,
+        resolution_source: null,
+        payoff_type: "settlement_value",
+        ambiguity_flags: [],
+        confidence: "0.75"
+      },
+      {
+        id: "market-current-events-1",
+        venue: "polymarket",
+        venue_market_id: "P-CE-1",
+        title: "Will the bill pass?",
+        raw_resolution_text: "Congress.gov",
+        topic: "current_events",
+        event_type: "yes_no",
+        asset: null,
+        threshold: null,
+        operator: null,
+        deadline: null,
+        timezone: null,
+        resolution_source: null,
+        payoff_type: "settlement_value",
+        ambiguity_flags: [],
+        confidence: "0.80"
+      }
+    ] });
+
+    const result = await repository.listMarkets();
+    expect(result.data).toHaveLength(2);
+    expect(result.data[0]).toMatchObject({
+      id: "market-sports-1",
+      topic: "sports",
+      eventType: "winner",
+      asset: undefined
+    });
+    expect(result.data[1]).toMatchObject({
+      id: "market-current-events-1",
+      topic: "current_events",
+      eventType: "yes_no",
+      asset: undefined
+    });
+  });
+
   it("lists paper-trade simulations for an opportunity and coerces numeric fields", async () => {
     const repository = new PostgresReadRepositories(injectedPool());
     poolQuery.mockResolvedValueOnce({ rows: [{
