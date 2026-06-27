@@ -35,7 +35,7 @@ export class KalshiPublicVenueClient implements VenueClient {
     const capturedAt = new Date().toISOString();
     return (body.markets ?? []).map((market) => ({
       venue: "kalshi" as const,
-      venueMarketId: String(market.ticker ?? market.id ?? market.market_ticker ?? ""),
+      venueMarketId: String(market.ticker ?? market.id ?? market.market_ticker ?? "unknown"),
       title: kalshiTitle(market),
       rawResolutionText: kalshiResolutionText(market),
       rawPayload: market,
