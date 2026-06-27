@@ -277,14 +277,14 @@ function renderTable(result: WorldCupArbResult): void {
     const bestEdge = bestSim ? (bestSim.netEdge * 100).toFixed(2) + "%" : "-";
     console.log(
       padRight(opp.pair.kalshiMarket.teamCode?.toUpperCase() ?? "?", 6) +
-      padRight(opp.pair.kalshiMarket.marketType, 10) +
+      padRight(opp.pair.kalshiMarket.marketType ?? "?", 10) +
       padRight(direction, 18) +
       padRight((opp.opportunity.grossEdge * 100).toFixed(2) + "%", 8) +
       padRight((opp.opportunity.netEdge * 100).toFixed(2) + "%", 8) +
       padRight("$" + opp.opportunity.maxTradableUsd.toFixed(2), 10) +
       padRight(bestEdge, 12) +
-      padRight(truncate(opp.pair.kalshiMarket.originalTitle, 38), 40) +
-      truncate(opp.pair.polymarketMarket.originalTitle, 30)
+      padRight(truncate(opp.pair.kalshiMarket.originalTitle ?? "", 38), 40) +
+      truncate(opp.pair.polymarketMarket.originalTitle ?? "", 30)
     );
   }
   console.log("─".repeat(100));
@@ -299,14 +299,14 @@ function renderOpportunity(opp: WorldCupArbOpportunity): void {
 
   console.log("");
   console.log(`  🎯 Team: ${kalshi.teamCode?.toUpperCase() ?? "?"}`);
-  console.log(`  📂 Type: ${kalshi.marketType}`);
+  console.log(`  📂 Type: ${kalshi.marketType ?? "?"}`);
   console.log(`  🔄 Direction: ${direction}`);
   console.log(`  💰 Gross Edge: ${(opp.opportunity.grossEdge * 100).toFixed(2)}%`);
   console.log(`  💸 Net Edge:   ${(opp.opportunity.netEdge * 100).toFixed(2)}%`);
   console.log(`  📦 Max Tradable: $${opp.opportunity.maxTradableUsd.toFixed(2)}`);
   console.log(`  ✅ Executable Size: $${opp.opportunity.executableSizeUsd.toFixed(2)}`);
-  console.log(`  🏷️  Kalshi:      ${kalshi.originalTitle}`);
-  console.log(`  🏷️  Polymarket:  ${poly.originalTitle}`);
+  console.log(`  🏷️  Kalshi:      ${kalshi.originalTitle ?? "?"}`);
+  console.log(`  🏷️  Polymarket:  ${poly.originalTitle ?? "?"}`);
   console.log(`  📅 Risks: resolution=${opp.opportunity.resolutionRisk} fill=${opp.opportunity.fillRisk} liquidity=${opp.opportunity.liquidityRisk}`);
 
   console.log("");
@@ -340,7 +340,10 @@ function renderOpportunity(opp: WorldCupArbOpportunity): void {
 }
 
 function padRight(text: string, width: number): string {
-  return text.length >= width ? text.slice(0, width) + " " : text.padEnd(width + 1);
+  // Returns width+1 characters: the text padded/truncated to `width`
+  // plus a trailing space as the column separator.
+  if (text.length >= width) return text.slice(0, width) + " ";
+  return text.padEnd(width + 1);
 }
 
 function truncate(text: string, maxLen: number): string {
