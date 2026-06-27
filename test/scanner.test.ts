@@ -9,7 +9,7 @@ import { CompletedScanArtifacts, CompletedScanResult } from "../src/contexts/sca
 import { InMemoryLlmEvaluationRepository } from "../src/contexts/llm/application/in-memory-llm-evaluation-repository";
 import { PersistedLlmGateway } from "../src/contexts/llm/application/persisted-llm-gateway";
 import { venueMarketSnapshot } from "./helpers/markets";
-import { CryptoMarketNormalizer } from "../src/contexts/matching/domain/crypto-market-normalizer";
+import { MarketNormalizer } from "../src/contexts/matching/domain/market-normalizer";
 
 const capturedAt = "2026-06-03T12:00:00.000Z";
 
@@ -366,7 +366,7 @@ describe("ReadOnlyScanner", () => {
   });
 
   it("records sanitized processing failures", async () => {
-    const spy = vi.spyOn(CryptoMarketNormalizer.prototype, "normalize")
+    const spy = vi.spyOn(MarketNormalizer.prototype, "normalize")
       .mockImplementationOnce(() => { throw new Error("Processing failed: Authorization: Bearer secret"); });
 
     try {
