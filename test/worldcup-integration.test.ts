@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { VenueMarketSnapshot } from "../src/contexts/venues/domain/venue-market";
-import { classifyWorldCupMarket } from "../src/contexts/worldcup/domain/worldcup-normalizer";
-import { buildWorldCupPairs } from "../src/contexts/worldcup/domain/worldcup-pair-matcher";
+import { classifyWorldCupMarket, WorldCupMarketType, WorldCupNormalizedMarket } from "../src/contexts/worldcup/domain/worldcup-normalizer";
+import { buildWorldCupPairs, WorldCupCandidatePair } from "../src/contexts/worldcup/domain/worldcup-pair-matcher";
 import { classifyWorldCupPair } from "../src/contexts/worldcup/domain/worldcup-equivalence-policy";
+import { CandidatePair } from "../src/contexts/matching/domain/candidate-pair";
 
 /** Realistic Kalshi-style World Cup winner market (from production data). */
 function kalshiSnapshot(overrides: Partial<VenueMarketSnapshot> = {}): VenueMarketSnapshot {
@@ -159,5 +160,101 @@ describe("World Cup arbitrage integration (end-to-end)", () => {
     expect(g.polymarketMarket.venue).toBe("polymarket");
     expect(g.kalshiMarket.resolutionSource).toBeTruthy();
     expect(g.polymarketMarket.resolutionSource).toBeTruthy();
+  });
+});
+
+describe("classifyWorldCupPair equivalence rejection branches", () => {
+  function makeNormalized(overrides: Partial<WorldCupNormalizedMarket>): WorldCupNormalizedMarket {
+    return {
+      id: "test:id",
+      venue: "kalshi",
+      venueMarketId: "TEST-001",
+      originalTitle: "test market",
+      marketType: WorldCupMarketType.Winner,
+      teamCode: "bra",
+      subject: "BRA",
+      tournamentYear: "2026",
+      teamResolved: true,
+      ...overrides,
+    };
+  }
+
+  function makePair(
+    kalshiOverrides: Partial<WorldCupNormalizedMarket>,
+    polyOverrides: Partial<WorldCupNormalizedMarket>
+  ): WorldCupCandidatePair {
+    const k = makeNormalized({ venue: "kalshi", ...kalshiOverrides });
+    const p = makeNormalized({ venue: "polymarket", ...polyOverrides });
+    return {
+      id: "test:pair",
+      kalshiMarket: k,
+      polymarketMarket: p,
+      genericPair: null as unknown as CandidatePair,
+      reasons: ["cross_venue"],
+    };
+  }
+
+  it("rejects when both team codes are unresolved", () => {
+    const decision = classifyWorldCupPair(makePair(
+      { teamResolved: false, teamCode: undefined },
+      { teamResolved: false, teamCode: undefined }
+    ));
+    expect(decision.equivalenceClass).toBe("C");
+    expect(decision.reasons).toContain("wc_team_unresolved");
+  });
+
+  it("rejects when one team code is unresolved", () => {
+    const decision = classifyWorldCupPair(makePair(
+      { teamResolved: false, teamCode: undefined },
+      { teamResolved: true, teamCode: "bra" }
+    ));
+    expect(decision.equivalenceClass).toBe("C");
+    expect(decision.reasons).toContain("wc_team_unresolved");
+  });
+
+  it("rejects team code mismatch", () => {
+    const decision = classifyWorldCupPair(makePair(
+      { teamCode: "bra" },
+      { teamCode: "arg" }
+    ));
+    expect(decision.equivalenceClass).toBe("C");
+    expect(decision.reasons).toContain("wc_team_code_mismatch");
+  });
+
+  it("rejects market type mismatch", () => {
+    const decision = classifyWorldCupPair(makePair(
+      { marketType: WorldCupMarketType.Winner },
+      { marketType: WorldCupMarketType.Match }
+    ));
+    expect(decision.equivalenceClass).toBe("C");
+    expect(decision.reasons).toContain("wc_market_type_mismatch");
+  });
+
+  it("rejects opponent code mismatch", () => {
+    const decision = classifyWorldCupPair(makePair(
+      { marketType: WorldCupMarketType.Match, teamCode: "bra", opponentCode: "arg" },
+      { marketType: WorldCupMarketType.Match, teamCode: "bra", opponentCode: "fra" }
+    ));
+    expect(decision.equivalenceClass).toBe("C");
+    expect(decision.reasons).toContain("wc_opponent_mismatch");
+  });
+
+  it("rejects threshold mismatch", () => {
+    const decision = classifyWorldCupPair(makePair(
+      { marketType: WorldCupMarketType.Match, teamCode: "bra", threshold: 3 },
+      { marketType: WorldCupMarketType.Match, teamCode: "bra", threshold: 5 }
+    ));
+    expect(decision.equivalenceClass).toBe("C");
+    expect(decision.reasons).toContain("wc_threshold_mismatch");
+  });
+
+  it("classifies matching teams as Class A", () => {
+    const decision = classifyWorldCupPair(makePair(
+      { teamCode: "bra" },
+      { teamCode: "bra" }
+    ));
+    expect(decision.equivalenceClass).toBe("A");
+    expect(decision.decision).toBe("tradable");
+    expect(decision.reasons).toContain("wc_team_match");
   });
 });
