@@ -18,6 +18,14 @@
  *   --notional <n>    Override paper-trade target notionals (comma-sep). Default: 5,25,100
  *   --fee-rate <n>    Override fee rate for both venues. Default: 0.01
  *   --no-filter       Include opportunities with zero or negative edge
+ *
+ * Environment variables (venue client tuning):
+ *   KALSHI_CONCURRENCY     Concurrency for Kalshi API calls (default: 5)
+ *   KALSHI_RETRIES         Max retries for Kalshi API calls (default: 3)
+ *   KALSHI_TIMEOUT_MS      Per-attempt timeout for Kalshi API (default: 15000)
+ *   POLY_CONCURRENCY       Concurrency for Polymarket API calls (default: 8)
+ *   POLY_RETRIES           Max retries for Polymarket API calls (default: 3)
+ *   POLY_TIMEOUT_MS        Per-attempt timeout for Polymarket API (default: 15000)
  */
 
 import { config } from "dotenv";
@@ -99,8 +107,8 @@ function parseArgs(argv: string[]): CliOptions {
   }
 
   // --- post-parse validation ---
-  if (!Number.isFinite(opts.minEdge) || opts.minEdge < 0) {
-    console.error(`Error: --min-edge must be a non-negative number, got "${opts.minEdge}".`);
+  if (!Number.isFinite(opts.minEdge) || opts.minEdge < 0 || opts.minEdge > 1) {
+    console.error(`Error: --min-edge must be a number between 0 and 1 (got "${opts.minEdge}").`);
     process.exit(1);
   }
   if (!Number.isFinite(opts.feeRate) || opts.feeRate <= 0 || opts.feeRate >= 1) {
@@ -136,14 +144,14 @@ async function main(): Promise<void> {
   console.error("─".repeat(50));
 
   const kalshiClient = new KalshiPublicVenueClient(undefined, {
-    concurrency: 5,
-    retries: 3,
-    timeoutMs: 15_000,
+    concurrency: parseInt(process.env.KALSHI_CONCURRENCY ?? "5", 10),
+    retries: parseInt(process.env.KALSHI_RETRIES ?? "3", 10),
+    timeoutMs: parseInt(process.env.KALSHI_TIMEOUT_MS ?? "15000", 10),
   });
   const polymarketClient = new PolymarketPublicVenueClient(undefined, undefined, {
-    concurrency: 8,
-    retries: 3,
-    timeoutMs: 15_000,
+    concurrency: parseInt(process.env.POLY_CONCURRENCY ?? "8", 10),
+    retries: parseInt(process.env.POLY_RETRIES ?? "3", 10),
+    timeoutMs: parseInt(process.env.POLY_TIMEOUT_MS ?? "15000", 10),
   });
 
   const finder = new WorldCupArbFinder({
@@ -321,7 +329,7 @@ function renderOpportunity(opp: WorldCupArbOpportunity): void {
 }
 
 function padRight(text: string, width: number): string {
-  return text.padEnd(width).slice(0, width) + " ";
+  return text.length >= width ? text.slice(0, width) + " " : text.padEnd(width + 1);
 }
 
 function truncate(text: string, maxLen: number): string {
@@ -329,7 +337,8 @@ function truncate(text: string, maxLen: number): string {
   return text.slice(0, maxLen - 3) + "...";
 }
 
-main().catch((error) => {
-  console.error("Fatal error:", error);
+main().catch((error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error("Fatal error:", message);
   process.exit(1);
 });
