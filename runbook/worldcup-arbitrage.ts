@@ -16,7 +16,9 @@
  *   --json            Print results as JSON instead of a table
  *   --min-edge <n>    Minimum net edge (decimal, e.g. 0.02 = 2%). Default: 0
  *   --notional <n>    Override paper-trade target notionals (comma-sep). Default: 5,25,100
- *   --fee-rate <n>    Override fee rate for both venues. Default: 0.01
+ *   --fee-rate <n>    Fee rate for both venues (default: 0.01)
+ *   --kalshi-fee-rate <n>  Kalshi-specific fee rate (overrides --fee-rate)
+ *   --poly-fee-rate <n>   Polymarket-specific fee rate (overrides --fee-rate)
  *   --no-filter       Include opportunities with zero or negative edge
  *
  * Environment variables (venue client tuning):
@@ -40,6 +42,8 @@ interface CliOptions {
   minEdge: number;
   notionals: number[];
   feeRate: number;
+  kalshiFeeRate: number;
+  polyFeeRate: number;
 }
 
 function parseArgs(argv: string[]): CliOptions {
@@ -49,6 +53,8 @@ function parseArgs(argv: string[]): CliOptions {
     minEdge: 0,
     notionals: [5, 25, 100],
     feeRate: 0.01,
+    kalshiFeeRate: 0.01,
+    polyFeeRate: 0.01,
   };
 
   function consumeValue(index: number, label: string): string {
@@ -94,7 +100,20 @@ function parseArgs(argv: string[]): CliOptions {
       }
       case "--fee-rate": {
         const raw = consumeValue(++i, "fee-rate");
-        opts.feeRate = parseFloat(raw);
+        const v = parseFloat(raw);
+        opts.feeRate = v;
+        opts.kalshiFeeRate = v;
+        opts.polyFeeRate = v;
+        break;
+      }
+      case "--kalshi-fee-rate": {
+        const raw = consumeValue(++i, "kalshi-fee-rate");
+        opts.kalshiFeeRate = parseFloat(raw);
+        break;
+      }
+      case "--poly-fee-rate": {
+        const raw = consumeValue(++i, "poly-fee-rate");
+        opts.polyFeeRate = parseFloat(raw);
         break;
       }
       case "--help":
@@ -115,6 +134,12 @@ function parseArgs(argv: string[]): CliOptions {
     console.error(`Error: --fee-rate must be a number between 0 and 1 (exclusive), got "${opts.feeRate}".`);
     process.exit(1);
   }
+  for (const [label, val] of [["--kalshi-fee-rate", opts.kalshiFeeRate] as const, ["--poly-fee-rate", opts.polyFeeRate] as const]) {
+    if (!Number.isFinite(val) || val <= 0 || val >= 1) {
+      console.error(`Error: ${label} must be a number between 0 and 1 (exclusive), got "${val}".`);
+      process.exit(1);
+    }
+  }
   if (opts.notionals.length === 0) {
     console.error("Error: --notional must specify at least one positive number (e.g. \"5,25,100\").");
     process.exit(1);
@@ -133,6 +158,8 @@ function printUsage(): void {
   console.log("  --min-edge <n>     Minimum net edge to report (default: 0)");
   console.log("  --notional <n>     Comma-separated paper-trade notionals (default: 5,25,100)");
   console.log("  --fee-rate <n>     Fee rate for both venues (default: 0.01)");
+  console.log("  --kalshi-fee-rate <n>  Kalshi-specific fee rate (overrides --fee-rate)");
+  console.log("  --poly-fee-rate <n>   Polymarket-specific fee rate (overrides --fee-rate)");
   console.log("  --no-filter        Include opportunities with zero or negative edge");
   console.log("  --help             Show this help");
 }
@@ -154,12 +181,16 @@ async function main(): Promise<void> {
     return parsed;
   }
 
-  const kalshiClient = new KalshiPublicVenueClient(undefined, {
+  const KALSHI_BASE_URL = "https://external-api.kalshi.com/trade-api/v2";
+  const POLY_BASE_URL = "https://gamma-api.polymarket.com";
+  const POLY_CLOB_BASE_URL = "https://clob.polymarket.com";
+
+  const kalshiClient = new KalshiPublicVenueClient(KALSHI_BASE_URL, {
     concurrency: envInt("KALSHI_CONCURRENCY", 5),
     retries: envInt("KALSHI_RETRIES", 3),
     timeoutMs: envInt("KALSHI_TIMEOUT_MS", 15000),
   });
-  const polymarketClient = new PolymarketPublicVenueClient(undefined, undefined, {
+  const polymarketClient = new PolymarketPublicVenueClient(POLY_BASE_URL, POLY_CLOB_BASE_URL, {
     concurrency: envInt("POLY_CONCURRENCY", 8),
     retries: envInt("POLY_RETRIES", 3),
     timeoutMs: envInt("POLY_TIMEOUT_MS", 15000),
@@ -175,6 +206,8 @@ async function main(): Promise<void> {
     minNetEdge: opts.minEdge,
     noFilter: opts.noFilter,
     feeRate: opts.feeRate,
+    kalshiFeeRate: opts.kalshiFeeRate,
+    polyFeeRate: opts.polyFeeRate,
     paperTradeNotionals: opts.notionals,
   });
 
@@ -199,9 +232,9 @@ function resultToJson(result: WorldCupArbResult): Record<string, unknown> {
     timings: result.timings,
     opportunities: result.opportunities.map((opp) => ({
       id: opp.opportunity.id,
-      team: opp.pair.kalshiMarket.teamCode?.toUpperCase() ?? "?",
-      marketType: opp.pair.kalshiMarket.marketType,
-      opponent: opp.pair.kalshiMarket.opponentCode?.toUpperCase() ?? null,
+      team: opp.pair.kalshiMarket.teamCode?.toUpperCase() ?? opp.pair.polymarketMarket.teamCode?.toUpperCase() ?? "?",
+      marketType: opp.pair.kalshiMarket.marketType ?? opp.pair.polymarketMarket.marketType ?? "?",
+      opponent: opp.pair.kalshiMarket.opponentCode?.toUpperCase() ?? opp.pair.polymarketMarket.opponentCode?.toUpperCase() ?? null,
       kalshiTitle: opp.pair.kalshiMarket.originalTitle,
       polymarketTitle: opp.pair.polymarketMarket.originalTitle,
       direction: opp.opportunity.longLeg.venue === "kalshi" ? "kalshi_yes/poly_no" : "poly_yes/kalshi_no",
@@ -276,8 +309,8 @@ function renderTable(result: WorldCupArbResult): void {
     );
     const bestEdge = bestSim ? (bestSim.netEdge * 100).toFixed(2) + "%" : "-";
     console.log(
-      padRight(opp.pair.kalshiMarket.teamCode?.toUpperCase() ?? "?", 6) +
-      padRight(opp.pair.kalshiMarket.marketType ?? "?", 10) +
+      padRight(opp.pair.kalshiMarket.teamCode?.toUpperCase() ?? opp.pair.polymarketMarket.teamCode?.toUpperCase() ?? "?", 6) +
+      padRight(opp.pair.kalshiMarket.marketType ?? opp.pair.polymarketMarket.marketType ?? "?", 10) +
       padRight(direction, 18) +
       padRight((opp.opportunity.grossEdge * 100).toFixed(2) + "%", 8) +
       padRight((opp.opportunity.netEdge * 100).toFixed(2) + "%", 8) +
@@ -298,8 +331,8 @@ function renderOpportunity(opp: WorldCupArbOpportunity): void {
     : "LONG Polymarket YES  +  LONG Kalshi NO";
 
   console.log("");
-  console.log(`  🎯 Team: ${kalshi.teamCode?.toUpperCase() ?? "?"}`);
-  console.log(`  📂 Type: ${kalshi.marketType ?? "?"}`);
+  console.log(`  🎯 Team: ${kalshi.teamCode?.toUpperCase() ?? poly.teamCode?.toUpperCase() ?? "?"}`);
+  console.log(`  📂 Type: ${kalshi.marketType ?? poly.marketType ?? "?"}`);
   console.log(`  🔄 Direction: ${direction}`);
   console.log(`  💰 Gross Edge: ${(opp.opportunity.grossEdge * 100).toFixed(2)}%`);
   console.log(`  💸 Net Edge:   ${(opp.opportunity.netEdge * 100).toFixed(2)}%`);

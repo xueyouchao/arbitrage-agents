@@ -56,6 +56,10 @@ export interface WorldCupArbFinderOptions {
   scanTimeUtc?: string;
   /** Flat fee-rate for both venues when no venue-specific fee model is supplied. Default: 0.01. */
   feeRate?: number;
+  /** Kalshi-specific fee rate; overrides feeRate for Kalshi leg. Default: feeRate. */
+  kalshiFeeRate?: number;
+  /** Polymarket-specific fee rate; overrides feeRate for Polymarket leg. Default: feeRate. */
+  polyFeeRate?: number;
   /** Minimum net edge to surface. Default: 0 (any non-negative net edge). Ignored when noFilter=true. */
   minNetEdge?: number;
   /** When true, skip edge filtering entirely — return all opportunities. Default: false. */
@@ -132,6 +136,13 @@ export class WorldCupArbFinder {
     const calcStart = Date.now();
     const opportunities: WorldCupArbOpportunity[] = [];
 
+    const effectiveKalshiFee = opts.kalshiFeeRate ?? opts.feeRate;
+    const effectivePolyFee = opts.polyFeeRate ?? opts.feeRate;
+    const feeModels = {
+      kalshi: { type: "flat" as const, rate: effectiveKalshiFee },
+      polymarket: { type: "flat" as const, rate: effectivePolyFee },
+    };
+
     for (const pair of pairs) {
       const decision = classifyWorldCupPair(pair);
       if (decision.equivalenceClass !== "A") continue;
@@ -150,7 +161,7 @@ export class WorldCupArbFinder {
           feeRate: opts.feeRate,
           slippageRate: 0.005,
           minNetEdge: opts.noFilter ? -Infinity : opts.minNetEdge,
-          feeModels: {},
+          feeModels,
         }
       );
 
