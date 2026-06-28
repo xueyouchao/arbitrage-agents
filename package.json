@@ -10,6 +10,7 @@
     "start:worker": "node dist/src/main-worker.js",
     "start:prod:api": "node dist/src/main-api.js",
     "start:prod:worker": "node dist/src/main-worker.js",
+    "worldcup": "npx ts-node src/main-worldcup.ts",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:acceptance": "bash test/acceptance/run-api-acceptance.sh",

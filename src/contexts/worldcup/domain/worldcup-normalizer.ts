@@ -69,12 +69,21 @@ export function isWorldCup2026(text: string): boolean {
  * Returns `undefined` if the market is not recognisably a 2026 FIFA World Cup
  * market.
  */
+/**
+ * Kalshi ticker prefix for 2026 FIFA World Cup markets.
+ * Individual match/advance/winner markets use KXWC* tickers but their
+ * titles don't mention "World Cup" explicitly (e.g. "Brazil vs Japan: To Advance").
+ * We also check the venue market ID for this prefix.
+ */
+const KALSHI_WORLD_CUP_PREFIX = "KXWC";
+
 export function classifyWorldCupMarket(
   snapshot: VenueMarketSnapshot
 ): WorldCupNormalizedMarket | undefined {
   const text = `${snapshot.title}\n${snapshot.rawResolutionText}`.toLowerCase();
+  const venueId = snapshot.venueMarketId;
 
-  if (!isWorldCup2026(text)) return undefined;
+  if (!isWorldCup2026(text) && !venueId.startsWith(KALSHI_WORLD_CUP_PREFIX)) return undefined;
 
   const marketType = classifyMarketType(text);
   const teamCode = extractTeamCode(text);
@@ -150,7 +159,9 @@ function extractOpponent(text: string, primaryTeam: string | undefined): string 
   if (beatResolved && beatResolved !== primaryTeam) return beatResolved;
 
   // "{Left} vs {Right}" pattern
-  const vsMatch = text.match(/([a-z][a-z\s.'’-]{1,20}?)\s+(?:vs\.?|versus)\s+([a-z][a-z\s.'’-]{1,30}?)(?:\s|$|[?.,])/);
+  // Greedy quantifier on opponent group + ":" in terminator to handle
+  // titles like "Argentina vs Cape Verde: To Advance"
+  const vsMatch = text.match(/([a-z][a-z\s.'’-]{1,20}?)\s+(?:vs\.?|versus)\s+([a-z][a-z\s.'’-]{1,30})(?:\s|$|[?.,:])/);
   if (vsMatch) {
     const left = resolveWorldCupTeam(cleanTeamToken(vsMatch[1]));
     const right = resolveWorldCupTeam(cleanTeamToken(vsMatch[2]));

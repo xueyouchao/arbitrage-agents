@@ -61,7 +61,13 @@ export function buildWorldCupPairs(snapshots: VenueMarketSnapshot[]): WorldCupCa
 function classifyAndFilter(snapshots: VenueMarketSnapshot[]): WorldCupNormalizedMarket[] {
   return snapshots
     .map(classifyWorldCupMarket)
-    .filter((wc): wc is WorldCupNormalizedMarket => wc !== undefined && wc.teamResolved);
+    .filter((wc): wc is WorldCupNormalizedMarket => {
+      if (!wc || !wc.teamResolved) return false;
+      // Match-type markets require opponent to be resolved too —
+      // otherwise "Ecuador vs Curaçao" could pair with "CIV vs Ecuador".
+      if (wc.marketType === WorldCupMarketType.Match && !wc.opponentCode) return false;
+      return true;
+    });
 }
 
 function matchPairs(markets: WorldCupNormalizedMarket[]): WorldCupCandidatePair[] {
