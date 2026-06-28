@@ -75,25 +75,27 @@ export class KalshiPublicVenueClient implements VenueClient {
   }
 
   private async fetchSubMarkets(tickers: string[]): Promise<VenueMarketSnapshot[]> {
-    const results: VenueMarketSnapshot[] = [];
     const capturedAt = new Date().toISOString();
-    // Fetch each ticker individually via GET /markets/{ticker}.
-    // Kalshi returns { market: { ... } } for individual ticker lookups.
-    for (const ticker of tickers) {
-      try {
-        const response = await fetchPublicJson<{ market?: Record<string, unknown> }>(
-          `${this.baseUrl}/markets/${encodeURIComponent(ticker)}`,
-          `Kalshi sub-market ${ticker}`,
-          this.httpOptions
-        );
-        if (response?.market) {
-          results.push(toKalshiSnapshotFromRaw(response.market, capturedAt));
+    const concurrency = this.httpOptions.concurrency ?? DEFAULT_HTTP_OPTIONS.concurrency;
+    return mapWithConcurrency(
+      tickers,
+      async (ticker) => {
+        try {
+          const response = await fetchPublicJson<{ market?: Record<string, unknown> }>(
+            `${this.baseUrl}/markets/${encodeURIComponent(ticker)}`,
+            `Kalshi sub-market ${ticker}`,
+            this.httpOptions
+          );
+          if (response?.market) {
+            return toKalshiSnapshotFromRaw(response.market, capturedAt);
+          }
+        } catch {
+          console.warn(`[kalshi] failed to fetch sub-market ${ticker}, skipping`);
         }
-      } catch {
-        // best-effort: skip individual failures
-      }
-    }
-    return results;
+        return undefined;
+      },
+      concurrency
+    ).then((snapshots) => snapshots.filter((s): s is VenueMarketSnapshot => s !== undefined));
   }
 
   async listOrderbooks(markets: VenueMarketSnapshot[]): Promise<MarketBook[]> {
