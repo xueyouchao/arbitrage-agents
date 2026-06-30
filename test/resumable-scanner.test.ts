@@ -112,14 +112,16 @@ describe("ResumableScanner", () => {
     expect(failedSteps.find((s) => s.stepName === "finalize")).toBeUndefined();
   });
 
-  it("records remaining steps as succeeded after a successful inner scanner resume", async () => {
+  it("does not re-invoke the inner scanner when fetch_markets already succeeded", async () => {
     const repository = new InMemoryScannerRepository();
     const stepRepository = new InMemoryScanStepRepository();
 
     // Resume under a fresh scan id; only fetch_markets is pre-seeded as
     // succeeded, simulating a run that completed fetch_markets before the
-    // worker crashed. The orchestrator should skip fetch_markets, invoke
-    // the inner scanner once, and mark the remaining five steps succeeded.
+    // worker crashed. Since fetch_markets succeeded, the inner scanner
+    // already ran. The orchestrator should skip fetch_markets, NOT invoke
+    // the inner scanner, and mark the remaining five steps as succeeded
+    // trail-marker gaps.
     const resumeScanId = "scan-resume-partial";
     await stepRepository.saveStep({
       scanRunId: resumeScanId,
@@ -131,14 +133,7 @@ describe("ResumableScanner", () => {
     });
 
     const innerSpy = vi.fn(async (_scanRunId?: string) => {
-      const innerResult: ScanResult = {
-        id: _scanRunId ?? "unexpected",
-        status: "succeeded",
-        startedAt: "2026-06-04T12:00:00.000Z",
-        completedAt: "2026-06-04T12:00:01.000Z",
-        metrics: { marketsScanned: 2, normalizedMarkets: 2, candidatePairs: 1, opportunitiesFound: 1, llmEvaluations: 0 }
-      };
-      return innerResult;
+      throw new Error("inner scanner must not be re-invoked when fetch_markets already succeeded");
     });
     const innerScanner = { runOnce: innerSpy } as unknown as ReadOnlyScanner;
 
@@ -155,7 +150,7 @@ describe("ResumableScanner", () => {
 
     expect(resumed.id).toBe(resumeScanId);
     expect(resumed.status).toBe("succeeded");
-    expect(innerSpy).toHaveBeenCalledTimes(1);
+    expect(innerSpy).not.toHaveBeenCalled();
     const resumedSteps = await stepRepository.listForRun(resumeScanId);
     expect(resumedSteps.map((s) => s.stepName)).toEqual([
       "fetch_markets",
@@ -166,7 +161,9 @@ describe("ResumableScanner", () => {
       "finalize"
     ]);
     expect(resumedSteps.every((s) => s.status === "succeeded")).toBe(true);
-    expect(resumedSteps.filter((s) => s.stepName !== "fetch_markets").every((s) => s.metadata?.executedBy === "inner_scanner")).toBe(true);
+    // The pre-seeded fetch_markets keeps its original metadata; the
+    // newly-written gap-fillers are marked as resume_marker.
+    expect(resumedSteps.filter((s) => s.stepName !== "fetch_markets").every((s) => s.metadata?.executedBy === "resume_marker")).toBe(true);
   });
 
   it("skips a fully-succeeded resume without invoking the inner scanner", async () => {
@@ -204,13 +201,111 @@ describe("ResumableScanner", () => {
     expect(resumedSteps.every((s) => s.status === "succeeded")).toBe(true);
   });
 
+  it("resumes from a normalize_markets gap without re-invoking the inner scanner", async () => {
+    const repository = new InMemoryScannerRepository();
+    const stepRepository = new InMemoryScanStepRepository();
+
+    // Pre-seed fetch_markets + fetch_books as succeeded, simulating a
+    // crash after the inner scanner completed fetching but before the
+    // normalize_markets trail marker was written.
+    const resumeScanId = "scan-resume-normalize";
+    for (const stepName of ["fetch_markets", "fetch_books"] as const) {
+      await stepRepository.saveStep({ scanRunId: resumeScanId, stepName, status: "succeeded", startedAt: capturedAt, completedAt: capturedAt, attempt: 1 });
+    }
+
+    const innerSpy = vi.fn(async () => { throw new Error("inner scanner must not be invoked"); });
+    const innerScanner = { runOnce: innerSpy } as unknown as ReadOnlyScanner;
+
+    const resumeScanner = new ResumableScanner({
+      innerScanner,
+      stepRepository,
+      checkInClient: new FakeSentryCheckInClient(),
+      monitorSlug: "arbitrage-agents-scan",
+      clock: () => "2026-06-04T12:00:00.000Z",
+      nextScanRunId: () => resumeScanId
+    });
+
+    const resumed = await resumeScanner.runOnce();
+
+    expect(resumed.status).toBe("succeeded");
+    expect(innerSpy).not.toHaveBeenCalled();
+    const resumedSteps = await stepRepository.listForRun(resumeScanId);
+    expect(resumedSteps.map((s) => s.stepName)).toEqual([...RESUMABLE_SCAN_STEP_NAMES]);
+    expect(resumedSteps.every((s) => s.status === "succeeded")).toBe(true);
+  });
+
+  it("resumes from a review_pairs gap without re-invoking the inner scanner", async () => {
+    const repository = new InMemoryScannerRepository();
+    const stepRepository = new InMemoryScanStepRepository();
+
+    // Pre-seed fetch_markets, fetch_books, and normalize_markets as
+    // succeeded, simulating a crash before the review_pairs marker.
+    const resumeScanId = "scan-resume-review";
+    for (const stepName of ["fetch_markets", "fetch_books", "normalize_markets"] as const) {
+      await stepRepository.saveStep({ scanRunId: resumeScanId, stepName, status: "succeeded", startedAt: capturedAt, completedAt: capturedAt, attempt: 1 });
+    }
+
+    const innerSpy = vi.fn(async () => { throw new Error("inner scanner must not be invoked"); });
+    const innerScanner = { runOnce: innerSpy } as unknown as ReadOnlyScanner;
+
+    const resumeScanner = new ResumableScanner({
+      innerScanner,
+      stepRepository,
+      checkInClient: new FakeSentryCheckInClient(),
+      monitorSlug: "arbitrage-agents-scan",
+      clock: () => "2026-06-04T12:00:00.000Z",
+      nextScanRunId: () => resumeScanId
+    });
+
+    const resumed = await resumeScanner.runOnce();
+
+    expect(resumed.status).toBe("succeeded");
+    expect(innerSpy).not.toHaveBeenCalled();
+    const resumedSteps = await stepRepository.listForRun(resumeScanId);
+    expect(resumedSteps.map((s) => s.stepName)).toEqual([...RESUMABLE_SCAN_STEP_NAMES]);
+    expect(resumedSteps.every((s) => s.status === "succeeded")).toBe(true);
+  });
+
+  it("resumes from a calculate_opportunities gap without re-invoking the inner scanner", async () => {
+    const repository = new InMemoryScannerRepository();
+    const stepRepository = new InMemoryScanStepRepository();
+
+    // Pre-seed everything except calculate_opportunities and finalize.
+    const resumeScanId = "scan-resume-opp";
+    for (const stepName of ["fetch_markets", "fetch_books", "normalize_markets", "review_pairs"] as const) {
+      await stepRepository.saveStep({ scanRunId: resumeScanId, stepName, status: "succeeded", startedAt: capturedAt, completedAt: capturedAt, attempt: 1 });
+    }
+
+    const innerSpy = vi.fn(async () => { throw new Error("inner scanner must not be invoked"); });
+    const innerScanner = { runOnce: innerSpy } as unknown as ReadOnlyScanner;
+
+    const resumeScanner = new ResumableScanner({
+      innerScanner,
+      stepRepository,
+      checkInClient: new FakeSentryCheckInClient(),
+      monitorSlug: "arbitrage-agents-scan",
+      clock: () => "2026-06-04T12:00:00.000Z",
+      nextScanRunId: () => resumeScanId
+    });
+
+    const resumed = await resumeScanner.runOnce();
+
+    expect(resumed.status).toBe("succeeded");
+    expect(innerSpy).not.toHaveBeenCalled();
+    const resumedSteps = await stepRepository.listForRun(resumeScanId);
+    expect(resumedSteps.map((s) => s.stepName)).toEqual([...RESUMABLE_SCAN_STEP_NAMES]);
+    expect(resumedSteps.every((s) => s.status === "succeeded")).toBe(true);
+  });
+
   it("reruns a previously failed step instead of leaving the run stuck", async () => {
     const repository = new InMemoryScannerRepository();
     const stepRepository = new InMemoryScanStepRepository();
     const { stepRepository: steps } = buildResumableScanner(repository, stepRepository);
 
     // Pre-seed two succeeded steps and one failed step to simulate a
-    // crashed run that needs recovery.
+    // crashed run that needs recovery.  Since fetch_markets succeeded,
+    // the inner scanner already ran; the orchestrator fills in the
+    // remaining gap markers without re-invoking the inner scanner.
     const scanRunId = "scan-recovery";
     await stepRepository.saveStep({ scanRunId, stepName: "fetch_markets", status: "succeeded", startedAt: capturedAt, completedAt: capturedAt, attempt: 1 });
     await stepRepository.saveStep({ scanRunId, stepName: "fetch_books", status: "failed", startedAt: capturedAt, completedAt: capturedAt, attempt: 1, failureReason: "previous outage" });
