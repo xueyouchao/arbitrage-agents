@@ -378,10 +378,6 @@ function isValidLevel(price: number, size: number): boolean {
   return Number.isFinite(price) && price > 0 && price < 1 && Number.isFinite(size) && size > 0;
 }
 
-function bestBid(levels: PriceLevel[]): PriceLevel | undefined {
-  return levels.reduce<PriceLevel | undefined>((best, level) => (!best || level.price > best.price ? level : best), undefined);
-}
-
 function bestAsk(levels: PriceLevel[]): PriceLevel | undefined {
   return levels.reduce<PriceLevel | undefined>((best, level) => (!best || level.price < best.price ? level : best), undefined);
 }

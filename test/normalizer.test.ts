@@ -265,4 +265,17 @@ describe("MarketNormalizer", () => {
     expect(market.timezone).toBe("UTC");
     expect(market.ambiguityFlags).not.toContain("deadline_missing");
   });
+
+  it("extractEventName handles 'Who will win the 20XX' questions", () => {
+    // The "Who will win the 2026 FIFA World Cup?" -> extractEventName returns "2026 fifa world cup"
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        venue: "polymarket",
+        venueMarketId: "PM-2026-WORLD-CUP-WINNER",
+        title: "Who will win the 2026 FIFA World Cup?",
+        rawResolutionText: "Resolves based on official FIFA result",
+      })
+    );
+    expect(market.asset).toBe("2026 fifa world cup");
+  });
 });

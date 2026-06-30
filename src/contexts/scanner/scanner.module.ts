@@ -42,6 +42,89 @@ import { WorkerScanRunner } from "./worker-scan-runner";
 // are correctly flagged as abandoned.
 const WORKER_ID = randomUUID();
 
+/**
+ * Construct the {@link PersistedLlmGateway} synchronously and perform the
+ * reachability ping as a fire-and-forget so NestJS dependency resolution
+ * (and therefore application startup / Docker healthchecks) is not blocked
+ * when the LLM endpoint is slow or unreachable.
+ *
+ * Issue #54: previously the factory was `async` and `await`ed
+ * `provider.ping()` before returning the gateway, blocking startup for up
+ * to 5000 ms. The ping still runs — warnings are preserved — but it no
+ * longer gates gateway construction.
+ *
+ * @param providerOverride Optional pre-built provider, primarily for tests
+ *   that need to inject a hanging or unreachable fetch implementation.
+ */
+export function createScannerLlmGateway(
+  repository: LlmEvaluationRepository,
+  config: AppConfig,
+  providerOverride?: OllamaChatLlmProvider
+): ScannerLlmGateway | undefined {
+  if (!config.llmEnabled) return undefined;
+
+  const provider = providerOverride ?? new OllamaChatLlmProvider({
+    baseUrl: config.llmBaseUrl,
+    model: config.llmModel,
+    timeoutMs: config.llmRequestTimeoutMs
+  });
+
+  // Issue #4 / Issue #54: warn loudly when the LLM endpoint is not
+  // reachable so operators see a misconfigured `LLM_BASE_URL` / firewall
+  // rule immediately. Scanning continues regardless; real evaluations
+  // fall back to deterministic logic when the provider throws. The ping
+  // is fire-and-forget so it never blocks startup.
+  void pingAndLog(provider, config);
+
+  // Use the built-in default pricing table. If the production
+  // model is not in the table, add it to DEFAULT_PRICING in
+  // llm-cost-calculator.ts or pass an override via options.
+  if (!DEFAULT_PRICING[config.llmModel]) {
+    console.warn(
+      `[scanner:llm] No pricing row for model ${config.llmModel}; ` +
+        "estimatedCostUsd will be zero until DEFAULT_PRICING is updated."
+    );
+  }
+
+  const costCalculator = new LlmCostCalculator(DEFAULT_PRICING);
+  // Trace reporter is only active when Sentry is configured.
+  // Without a DSN the Sentry SDK silently drops spans/metrics.
+  const traceReporter = config.sentryDsn
+    ? new SentryLlmTraceReporter()
+    : undefined;
+
+  return new PersistedLlmGateway(repository, provider.evaluate.bind(provider), {
+    validatorRegistry: buildScannerLlmValidatorRegistry(),
+    costCalculator,
+    traceReporter
+  });
+}
+
+async function pingAndLog(provider: OllamaChatLlmProvider, config: AppConfig): Promise<void> {
+  try {
+    const ping = await provider.ping();
+    if (!ping.ok) {
+      console.warn(
+        `[scanner:llm] Endpoint unreachable: ${config.llmBaseUrl} ` +
+          `(status=${ping.status ?? "n/a"}, error=${ping.error ?? "unknown"}). ` +
+          "LLM-assisted normalization will degrade to deterministic fallback until the endpoint recovers."
+      );
+    } else {
+      console.log(
+        `[scanner:llm] Endpoint reachable: ${config.llmBaseUrl} (status=${ping.status}). ` +
+          `Model=${config.llmModel}, timeoutMs=${config.llmRequestTimeoutMs}, ` +
+          `maxEvaluationsPerScan=${config.scannerLlmMaxEvaluationsPerScan}.`
+      );
+    }
+  } catch (error) {
+    console.warn(
+      `[scanner:llm] Endpoint unreachable: ${config.llmBaseUrl} ` +
+        `(error=${error instanceof Error ? error.message : String(error)}). ` +
+        "LLM-assisted normalization will degrade to deterministic fallback until the endpoint recovers."
+    );
+  }
+}
+
 @Module({
   providers: [
     // The Postgres pool is now provided by the shared `DatabaseModule`
@@ -82,53 +165,8 @@ const WORKER_ID = randomUUID();
     },
     {
       provide: SCANNER_LLM_GATEWAY,
-      useFactory: async (repository: LlmEvaluationRepository, config: AppConfig) => {
-        if (!config.llmEnabled) return undefined;
-        const provider = new OllamaChatLlmProvider({
-          baseUrl: config.llmBaseUrl,
-          model: config.llmModel,
-          timeoutMs: config.llmRequestTimeoutMs
-        });
-        // Issue #4: warn loudly when the LLM endpoint is not reachable so
-        // operators see a misconfigured `LLM_BASE_URL` / firewall rule
-        // immediately instead of only via Sentry (which may be disabled).
-        // Scanning continues regardless; real evaluations fall back to
-        // deterministic logic when the provider throws.
-        const ping = await provider.ping();
-        if (!ping.ok) {
-          console.warn(
-            `[scanner:llm] Endpoint unreachable: ${config.llmBaseUrl} ` +
-              `(status=${ping.status ?? "n/a"}, error=${ping.error ?? "unknown"}). ` +
-              "LLM-assisted normalization will degrade to deterministic fallback until the endpoint recovers."
-          );
-        } else {
-          console.log(
-            `[scanner:llm] Endpoint reachable: ${config.llmBaseUrl} (status=${ping.status}). ` +
-              `Model=${config.llmModel}, timeoutMs=${config.llmRequestTimeoutMs}, ` +
-              `maxEvaluationsPerScan=${config.scannerLlmMaxEvaluationsPerScan}.`
-          );
-        }
-        // Use the built-in default pricing table. If the production
-        // model is not in the table, add it to DEFAULT_PRICING in
-        // llm-cost-calculator.ts or pass an override via options.
-        if (!DEFAULT_PRICING[config.llmModel]) {
-          console.warn(
-            `[scanner:llm] No pricing row for model ${config.llmModel}; ` +
-              "estimatedCostUsd will be zero until DEFAULT_PRICING is updated."
-          );
-        }
-        const costCalculator = new LlmCostCalculator(DEFAULT_PRICING);
-        // Trace reporter is only active when Sentry is configured.
-        // Without a DSN the Sentry SDK silently drops spans/metrics.
-        const traceReporter = config.sentryDsn
-          ? new SentryLlmTraceReporter()
-          : undefined;
-        return new PersistedLlmGateway(repository, provider.evaluate.bind(provider), {
-          validatorRegistry: buildScannerLlmValidatorRegistry(),
-          costCalculator,
-          traceReporter
-        });
-      },
+      useFactory: (repository: LlmEvaluationRepository, config: AppConfig) =>
+        createScannerLlmGateway(repository, config),
       inject: [LLM_EVALUATION_REPOSITORY, APP_CONFIG]
     },
     // Phase 3 #6: production paper-trade simulator. Uses default target
