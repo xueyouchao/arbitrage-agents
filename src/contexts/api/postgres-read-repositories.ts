@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { Pool } from "pg";
 import { DATABASE_POOL } from "../shared/database/database-tokens";
 import {
+  ApiAsset,
   MarketReadModel,
   MarketReadRepository,
   OpportunityFilters,
@@ -352,7 +353,7 @@ interface MarketRow {
   raw_resolution_text: string;
   topic: MarketReadModel["topic"];
   event_type: MarketReadModel["eventType"];
-  asset: MarketReadModel["asset"] | null;
+  asset: ApiAsset | null;
   threshold: string | null;
   operator: MarketReadModel["operator"] | null;
   deadline: Date | string | null;

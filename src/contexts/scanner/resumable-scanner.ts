@@ -17,11 +17,16 @@
 //
 // `executeStep` delegates to the inner ReadOnlyScanner for the actual
 // work. The inner scanner is treated as the SINGLE execution primitive
-// (it owns fetch → opportunity persistence in one transaction), so
-// re-running it on a fully-succeeded run is a no-op upsert and re-running
-// on a partially-failed run converges on the same persisted state. The
-// 6-step surface is the OPERATOR-facing trail; the 1-runOnce inner
-// invocation is the IMPLEMENTATION detail.
+// (it owns fetch → opportunity persistence in one transaction). It is
+// invoked ONLY when `fetch_markets` has not yet succeeded — that is the
+// signal that the pipeline has never completed. Once `fetch_markets` is
+// succeeded the inner scanner has already run and all artifacts are
+// persisted; any non-succeeded steps after that are trail-marker gaps
+// from a crash between inner-scanner success and step-marker writes.
+// Filling those gaps does NOT re-invoke the inner scanner, avoiding
+// wasteful re-fetches and LLM re-evaluations. The 6-step surface is the
+// OPERATOR-facing trail; the 1-runOnce inner invocation is the
+// IMPLEMENTATION detail.
 //
 // Trail semantics:
 //   - Each step writes AT MOST ONE row per attempt: a fresh run writes
@@ -99,49 +104,59 @@ export class ResumableScanner {
 
       for (const stepName of allStepNames) {
         if (succeededByName.has(stepName)) continue;
-        // Skip the actual inner-scanner call when fetch_markets has
-        // already succeeded on a prior run. The inner scanner is
-        // idempotent on (venue, venue_market_id), so re-running it is
-        // safe but wasteful; skipping saves the network round-trips and
-        // keeps the trail clean.
-        if (stepName === "fetch_markets") {
+
+        // The inner scanner is the single execution primitive for the
+        // entire fetch-to-opportunity pipeline. It is invoked ONLY when
+        // `fetch_markets` hasn't succeeded yet — that is the signal that
+        // the inner scanner has never completed (or its previous attempt
+        // failed). Once `fetch_markets` is succeeded, the inner scanner
+        // has already run and all persisted artifacts are in place; any
+        // non-succeeded steps after that are trail-marker gaps from a
+        // crash between inner-scanner success and step-marker writes.
+        // Filling those gaps does NOT require re-invoking the inner
+        // scanner, which would wastefully re-fetch from venues and re-run
+        // LLM evaluations.
+        if (stepName === "fetch_markets" && !finalInnerResult) {
+          // Issue #24: pass our `scanRunId` into the inner scanner so
+          // the `scan_runs` row it inserts uses the SAME id the step
+          // trail references. Without this, the inner scanner generates
+          // a fresh UUID and the `scan_steps.scan_run_id` foreign key
+          // points at a non-existent row, breaking every fresh run.
           try {
-            // Issue #24: pass our `scanRunId` into the inner scanner so
-            // the `scan_runs` row it inserts uses the SAME id the step
-            // trail references. Without this, the inner scanner generates
-            // a fresh UUID and the `scan_steps.scan_run_id` foreign key
-            // points at a non-existent row, breaking every fresh run.
-            const innerResult = await this.deps.innerScanner.runOnce(scanRunId);
-            finalInnerResult = innerResult;
-            // Mark the step succeeded. Use the inner result's startedAt
-            // as the step timestamp so the trail reflects the actual
-            // execution window.
-            await this.deps.stepRepository.saveStep({
-              scanRunId,
-              stepName,
-              status: "succeeded",
-              startedAt: innerResult.startedAt,
-              completedAt: innerResult.completedAt ?? clock()
-            });
-            await this.deps.stepRepository.markRunHeartbeat(scanRunId, innerResult.completedAt ?? clock());
+            finalInnerResult = await this.deps.innerScanner.runOnce(scanRunId);
           } catch (error) {
             return await this.failWithCheckIn(scanRunId, startedAt, stepName, clock, checkInHandle, error);
           }
-          continue;
+
+          // ReadOnlyScanner returns a sanitized failed result instead of
+          // throwing so a venue failure never escapes as an unhandled
+          // exception. Treat a returned failed result exactly like a thrown
+          // error: record the current step as failed and stop writing fake
+          // succeeded rows for the remaining steps.
+          if (finalInnerResult.status === "failed") {
+            const failureReason = finalInnerResult.failureReason ?? "Inner scanner returned failed status";
+            return await this.failWithCheckIn(scanRunId, startedAt, stepName, clock, checkInHandle, new Error(failureReason));
+          }
         }
-        // Sub-steps 2-5 are tracked as part of the inner scanner's
-        // single execution primitive. Record them as no-op transitions
-        // so the operator-facing trail shows a complete step list. The
-        // `metadata.executedBy` marker disambiguates these markers from
-        // real sub-step invocations a future implementation might add.
-        const stepStartedAt = clock();
+
+        // Mark the step succeeded. For `fetch_markets` use the inner
+        // result's startedAt and completedAt as the step timestamps so the
+        // trail reflects the actual execution window. When resuming (inner
+        // scanner not re-invoked because `fetch_markets` already succeeded),
+        // `finalInnerResult` is undefined and we use `clock()` for all
+        // timestamps — the step is a trail-marker gap, not a fresh
+        // execution. The `metadata.executedBy` marker disambiguates these
+        // markers from real sub-step invocations a future implementation
+        // might add.
+        const stepStartedAt = finalInnerResult && stepName === "fetch_markets" ? finalInnerResult.startedAt : clock();
+        const stepCompletedAt = finalInnerResult && stepName === "fetch_markets" ? (finalInnerResult.completedAt ?? clock()) : clock();
         await this.deps.stepRepository.saveStep({
           scanRunId,
           stepName,
           status: "succeeded",
           startedAt: stepStartedAt,
-          completedAt: clock(),
-          metadata: { executedBy: "inner_scanner" }
+          completedAt: stepCompletedAt,
+          metadata: { executedBy: finalInnerResult ? "inner_scanner" : "resume_marker" }
         });
         await this.deps.stepRepository.markRunHeartbeat(scanRunId, clock());
       }

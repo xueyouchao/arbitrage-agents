@@ -58,7 +58,15 @@ function materialMismatchReasonsFor(pair: CandidatePair): string[] {
 }
 
 function thresholdsMatch(left?: number, right?: number): boolean {
-  return left !== undefined && right !== undefined && Math.abs(left - right) < 0.000001;
+  // Non-numeric markets (sports winner, politics election, current-event
+  // yes/no) have no threshold. Treat undefined-on-both as compatible so
+  // they pass equivalence classification instead of being rejected as C.
+  // This mirrors candidate-pair-generator.ts thresholdsMatch.
+  if (left === undefined && right === undefined) return true;
+  // Exactly-one undefined means one venue provided a threshold and the
+  // other didn't — asymmetric inputs are not equivalent.
+  if (left === undefined || right === undefined) return false;
+  return Math.abs(left - right) < 0.000001;
 }
 
 function deadlinesMatch(left?: string, right?: string): boolean {

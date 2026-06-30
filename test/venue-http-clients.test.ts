@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { KalshiPublicVenueClient, PolymarketPublicVenueClient } from "../src/contexts/venues/infrastructure/http-venue-clients";
+import { KalshiPublicVenueClient, mapWithConcurrency, PolymarketPublicVenueClient } from "../src/contexts/venues/infrastructure/http-venue-clients";
 import { VenueMarketSnapshot } from "../src/contexts/venues/domain/venue-market";
 
 afterEach(() => {
@@ -87,7 +87,7 @@ describe("public venue HTTP clients", () => {
     const fetchMock = vi.fn(async () => new Response("bad request", { status: 400 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(new KalshiPublicVenueClient("https://kalshi.test", { retries: 2, retryDelayMs: 0 }).listMarkets()).rejects.toThrow("Kalshi markets failed: 400");
+    await expect(new KalshiPublicVenueClient("https://kalshi.test", { retries: 2, retryDelayMs: 0 }).listMarkets()).rejects.toThrow("Kalshi markets failed: 400 after 1 attempt");
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -125,6 +125,59 @@ describe("public venue HTTP clients", () => {
     ]);
   });
 
+  it("prefers original Kalshi title and resolution text with robust fallbacks for multi-leg markets", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({
+        markets: [
+          {
+            ticker: "KXBTC-100K",
+            title: "Will Bitcoin be above $100,000?",
+            rules_primary: "Resolves using Coinbase BTC/USD at 2026-01-01T00:00:00Z"
+          },
+          {
+            market_ticker: "KXMEX-TIE",
+            event_ticker: "KXMEX-EVENT",
+            title: "yes Tie,yes Mexico,",
+            rules_primary: "",
+            settlement_sources: "",
+            description: "Resolves to the team winning the match."
+          },
+          {
+            id: "KXEMPTY",
+            event_ticker: "KXEMPTY-EVENT",
+            market_ticker: "KXEMPTY-MARKET",
+            title: "",
+            subtitle: "",
+            rules_primary: "",
+            settlement_sources: "",
+            yes_sub_title: "Yes outcome details",
+            no_sub_title: "No outcome details"
+          }
+        ]
+      }), { status: 200 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const markets = await new KalshiPublicVenueClient("https://kalshi.test", { retryDelayMs: 0 }).listMarkets();
+
+    expect(markets).toEqual([
+      expect.objectContaining({
+        venueMarketId: "KXBTC-100K",
+        title: "Will Bitcoin be above $100,000?",
+        rawResolutionText: "Resolves using Coinbase BTC/USD at 2026-01-01T00:00:00Z"
+      }),
+      expect.objectContaining({
+        venueMarketId: "KXMEX-TIE",
+        title: "yes Tie,yes Mexico,",
+        rawResolutionText: "Resolves to the team winning the match."
+      }),
+      expect.objectContaining({
+        venueMarketId: "KXEMPTY",
+        title: "KXEMPTY-EVENT / KXEMPTY-MARKET",
+        rawResolutionText: "YES: Yes outcome details / NO: No outcome details"
+      })
+    ]);
+  });
   it("does not mark Kalshi books stale when bid-only payload derives usable YES/NO asks", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({
@@ -229,6 +282,38 @@ describe("public venue HTTP clients", () => {
     ]);
   });
 
+  it("falls back through title/ticker when Kalshi subtitle pair is empty", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({
+        markets: [
+          {
+            id: "KXEMPTY-SUB",
+            event_ticker: "KXEMPTY-SUB-EVENT",
+            market_ticker: "KXEMPTY-SUB-MARKET",
+            title: "Title fallback",
+            subtitle: "",
+            rules_primary: "",
+            settlement_sources: "",
+            description: "",
+            yes_sub_title: "",
+            no_sub_title: ""
+          }
+        ]
+      }), { status: 200 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const markets = await new KalshiPublicVenueClient("https://kalshi.test", { retryDelayMs: 0 }).listMarkets();
+
+    expect(markets).toEqual([
+      expect.objectContaining({
+        venueMarketId: "KXEMPTY-SUB",
+        title: "Title fallback",
+        rawResolutionText: "Title fallback"
+      })
+    ]);
+  });
+
   it("retries thrown network errors and surfaces the last failure after retry exhaustion", async () => {
     const fetchMock = vi
       .fn()
@@ -236,9 +321,184 @@ describe("public venue HTTP clients", () => {
       .mockRejectedValueOnce(new Error("still down"));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(new PolymarketPublicVenueClient("https://gamma.test", "https://clob.test", { retries: 1, retryDelayMs: 0 }).listMarkets()).rejects.toThrow("still down");
+    await expect(new PolymarketPublicVenueClient("https://gamma.test", "https://clob.test", { retries: 1, retryDelayMs: 0 }).listMarkets()).rejects.toThrow("Polymarket markets failed: still down after 2 attempts (total backoff 0ms)");
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("limits concurrency when listing Kalshi orderbooks", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const active = { current: 0 };
+    const maxActive = { current: 0 };
+
+    const fetchMock = vi.fn(async () => {
+      active.current += 1;
+      maxActive.current = Math.max(maxActive.current, active.current);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      active.current -= 1;
+      return new Response(JSON.stringify({
+        orderbook_fp: { yes_dollars: [["0.40", "10"]], no_dollars: [["0.35", "5"]] }
+      }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const markets = Array.from({ length: 10 }, (_, i) => snapshot("kalshi", `M-${i}`, {}));
+    const client = new KalshiPublicVenueClient("https://kalshi.test", { concurrency: 3, retryDelayMs: 0 });
+    const booksPromise = client.listOrderbooks(markets);
+    await vi.advanceTimersByTimeAsync(1000);
+    const books = await booksPromise;
+
+    expect(books).toHaveLength(10);
+    expect(maxActive.current).toBeLessThanOrEqual(3);
+    expect(fetchMock).toHaveBeenCalledTimes(10);
+  });
+
+  it("limits concurrency when listing Polymarket orderbooks", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const active = { current: 0 };
+    const maxActive = { current: 0 };
+
+    const fetchMock = vi.fn(async () => {
+      active.current += 1;
+      maxActive.current = Math.max(maxActive.current, active.current);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      active.current -= 1;
+      return new Response(JSON.stringify({ asks: [{ price: "0.50", size: "10" }] }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const markets = Array.from({ length: 8 }, (_, i) =>
+      snapshot("polymarket", `condition-${i}`, { clobTokenIds: JSON.stringify(["yes-token", "no-token"]), outcomes: JSON.stringify(["Yes", "No"]) })
+    );
+    const client = new PolymarketPublicVenueClient("https://gamma.test", "https://clob.test", { concurrency: 4, retryDelayMs: 0 });
+    const booksPromise = client.listOrderbooks(markets);
+    await vi.advanceTimersByTimeAsync(1000);
+    const books = await booksPromise;
+
+    expect(books).toHaveLength(8);
+    // The concurrency cap now applies to individual /book fetches, not to
+    // markets. With 16 total token-side fetches and concurrency=4, at most
+    // four should be in flight at once.
+    expect(maxActive.current).toBeLessThanOrEqual(4);
+    expect(fetchMock).toHaveBeenCalledTimes(16);
+  });
+
+  it("counts retries and applies deterministic backoff", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("rate limited", { status: 429 }))
+      .mockResolvedValueOnce(new Response("rate limited", { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ markets: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new KalshiPublicVenueClient("https://kalshi.test", {
+      retries: 3,
+      retryDelayMs: 100,
+      jitter: () => 0.5
+    });
+    const promise = client.listMarkets();
+    await vi.advanceTimersByTimeAsync(2000);
+    const markets = await promise;
+
+    expect(markets).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[1][0]).toEqual("https://kalshi.test/markets?status=open&limit=100");
+  });
+
+  it("includes attempt count and total backoff in final retry exhaustion error", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("rate limited", { status: 429 }))
+      .mockResolvedValueOnce(new Response("rate limited", { status: 429 }))
+      .mockResolvedValueOnce(new Response("rate limited", { status: 429 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new KalshiPublicVenueClient("https://kalshi.test", {
+      retries: 2,
+      retryDelayMs: 100,
+      jitter: () => 0.5
+    });
+    const promise = expect(client.listMarkets()).rejects.toThrow("after 3 attempts (total backoff 300ms)");
+    await vi.advanceTimersByTimeAsync(2000);
+    await promise;
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("uses consistent capturedAt timestamp for all Kalshi markets in a batch", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({
+        markets: [
+          { ticker: "KXWC-A", title: "Market A", rules_primary: "Rules A" },
+          { ticker: "KXWC-B", title: "Market B", rules_primary: "Rules B" }
+        ]
+      }), { status: 200 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const markets = await new KalshiPublicVenueClient("https://kalshi.test", { retryDelayMs: 0 }).listMarkets();
+
+    expect(markets).toHaveLength(2);
+    // All snapshots from one batch should share the same capturedAt.
+    expect(markets[0].capturedAt).toBe(markets[1].capturedAt);
+  });
+
+  it("does not add extra retries when a non-retryable status arrives on the final attempt", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("rate limited", { status: 429 }))
+      .mockResolvedValueOnce(new Response("rate limited", { status: 429 }))
+      .mockResolvedValueOnce(new Response("bad request", { status: 400 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(new KalshiPublicVenueClient("https://kalshi.test", { retries: 2, retryDelayMs: 0 }).listMarkets()).rejects.toThrow("Kalshi markets failed: 400 after 3 attempts");
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("mapWithConcurrency", () => {
+  it("rejects early on first mapper failure and stops scheduling new work", async () => {
+    const mapper = vi.fn(async (item: number, index: number) => {
+      if (item === 3) throw new Error(`mapper blew up at index ${index}`);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return item * 2;
+    });
+
+    await expect(mapWithConcurrency([1, 2, 3, 4, 5], mapper, 2)).rejects.toThrow("mapper blew up at index 2");
+
+    expect(mapper).toHaveBeenCalledTimes(3);
+  });
+
+  it("preserves output order with concurrency > 1", async () => {
+    const mapper = async (item: number, index: number) => {
+      // Deliberately slow down earlier indices so later ones finish first if order were not preserved.
+      await new Promise((resolve) => setTimeout(resolve, (5 - index) * 2));
+      return item * 10 + index;
+    };
+    const result = await mapWithConcurrency([0, 1, 2, 3, 4], mapper, 5);
+    expect(result).toEqual([0, 11, 22, 33, 44]);
+  });
+
+  it("throws for concurrency <= 0", async () => {
+    await expect(mapWithConcurrency([1], async (x) => x, 0)).rejects.toThrow("concurrency must be positive");
+    await expect(mapWithConcurrency([1], async (x) => x, -1)).rejects.toThrow("concurrency must be positive");
+  });
+
+  it("runs sequentially when concurrency = 1", async () => {
+    let active = 0;
+    let maxActive = 0;
+    const result = await mapWithConcurrency([1, 2, 3], async (x) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      active -= 1;
+      return x * 2;
+    }, 1);
+    expect(result).toEqual([2, 4, 6]);
+    expect(maxActive).toBe(1);
   });
 });
 
