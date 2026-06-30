@@ -467,15 +467,26 @@ function parseDeadline(text: string): string | undefined {
   const lower = text.toLowerCase();
 
   // ISO-like timestamps.
+  // Issue #49: validate the parsed date before calling toISOString — an
+  // out-of-range ISO string produces an Invalid Date whose toISOString()
+  // throws RangeError, which would fail the whole normalization path.
   const isoMatch = text.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/);
-  if (isoMatch) return new Date(isoMatch[0]).toISOString();
+  if (isoMatch) {
+    const date = new Date(isoMatch[0]);
+    if (!Number.isFinite(date.getTime())) return undefined;
+    return date.toISOString();
+  }
 
   // "Jan 1, 2026" / "January 1, 2026"
   const janMatch = text.match(/Jan(?:uary)?\s+([0-9]{1,2}),\s*([0-9]{4})/i);
   if (janMatch) {
     const day = Number(janMatch[1]);
     const year = Number(janMatch[2]);
-    return new Date(Date.UTC(year, 0, day, 0, 0, 0)).toISOString();
+    const date = new Date(Date.UTC(year, 0, day, 0, 0, 0));
+    // Issue #49: reject out-of-range day values that roll over into the next
+    // month (e.g. Jan 32 -> Feb 1) before toISOString can produce a wrong date.
+    if (!Number.isFinite(date.getTime()) || date.getUTCDate() !== day) return undefined;
+    return date.toISOString();
   }
 
   // Generic month-day-year phrase: "by December 31, 2026", "on November 5, 2024"
@@ -487,7 +498,9 @@ function parseDeadline(text: string): string | undefined {
     const day = Number(monthYearMatch[2]);
     const year = Number(monthYearMatch[3]);
     if (month !== undefined) {
-      return new Date(Date.UTC(year, month, day, 0, 0, 0)).toISOString();
+      const date = new Date(Date.UTC(year, month, day, 0, 0, 0));
+      if (!Number.isFinite(date.getTime())) return undefined;
+      return date.toISOString();
     }
   }
 
