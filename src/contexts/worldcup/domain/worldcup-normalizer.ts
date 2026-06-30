@@ -61,7 +61,9 @@ export function isWorldCup2026(text: string): boolean {
   return /2026\s*fifa\s*world\s*cup/.test(lower)
     || /world\s*cup\s*2026/.test(lower)
     || /fifa\s*world\s*cup\s*2026/.test(lower)
-    || /\bwc2026\b/.test(lower);
+    || /\bwc2026\b/.test(lower)
+    // Kalshi uses "2026 Men's World Cup" instead of "FIFA World Cup"
+    || /\b2026\b.{0,40}\bworld\s*cup\b/.test(lower);
 }
 
 /**
