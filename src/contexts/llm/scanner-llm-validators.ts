@@ -23,6 +23,9 @@ export const SCANNER_EVENT_TYPES = [
   "nomination",
   "yes_no"
 ] as const;
+// Issue #45: keep the canonical crypto-asset list for prompt examples, but
+// the validator now accepts any non-empty string so sports/politics/current
+// event subjects pass validation.
 export const SCANNER_CRYPTO_ASSETS = ["BTC", "ETH"] as const;
 export const SCANNER_OPERATORS = [">", ">=", "<", "<=", "=", "between"] as const;
 export const SCANNER_PAYOFF_TYPES = ["at_time", "any_time_before", "range", "settlement_value"] as const;
