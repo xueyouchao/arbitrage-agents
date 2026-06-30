@@ -253,4 +253,60 @@ describe("PmxtWcArbScanner", () => {
 
     expect(result.opportunities).toHaveLength(0);
   });
+
+  it("passes feeRate, venue fee rates, and paperTradeNotionals to the calculator", async () => {
+    const capturedAt = "2026-06-15T10:00:00Z";
+    const kalshiMarket = mockSnapshot({
+      venue: "kalshi",
+      venueMarketId: "KXWCGAME-BRAARG",
+      title: "Brazil vs Argentina: To Advance",
+    });
+    const polyMarket = mockSnapshot({
+      venue: "polymarket",
+      venueMarketId: "PM-BRA-ARG-MATCH",
+      title: "Will Brazil beat Argentina in the 2026 FIFA World Cup?",
+    });
+    const kalshiBook = mockBook({
+      marketId: "KXWCGAME-BRAARG",
+      venue: "kalshi",
+      yesAsk: 0.50,
+      noAsk: 0.55,
+      yesAvailableUsd: 500,
+      noAvailableUsd: 500,
+      capturedAt,
+    });
+    const polyBook = mockBook({
+      marketId: "PM-BRA-ARG-MATCH",
+      venue: "polymarket",
+      yesAsk: 0.65,
+      noAsk: 0.38,
+      yesAvailableUsd: 500,
+      noAvailableUsd: 500,
+      capturedAt,
+    });
+
+    const fetcher = createMockFetcher({
+      capturedAt,
+      kalshiMarkets: [kalshiMarket],
+      polymarketMarkets: [polyMarket],
+      kalshiBooks: [kalshiBook],
+      polymarketBooks: [polyBook],
+    });
+
+    // Use custom notionals — verify the simulator produces 2 sims instead of default 3.
+    const scanner = new PmxtWcArbScanner(fetcher);
+    const result = await scanner.find({
+      minNetEdge: 0,
+      noFilter: true,
+      scanTimeUtc: capturedAt,
+      feeRate: 0.02,
+      kalshiFeeRate: 0.015,
+      polyFeeRate: 0.025,
+      paperTradeNotionals: [10, 50],
+    });
+
+    expect(result.opportunities.length).toBeGreaterThanOrEqual(1);
+    // With 2 notionals, each opportunity should have 2 paper-trade sims (not the default 3).
+    expect(result.opportunities[0].paperTradeSimulations).toHaveLength(2);
+  });
 });

@@ -29,6 +29,7 @@
  *   POLY_CONCURRENCY       Concurrency for Polymarket API calls (default: 8)
  *   POLY_RETRIES           Max retries for Polymarket API calls (default: 3)
  *   POLY_TIMEOUT_MS        Per-attempt timeout for Polymarket API (default: 15000)
+ *   PMXT_TIMEOUT_MS        Subprocess timeout for pmxt fetch (default: 60000)
  */
 
 import { config } from "dotenv";
@@ -197,7 +198,7 @@ async function main(): Promise<void> {
   let result: WorldCupArbResult;
   if (opts.pmxt) {
     console.error("Using pmxt unified data source...");
-    const fetcher = new PmxtFetcher({ timeoutMs: 60_000 });
+    const fetcher = new PmxtFetcher({ timeoutMs: envInt("PMXT_TIMEOUT_MS", 60_000) });
     const scanner = new PmxtWcArbScanner(fetcher);
     result = await scanner.find({
       minNetEdge: opts.minEdge,
