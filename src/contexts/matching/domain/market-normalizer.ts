@@ -100,7 +100,7 @@ function classifyTopic(text: string): Topic {
 
   // Sports: leagues, tournaments, win/winner/goal language, team-vs-team.
   if (
-    /\b(world cup|fifa|nba|nfl|super bowl|olympics|championship|win the|win\b|winner|goal|goals|score|team|vs\.|versus|match|tournament)\b/.test(
+    /\b(world cup|fifa|nba|nfl|super bowl|olympics|championship|win the|win\b|winner|goal|goals|score|team|vs\.|versus|tournament)\b/.test(
       lower
     )
   ) {
@@ -548,10 +548,10 @@ function parseDeadline(text: string): string | undefined {
     return new Date(Math.max(...candidates)).toISOString();
   }
   // Just a year with an event name: "2026 FIFA World Cup" -> final is July 19, 2026.
-  if (/2026\s+fifa\s+world\s+cup/.test(lower)) {
+  if (/2026\s+fifa\s+world\s+cup(?:\s*$|\s*\?)/.test(lower)) {
     return new Date(Date.UTC(2026, 6, 19, 0, 0, 0)).toISOString();
   }
-  if (/2024\s+us\s+presidential\s+election/.test(lower)) {
+  if (/2024\s+us\s+presidential\s+election(?:\s*$|\s*\?)/.test(lower)) {
     return new Date(Date.UTC(2024, 10, 5, 0, 0, 0)).toISOString();
   }
 
