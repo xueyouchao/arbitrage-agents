@@ -5,9 +5,13 @@ export type ApiContractSide = "YES" | "NO";
 export type ApiRiskLevel = "low" | "medium" | "high";
 export type ApiEquivalenceClass = "A" | "B" | "C" | "D";
 export type ApiTopic = "crypto" | "macro" | "sports" | "politics" | "current_events";
-export type ApiEventType = "price_above" | "price_below" | "fed_rate_decision" | "cpi_range" | "winner" | "total" | "nomination" | "yes_no";
+export type ApiEventType =
+  | "price_above" | "price_below"
+  | "fed_rate_decision" | "cpi_range"
+  | "winner" | "total" | "nomination" | "yes_no";
 export type ApiCryptoAsset = string;
 export type ApiMarketOperator = ">" | ">=" | "<" | "<=" | "=" | "between";
+export type ApiAsset = string;
 export type ApiPayoffType = "at_time" | "any_time_before" | "range" | "settlement_value";
 
 export interface ApiPriceLevel {
@@ -81,7 +85,7 @@ export interface MarketReadModel {
   rawResolutionText: string;
   topic: ApiTopic;
   eventType: ApiEventType;
-  asset?: ApiCryptoAsset;
+  asset?: ApiAsset;
   threshold?: number;
   operator?: ApiMarketOperator;
   deadline?: string;
