@@ -94,6 +94,36 @@ describe("World Cup normalizer", () => {
     expect(market?.opponentCode).toBe("arg");
   });
 
+  it("extracts opponent from Kalshi-style 'Team vs Team: To Advance' titles", () => {
+    const market = classifyWorldCupMarket(
+      snapshot({
+        venue: "kalshi",
+        venueMarketId: "KXWCGAME-TEST",
+        title: "Argentina vs Cape Verde: To Advance",
+      })
+    );
+
+    expect(market).toBeDefined();
+    // The "vs" keyword classifies as Match, even with "To Advance" suffix.
+    expect(market?.marketType).toBe(WorldCupMarketType.Match);
+    expect(market?.teamCode).toBe("arg");
+    expect(market?.opponentCode).toBe("cpv");
+  });
+
+  it("handles multi-word opponent names with colon terminator", () => {
+    const market = classifyWorldCupMarket(
+      snapshot({
+        venue: "kalshi",
+        venueMarketId: "KXWCGAME-TEST2",
+        title: "Brazil vs Saudi Arabia: To Advance",
+      })
+    );
+
+    expect(market).toBeDefined();
+    expect(market?.teamCode).toBe("bra");
+    expect(market?.opponentCode).toBe("ksa");
+  });
+
   it("returns undefined for non-World-Cup markets", () => {
     expect(classifyWorldCupMarket(snapshot({ title: "Will Bitcoin reach $100k?", rawResolutionText: "" }))).toBeUndefined();
     expect(classifyWorldCupMarket(snapshot({ title: "Will it rain tomorrow?", rawResolutionText: "2026 weather forecast" }))).toBeUndefined();

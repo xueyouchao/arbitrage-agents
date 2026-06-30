@@ -15,6 +15,13 @@ interface PublicHttpOptions {
    * individually via GET /markets/{ticker}. Required because Kalshi's public
    * list endpoint returns combo markets but hides individual KXWC* markets
    * (World Cup winner/advance/match markets) from the top-level results.
+   *
+   * **Important:** This defaults to `false`. World Cup (KXWC*) markets will
+   * NOT appear in `listMarkets()` results unless this is set to `true`.
+   * The runbook enables it explicitly; the production scanner module
+   * (`scanner.module.ts`) does not, so WC sub-markets are only available
+   * via the runbook/pmxt path. Enable this if you need WC markets through
+   * the standard scanner.
    */
   expandSubMarkets?: boolean;
 }
