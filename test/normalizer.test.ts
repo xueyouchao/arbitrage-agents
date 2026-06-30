@@ -158,6 +158,96 @@ describe("MarketNormalizer", () => {
   });
 
   // -------------------------------------------------------------------------
+  // Macro thresholds (Issue #53)
+  // -------------------------------------------------------------------------
+
+  it("does not treat years as macro thresholds", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        venue: "kalshi",
+        venueMarketId: "KX-CPI-BETWEEN-2024-2025",
+        title: "Will CPI be between 2024 and 2025 levels?",
+        rawResolutionText: "Resolves based on Bureau of Labor Statistics CPI report.",
+      })
+    );
+
+    expect(market.topic).toBe("macro");
+    expect(market.threshold).toBeUndefined();
+  });
+
+  it("parses legitimate macro percentage thresholds", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        venue: "kalshi",
+        venueMarketId: "KX-CPI-ABOVE-3-5",
+        title: "Will CPI be above 3.5% this year?",
+        rawResolutionText: "Resolves based on Bureau of Labor Statistics CPI report.",
+      })
+    );
+
+    expect(market.topic).toBe("macro");
+    expect(market.threshold).toBe(3.5);
+    expect(market.operator).toBe(">");
+  });
+
+  it("parses legitimate macro thresholds without a percent sign", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        venue: "kalshi",
+        venueMarketId: "KX-CPI-BELOW-2-5",
+        title: "Will CPI be below 2.5 next month?",
+        rawResolutionText: "Resolves based on Bureau of Labor Statistics CPI report.",
+      })
+    );
+
+    expect(market.topic).toBe("macro");
+    expect(market.threshold).toBe(2.5);
+    expect(market.operator).toBe("<");
+  });
+
+  it("parses macro basis-point thresholds", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        venue: "kalshi",
+        venueMarketId: "KX-FED-25BPS",
+        title: "Will the Fed funds rate be above 25 bps?",
+        rawResolutionText: "Resolves based on Federal Reserve policy announcement.",
+      })
+    );
+
+    expect(market.topic).toBe("macro");
+    expect(market.threshold).toBe(25);
+  });
+
+  it("accepts year-like numbers when an explicit unit suffix is present", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        venue: "kalshi",
+        venueMarketId: "KX-GDP-2024",
+        title: "Will GDP be above 2024 points?",
+        rawResolutionText: "Resolves based on Bureau of Economic Analysis GDP report.",
+      })
+    );
+
+    expect(market.topic).toBe("macro");
+    expect(market.threshold).toBe(2024);
+  });
+
+  it("rejects year-like numbers in macro between-ranges without a unit", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        venue: "kalshi",
+        venueMarketId: "KX-CPI-BETWEEN-YEARS",
+        title: "Will CPI be between 2023 and 2025?",
+        rawResolutionText: "Resolves based on Bureau of Labor Statistics CPI report.",
+      })
+    );
+
+    expect(market.topic).toBe("macro");
+    expect(market.threshold).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
   // Cross-venue candidate generation
   // -------------------------------------------------------------------------
 
