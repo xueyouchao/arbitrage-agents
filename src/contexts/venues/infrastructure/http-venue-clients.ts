@@ -445,7 +445,7 @@ function kalshiResolutionText(market: Record<string, unknown>): string {
     market.settlement_sources,
     market.description,
     market.subtitle,
-    kalshiSubtitlePair(market),
+    kalshiSubtitlePair(market.yes_sub_title, market.no_sub_title),
     market.title,
     kalshiTickerDescription(market),
     market.ticker
@@ -499,11 +499,17 @@ function extractKXWCTickers(market: Record<string, unknown>): string[] {
   return tickers;
 }
 
-function kalshiSubtitlePair(market: Record<string, unknown>): string | undefined {
-  const yes = market.yes_sub_title;
-  const no = market.no_sub_title;
-  if (yes === undefined && no === undefined) return undefined;
-  return `YES: ${String(yes ?? "")} / NO: ${String(no ?? "")}`.trim();
+/**
+ * Builds a "YES: … / NO: …" subtitle pair from Kalshi yes/no subtitle fields.
+ * Issue #52: treats empty-string subtitle fields as undefined so they don't
+ * produce a misleading "YES:  / NO: " pair and block fallback to other
+ * resolution-text candidates. Returns undefined when both are empty/missing.
+ */
+function kalshiSubtitlePair(yes: unknown, no: unknown): string | undefined {
+  const yesStr = typeof yes === "string" ? yes.trim() : "";
+  const noStr = typeof no === "string" ? no.trim() : "";
+  if (yesStr === "" && noStr === "") return undefined;
+  return `YES: ${yesStr} / NO: ${noStr}`;
 }
 
 function kalshiTickerDescription(market: Record<string, unknown>): string | undefined {
@@ -517,6 +523,11 @@ function kalshiTickerDescription(market: Record<string, unknown>): string | unde
   return undefined;
 }
 
+/**
+ * Returns the first non-empty (after trim) string value, or undefined if none
+ * qualify. Treats empty strings the same as undefined/null (issue #52) so
+ * they don't block the fallback chain.
+ */
 function firstNonEmptyString(...values: unknown[]): string | undefined {
   for (const value of values) {
     if (value === null || value === undefined) continue;
