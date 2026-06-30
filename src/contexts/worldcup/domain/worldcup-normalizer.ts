@@ -61,7 +61,9 @@ export function isWorldCup2026(text: string): boolean {
   return /2026\s*fifa\s*world\s*cup/.test(lower)
     || /world\s*cup\s*2026/.test(lower)
     || /fifa\s*world\s*cup\s*2026/.test(lower)
-    || /\bwc2026\b/.test(lower);
+    || /\bwc2026\b/.test(lower)
+    // Kalshi uses "2026 Men's World Cup" instead of "FIFA World Cup"
+    || /\b2026\b.{0,40}\bworld\s*cup\b/.test(lower);
 }
 
 /**
@@ -69,12 +71,21 @@ export function isWorldCup2026(text: string): boolean {
  * Returns `undefined` if the market is not recognisably a 2026 FIFA World Cup
  * market.
  */
+/**
+ * Kalshi ticker prefix for 2026 FIFA World Cup markets.
+ * Individual match/advance/winner markets use KXWC* tickers but their
+ * titles don't mention "World Cup" explicitly (e.g. "Brazil vs Japan: To Advance").
+ * We also check the venue market ID for this prefix.
+ */
+const KALSHI_WORLD_CUP_PREFIX = "KXWC";
+
 export function classifyWorldCupMarket(
   snapshot: VenueMarketSnapshot
 ): WorldCupNormalizedMarket | undefined {
   const text = `${snapshot.title}\n${snapshot.rawResolutionText}`.toLowerCase();
+  const venueId = snapshot.venueMarketId;
 
-  if (!isWorldCup2026(text)) return undefined;
+  if (!isWorldCup2026(text) && !venueId.startsWith(KALSHI_WORLD_CUP_PREFIX)) return undefined;
 
   const marketType = classifyMarketType(text);
   const teamCode = extractTeamCode(text);
@@ -135,22 +146,26 @@ function tryExactTeam(text: string, pattern: RegExp, groupIndex: number = 1): st
  */
 function extractTeamCode(text: string): string | undefined {
   // "Will Brazil win/be the champion of…"
-  return tryExtractTeam(text, /will\s+([a-z][a-z\s.'’-]{1,30}?)\s+(?:win|beat|defeat|advance|qualify)\b/)
+  return tryExtractTeam(text, /will\s+(\p{L}[\p{L}\s.'’-]{1,30}?)\s+(?:win|beat|defeat|advance|qualify)\b/u)
     // "{Team} to win the World Cup"
-    ?? tryExtractTeam(text, /^([a-z][a-z\s.'’-]{1,30}?)\s+(?:to\s+)?win\b/)
+    ?? tryExtractTeam(text, /^(\p{L}[\p{L}\s.'’-]{1,30}?)\s+(?:to\s+)?win\b/u)
     // "{Team} vs {Opponent}" — take the left-hand side.
-    ?? tryExtractTeam(text, /([a-z][a-z\s.'’-]{1,20}?)\s+(?:vs\.?|versus)\s+/)
+    ?? tryExtractTeam(text, /(\p{L}[\p{L}\s.'’-]{1,20}?)\s+(?:vs\.?|versus)\s+/u)
     // Last resort: scan the whole text for known team aliases via word boundary.
     ?? scanTeamAliases(text);
 }
 
 function extractOpponent(text: string, primaryTeam: string | undefined): string | undefined {
   // "Will {team} beat {opponent}"
-  const beatResolved = tryExactTeam(text, /(?:beat|defeat|win\s+(?:against|over))\s+([a-z][a-z\s.'’-]{1,30}?)(?:\s+(?:in|at|during|\?|$))/);
+  const beatResolved = tryExactTeam(text, /(?:beat|defeat|win\s+(?:against|over))\s+(\p{L}[\p{L}\s.'’-]{1,30}?)(?:\s+(?:in|at|during|\?|$))/u);
   if (beatResolved && beatResolved !== primaryTeam) return beatResolved;
 
   // "{Left} vs {Right}" pattern
-  const vsMatch = text.match(/([a-z][a-z\s.'’-]{1,20}?)\s+(?:vs\.?|versus)\s+([a-z][a-z\s.'’-]{1,30}?)(?:\s|$|[?.,])/);
+  // Greedy quantifier on opponent group + ":" in terminator to handle
+  // titles like "Argentina vs Cape Verde: To Advance"
+  // Uses \p{L} instead of [a-z] so accented team names like "Curaçao" and
+  // "Côte d'Ivoire" are captured correctly.
+  const vsMatch = text.match(/(\p{L}[\p{L}\s.'’-]{1,20}?)\s+(?:vs\.?|versus)\s+(\p{L}[\p{L}\s.'’-]{1,30})(?:\s|$|[?.,:])/u);
   if (vsMatch) {
     const left = resolveWorldCupTeam(cleanTeamToken(vsMatch[1]));
     const right = resolveWorldCupTeam(cleanTeamToken(vsMatch[2]));

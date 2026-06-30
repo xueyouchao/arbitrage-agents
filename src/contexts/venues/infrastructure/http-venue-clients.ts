@@ -7,6 +7,23 @@ interface PublicHttpOptions {
   retryDelayMs?: number;
   concurrency?: number;
   jitter?: () => number;
+  /** Max markets returned per listMarkets call. Default: 100. */
+  marketLimit?: number;
+  /**
+   * Kalshi-only: when true, after fetching the main market list, extract
+   * KXWC* sub-market tickers from combo/parlay payloads and fetch them
+   * individually via GET /markets/{ticker}. Required because Kalshi's public
+   * list endpoint returns combo markets but hides individual KXWC* markets
+   * (World Cup winner/advance/match markets) from the top-level results.
+   *
+   * **Important:** This defaults to `false`. World Cup (KXWC*) markets will
+   * NOT appear in `listMarkets()` results unless this is set to `true`.
+   * The runbook enables it explicitly; the production scanner module
+   * (`scanner.module.ts`) does not, so WC sub-markets are only available
+   * via the runbook/pmxt path. Enable this if you need WC markets through
+   * the standard scanner.
+   */
+  expandSubMarkets?: boolean;
 }
 
 const DEFAULT_HTTP_OPTIONS: Required<PublicHttpOptions> = {
@@ -17,7 +34,9 @@ const DEFAULT_HTTP_OPTIONS: Required<PublicHttpOptions> = {
   retries: 3,
   retryDelayMs: 500,
   concurrency: 1,
-  jitter: Math.random
+  jitter: Math.random,
+  marketLimit: 100,
+  expandSubMarkets: false,
 };
 
 export class KalshiPublicVenueClient implements VenueClient {
@@ -27,20 +46,63 @@ export class KalshiPublicVenueClient implements VenueClient {
   ) {}
 
   async listMarkets(): Promise<VenueMarketSnapshot[]> {
+    const limit = this.httpOptions.marketLimit ?? DEFAULT_HTTP_OPTIONS.marketLimit;
     const body = await fetchPublicJson<{ markets?: Array<Record<string, unknown>> }>(
-      `${this.baseUrl}/markets?status=open&limit=100`,
+      `${this.baseUrl}/markets?status=open&limit=${limit}`,
       "Kalshi markets",
       this.httpOptions
     );
     const capturedAt = new Date().toISOString();
-    return (body.markets ?? []).map((market) => ({
-      venue: "kalshi" as const,
-      venueMarketId: String(market.ticker ?? market.id ?? market.market_ticker ?? "unknown"),
-      title: kalshiTitle(market),
-      rawResolutionText: kalshiResolutionText(market),
-      rawPayload: market,
-      capturedAt
-    }));
+    const raw = body.markets ?? [];
+    const snapshots = raw.map((r) => toKalshiSnapshotFromRaw(r, capturedAt));
+
+    // When expandSubMarkets is enabled, parse combo/parlay payloads for
+    // KXWC* sub-market tickers and fetch them individually. This is required
+    // because Kalshi's public list endpoint surfaces combo markets (e.g.
+    // "Egypt vs Iran combo bet") but hides individual World Cup markets
+    // like KXWCGAME-26JUN26NZLBEL-BEL (New Zealand vs Belgium: Belgium wins).
+    if (this.httpOptions.expandSubMarkets) {
+      const primaryIds = new Set(snapshots.map((s) => s.venueMarketId));
+      const subTickers: string[] = [];
+      for (const market of raw) {
+        for (const ticker of extractKXWCTickers(market)) {
+          if (!primaryIds.has(ticker) && !subTickers.includes(ticker)) {
+            subTickers.push(ticker);
+          }
+        }
+      }
+
+      if (subTickers.length > 0) {
+        const expanded = await this.fetchSubMarkets(subTickers);
+        snapshots.push(...expanded);
+      }
+    }
+
+    return snapshots;
+  }
+
+  private async fetchSubMarkets(tickers: string[]): Promise<VenueMarketSnapshot[]> {
+    const capturedAt = new Date().toISOString();
+    const concurrency = this.httpOptions.concurrency ?? DEFAULT_HTTP_OPTIONS.concurrency;
+    return mapWithConcurrency(
+      tickers,
+      async (ticker) => {
+        try {
+          const response = await fetchPublicJson<{ market?: Record<string, unknown> }>(
+            `${this.baseUrl}/markets/${encodeURIComponent(ticker)}`,
+            `Kalshi sub-market ${ticker}`,
+            this.httpOptions
+          );
+          if (response?.market) {
+            return toKalshiSnapshotFromRaw(response.market, capturedAt);
+          }
+        } catch {
+          console.warn(`[kalshi] failed to fetch sub-market ${ticker}, skipping`);
+        }
+        return undefined;
+      },
+      concurrency
+    ).then((snapshots) => snapshots.filter((s): s is VenueMarketSnapshot => s !== undefined));
   }
 
   async listOrderbooks(markets: VenueMarketSnapshot[]): Promise<MarketBook[]> {
@@ -392,6 +454,53 @@ function kalshiResolutionText(market: Record<string, unknown>): string {
     kalshiTickerDescription(market),
     market.ticker
   ) ?? "";
+}
+
+// Helper functions for listMarkets with expandSubMarkets
+function toKalshiSnapshotFromRaw(
+  raw: Record<string, unknown>,
+  capturedAt: string
+): VenueMarketSnapshot {
+  // Use the full fallback chain for title and venueMarketId extraction
+  return {
+    venue: "kalshi",
+    venueMarketId: String(raw.ticker ?? raw.id ?? raw.market_ticker ?? "unknown"),
+    title: kalshiTitle(raw),
+    rawResolutionText: kalshiResolutionText(raw),
+    capturedAt,
+    rawPayload: raw,
+  };
+}
+
+function extractKXWCTickers(market: Record<string, unknown>): string[] {
+  const tickers: string[] = [];
+
+  // Extract from mve_selected_legs array
+  const selectedLegs = market.mve_selected_legs;
+  if (Array.isArray(selectedLegs)) {
+    for (const leg of selectedLegs) {
+      if (typeof leg === "object" && leg !== null && "market_ticker" in leg) {
+        const ticker = (leg as { market_ticker: unknown }).market_ticker;
+        if (typeof ticker === "string" && ticker.startsWith("KXWC")) {
+          tickers.push(ticker);
+        }
+      }
+    }
+  }
+
+  // Extract from custom_strike.Associated Markets (comma-separated string)
+  const customStrike = market.custom_strike as Record<string, unknown> | undefined;
+  const associated = customStrike?.["Associated Markets"];
+  if (typeof associated === "string") {
+    const parts = associated.split(",").map((s) => s.trim());
+    for (const ticker of parts) {
+      if (ticker.startsWith("KXWC")) {
+        tickers.push(ticker);
+      }
+    }
+  }
+
+  return tickers;
 }
 
 function kalshiSubtitlePair(market: Record<string, unknown>): string | undefined {

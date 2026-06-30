@@ -20,6 +20,7 @@
  *   --kalshi-fee-rate <n>  Kalshi-specific fee rate (overrides --fee-rate)
  *   --poly-fee-rate <n>   Polymarket-specific fee rate (overrides --fee-rate)
  *   --no-filter       Include opportunities with zero or negative edge
+ *   --pmxt            Use pmxt unified data source (fifwc + KXWC events)
  *
  * Environment variables (venue client tuning):
  *   KALSHI_CONCURRENCY     Concurrency for Kalshi API calls (default: 5)
@@ -28,17 +29,21 @@
  *   POLY_CONCURRENCY       Concurrency for Polymarket API calls (default: 8)
  *   POLY_RETRIES           Max retries for Polymarket API calls (default: 3)
  *   POLY_TIMEOUT_MS        Per-attempt timeout for Polymarket API (default: 15000)
+ *   PMXT_TIMEOUT_MS        Subprocess timeout for pmxt fetch (default: 60000)
  */
 
 import { config } from "dotenv";
 import { KalshiPublicVenueClient, PolymarketPublicVenueClient } from "../src/contexts/venues/infrastructure/http-venue-clients";
 import { WorldCupArbFinder, WorldCupArbOpportunity, WorldCupArbResult } from "../src/contexts/worldcup/application/worldcup-arb-finder";
+import { PmxtFetcher } from "../src/contexts/venues/infrastructure/pmxt-fetcher";
+import { PmxtWcArbScanner } from "../src/contexts/worldcup/application/pmxtwc-arb-scanner";
 
 config();
 
 interface CliOptions {
   json: boolean;
   noFilter: boolean;
+  pmxt: boolean;
   minEdge: number;
   notionals: number[];
   feeRate: number;
@@ -50,6 +55,7 @@ function parseArgs(argv: string[]): CliOptions {
   const opts: CliOptions = {
     json: false,
     noFilter: false,
+    pmxt: false,
     minEdge: 0,
     notionals: [5, 25, 100],
     feeRate: 0.01,
@@ -78,6 +84,9 @@ function parseArgs(argv: string[]): CliOptions {
         break;
       case "--no-filter":
         opts.noFilter = true;
+        break;
+      case "--pmxt":
+        opts.pmxt = true;
         break;
       case "--min-edge": {
         const raw = consumeValue(++i, "min-edge");
@@ -161,6 +170,7 @@ function printUsage(): void {
   console.log("  --kalshi-fee-rate <n>  Kalshi-specific fee rate (overrides --fee-rate)");
   console.log("  --poly-fee-rate <n>   Polymarket-specific fee rate (overrides --fee-rate)");
   console.log("  --no-filter        Include opportunities with zero or negative edge");
+  console.log("  --pmxt             Use pmxt unified data source (fifwc + KXWC)");
   console.log("  --help             Show this help");
 }
 
@@ -185,31 +195,45 @@ async function main(): Promise<void> {
   const POLY_BASE_URL = "https://gamma-api.polymarket.com";
   const POLY_CLOB_BASE_URL = "https://clob.polymarket.com";
 
-  const kalshiClient = new KalshiPublicVenueClient(KALSHI_BASE_URL, {
-    concurrency: envInt("KALSHI_CONCURRENCY", 5),
-    retries: envInt("KALSHI_RETRIES", 3),
-    timeoutMs: envInt("KALSHI_TIMEOUT_MS", 15000),
-  });
-  const polymarketClient = new PolymarketPublicVenueClient(POLY_BASE_URL, POLY_CLOB_BASE_URL, {
-    concurrency: envInt("POLY_CONCURRENCY", 8),
-    retries: envInt("POLY_RETRIES", 3),
-    timeoutMs: envInt("POLY_TIMEOUT_MS", 15000),
-  });
+  let result: WorldCupArbResult;
+  if (opts.pmxt) {
+    console.error("Using pmxt unified data source...");
+    const fetcher = new PmxtFetcher({ timeoutMs: envInt("PMXT_TIMEOUT_MS", 60_000) });
+    const scanner = new PmxtWcArbScanner(fetcher);
+    result = await scanner.find({
+      minNetEdge: opts.minEdge,
+      noFilter: opts.noFilter,
+      feeRate: opts.feeRate,
+      kalshiFeeRate: opts.kalshiFeeRate,
+      polyFeeRate: opts.polyFeeRate,
+      paperTradeNotionals: opts.notionals,
+    });
+  } else {
+    const kalshiClient = new KalshiPublicVenueClient(KALSHI_BASE_URL, {
+      concurrency: envInt("KALSHI_CONCURRENCY", 5),
+      retries: envInt("KALSHI_RETRIES", 3),
+      timeoutMs: envInt("KALSHI_TIMEOUT_MS", 15000),
+      expandSubMarkets: true,
+    });
+    const polymarketClient = new PolymarketPublicVenueClient(POLY_BASE_URL, POLY_CLOB_BASE_URL, {
+      concurrency: envInt("POLY_CONCURRENCY", 8),
+      retries: envInt("POLY_RETRIES", 3),
+      timeoutMs: envInt("POLY_TIMEOUT_MS", 15000),
+    });
 
-  const finder = new WorldCupArbFinder({
-    kalshiClient,
-    polymarketClient,
-  });
-
-  console.error("Scanning venues...");
-  const result = await finder.find({
-    minNetEdge: opts.minEdge,
-    noFilter: opts.noFilter,
-    feeRate: opts.feeRate,
-    kalshiFeeRate: opts.kalshiFeeRate,
-    polyFeeRate: opts.polyFeeRate,
-    paperTradeNotionals: opts.notionals,
-  });
+    const finder = new WorldCupArbFinder({
+      kalshiClient,
+      polymarketClient,
+    });
+    result = await finder.find({
+      minNetEdge: opts.minEdge,
+      noFilter: opts.noFilter,
+      feeRate: opts.feeRate,
+      kalshiFeeRate: opts.kalshiFeeRate,
+      polyFeeRate: opts.polyFeeRate,
+      paperTradeNotionals: opts.notionals,
+    });
+  }
 
   if (opts.json) {
     console.log(JSON.stringify(resultToJson(result), null, 2));
