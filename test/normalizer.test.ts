@@ -248,6 +248,67 @@ describe("MarketNormalizer", () => {
   });
 
   // -------------------------------------------------------------------------
+  // Deadline parser: resolution keywords vs event dates (issue #50)
+  // -------------------------------------------------------------------------
+
+  it("prefers resolution keyword dates over generic on dates", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        title: "Will the summit happen on November 5, 2024?",
+        rawResolutionText:
+          "This market resolves by December 31, 2024 based on official results.",
+      })
+    );
+
+    expect(market.deadline).toBe("2024-12-31T00:00:00.000Z");
+  });
+
+  it("recognizes 'resolves on' as a resolution keyword date", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        title: "Will the event occur on March 15, 2026?",
+        rawResolutionText: "This market resolves on December 31, 2026.",
+      })
+    );
+
+    expect(market.deadline).toBe("2026-12-31T00:00:00.000Z");
+  });
+
+  it("recognizes 'expires' as a resolution keyword date", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        title: "Will the event occur on March 15, 2026?",
+        rawResolutionText: "This market expires on December 31, 2026.",
+      })
+    );
+
+    expect(market.deadline).toBe("2026-12-31T00:00:00.000Z");
+  });
+
+  it("prefers the latest date when multiple resolution dates are present", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        title: "Will X happen before March 15, 2026?",
+        rawResolutionText:
+          "Interim review by June 30, 2026. Final resolution by December 31, 2026.",
+      })
+    );
+
+    expect(market.deadline).toBe("2026-12-31T00:00:00.000Z");
+  });
+
+  it("picks the latest generic date when no resolution keywords are present", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        title: "Event occurs on March 15, 2026 and again on November 5, 2026",
+        rawResolutionText: "Details posted on September 1, 2026.",
+      })
+    );
+
+    expect(market.deadline).toBe("2026-11-05T00:00:00.000Z");
+  });
+
+  // -------------------------------------------------------------------------
   // Cross-venue candidate generation
   // -------------------------------------------------------------------------
 
