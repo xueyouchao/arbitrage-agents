@@ -158,6 +158,157 @@ describe("MarketNormalizer", () => {
   });
 
   // -------------------------------------------------------------------------
+  // Macro thresholds (Issue #53)
+  // -------------------------------------------------------------------------
+
+  it("does not treat years as macro thresholds", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        venue: "kalshi",
+        venueMarketId: "KX-CPI-BETWEEN-2024-2025",
+        title: "Will CPI be between 2024 and 2025 levels?",
+        rawResolutionText: "Resolves based on Bureau of Labor Statistics CPI report.",
+      })
+    );
+
+    expect(market.topic).toBe("macro");
+    expect(market.threshold).toBeUndefined();
+  });
+
+  it("parses legitimate macro percentage thresholds", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        venue: "kalshi",
+        venueMarketId: "KX-CPI-ABOVE-3-5",
+        title: "Will CPI be above 3.5% this year?",
+        rawResolutionText: "Resolves based on Bureau of Labor Statistics CPI report.",
+      })
+    );
+
+    expect(market.topic).toBe("macro");
+    expect(market.threshold).toBe(3.5);
+    expect(market.operator).toBe(">");
+  });
+
+  it("parses legitimate macro thresholds without a percent sign", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        venue: "kalshi",
+        venueMarketId: "KX-CPI-BELOW-2-5",
+        title: "Will CPI be below 2.5 next month?",
+        rawResolutionText: "Resolves based on Bureau of Labor Statistics CPI report.",
+      })
+    );
+
+    expect(market.topic).toBe("macro");
+    expect(market.threshold).toBe(2.5);
+    expect(market.operator).toBe("<");
+  });
+
+  it("parses macro basis-point thresholds", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        venue: "kalshi",
+        venueMarketId: "KX-FED-25BPS",
+        title: "Will the Fed funds rate be above 25 bps?",
+        rawResolutionText: "Resolves based on Federal Reserve policy announcement.",
+      })
+    );
+
+    expect(market.topic).toBe("macro");
+    expect(market.threshold).toBe(25);
+  });
+
+  it("accepts year-like numbers when an explicit unit suffix is present", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        venue: "kalshi",
+        venueMarketId: "KX-GDP-2024",
+        title: "Will GDP be above 2024 points?",
+        rawResolutionText: "Resolves based on Bureau of Economic Analysis GDP report.",
+      })
+    );
+
+    expect(market.topic).toBe("macro");
+    expect(market.threshold).toBe(2024);
+  });
+
+  it("rejects year-like numbers in macro between-ranges without a unit", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        venue: "kalshi",
+        venueMarketId: "KX-CPI-BETWEEN-YEARS",
+        title: "Will CPI be between 2023 and 2025?",
+        rawResolutionText: "Resolves based on Bureau of Labor Statistics CPI report.",
+      })
+    );
+
+    expect(market.topic).toBe("macro");
+    expect(market.threshold).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // Deadline parser: resolution keywords vs event dates (issue #50)
+  // -------------------------------------------------------------------------
+
+  it("prefers resolution keyword dates over generic on dates", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        title: "Will the summit happen on November 5, 2024?",
+        rawResolutionText:
+          "This market resolves by December 31, 2024 based on official results.",
+      })
+    );
+
+    expect(market.deadline).toBe("2024-12-31T00:00:00.000Z");
+  });
+
+  it("recognizes 'resolves on' as a resolution keyword date", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        title: "Will the event occur on March 15, 2026?",
+        rawResolutionText: "This market resolves on December 31, 2026.",
+      })
+    );
+
+    expect(market.deadline).toBe("2026-12-31T00:00:00.000Z");
+  });
+
+  it("recognizes 'expires' as a resolution keyword date", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        title: "Will the event occur on March 15, 2026?",
+        rawResolutionText: "This market expires on December 31, 2026.",
+      })
+    );
+
+    expect(market.deadline).toBe("2026-12-31T00:00:00.000Z");
+  });
+
+  it("prefers the latest date when multiple resolution dates are present", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        title: "Will X happen before March 15, 2026?",
+        rawResolutionText:
+          "Interim review by June 30, 2026. Final resolution by December 31, 2026.",
+      })
+    );
+
+    expect(market.deadline).toBe("2026-12-31T00:00:00.000Z");
+  });
+
+  it("picks the latest generic date when no resolution keywords are present", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        title: "Event occurs on March 15, 2026 and again on November 5, 2026",
+        rawResolutionText: "Details posted on September 1, 2026.",
+      })
+    );
+
+    expect(market.deadline).toBe("2026-11-05T00:00:00.000Z");
+  });
+
+  // -------------------------------------------------------------------------
   // Cross-venue candidate generation
   // -------------------------------------------------------------------------
 
@@ -187,5 +338,95 @@ describe("MarketNormalizer", () => {
     expect(pairs[0].kalshiMarket.topic).toBe("sports");
     expect(pairs[0].polymarketMarket.topic).toBe("sports");
     expect(pairs[0].reasons).toContain("same_asset");
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #49: invalid ISO dates must not throw RangeError from toISOString
+  // -------------------------------------------------------------------------
+
+  it("returns undefined deadline for syntactically valid but semantically invalid ISO dates", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        title: "Will Bitcoin be above $100,000?",
+        rawResolutionText: "Resolves using Coinbase BTC/USD at 0000-00-00T00:00:00Z"
+      })
+    );
+
+    expect(market.deadline).toBeUndefined();
+    expect(market.ambiguityFlags).toContain("deadline_missing");
+  });
+
+  it("returns undefined deadline for invalid Jan-date combinations", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        title: "Will Bitcoin on Jan 32, 2026 be above $100,000?",
+        rawResolutionText: "Source unclear"
+      })
+    );
+
+    expect(market.deadline).toBeUndefined();
+    expect(market.ambiguityFlags).toContain("deadline_missing");
+  });
+
+  it("returns undefined deadline for out-of-range ISO month", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        title: "Will Bitcoin be above $100,000?",
+        rawResolutionText: "Resolves at 2026-13-01T00:00:00Z"
+      })
+    );
+
+    expect(market.deadline).toBeUndefined();
+    expect(market.ambiguityFlags).toContain("deadline_missing");
+  });
+
+  it("returns undefined deadline for out-of-range ISO day", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        title: "Will Bitcoin be above $100,000?",
+        rawResolutionText: "Resolves at 2026-01-32T00:00:00Z"
+      })
+    );
+
+    expect(market.deadline).toBeUndefined();
+    expect(market.ambiguityFlags).toContain("deadline_missing");
+  });
+
+  it("returns undefined deadline for out-of-range ISO hour", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        title: "Will Bitcoin be above $100,000?",
+        rawResolutionText: "Resolves at 2026-01-01T25:00:00Z"
+      })
+    );
+
+    expect(market.deadline).toBeUndefined();
+    expect(market.ambiguityFlags).toContain("deadline_missing");
+  });
+
+  it("returns correct ISO deadline for valid timestamps", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        title: "Will Bitcoin be above $100,000?",
+        rawResolutionText: "Resolves using Coinbase BTC/USD at 2026-01-01T00:00:00Z"
+      })
+    );
+
+    expect(market.deadline).toBe("2026-01-01T00:00:00.000Z");
+    expect(market.timezone).toBe("UTC");
+    expect(market.ambiguityFlags).not.toContain("deadline_missing");
+  });
+
+  it("extractEventName handles 'Who will win the 20XX' questions", () => {
+    // The "Who will win the 2026 FIFA World Cup?" -> extractEventName returns "2026 fifa world cup"
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        venue: "polymarket",
+        venueMarketId: "PM-2026-WORLD-CUP-WINNER",
+        title: "Who will win the 2026 FIFA World Cup?",
+        rawResolutionText: "Resolves based on official FIFA result",
+      })
+    );
+    expect(market.asset).toBe("2026 fifa world cup");
   });
 });

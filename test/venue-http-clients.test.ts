@@ -283,6 +283,38 @@ describe("public venue HTTP clients", () => {
     ]);
   });
 
+  it("falls back through title/ticker when Kalshi subtitle pair is empty", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({
+        markets: [
+          {
+            id: "KXEMPTY-SUB",
+            event_ticker: "KXEMPTY-SUB-EVENT",
+            market_ticker: "KXEMPTY-SUB-MARKET",
+            title: "Title fallback",
+            subtitle: "",
+            rules_primary: "",
+            settlement_sources: "",
+            description: "",
+            yes_sub_title: "",
+            no_sub_title: ""
+          }
+        ]
+      }), { status: 200 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const markets = await new KalshiPublicVenueClient("https://kalshi.test", { retryDelayMs: 0 }).listMarkets();
+
+    expect(markets).toEqual([
+      expect.objectContaining({
+        venueMarketId: "KXEMPTY-SUB",
+        title: "Title fallback",
+        rawResolutionText: "Title fallback"
+      })
+    ]);
+  });
+
   it("retries thrown network errors and surfaces the last failure after retry exhaustion", async () => {
     const fetchMock = vi
       .fn()
@@ -394,6 +426,24 @@ describe("public venue HTTP clients", () => {
     await promise;
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("uses consistent capturedAt timestamp for all Kalshi markets in a batch", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({
+        markets: [
+          { ticker: "KXWC-A", title: "Market A", rules_primary: "Rules A" },
+          { ticker: "KXWC-B", title: "Market B", rules_primary: "Rules B" }
+        ]
+      }), { status: 200 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const markets = await new KalshiPublicVenueClient("https://kalshi.test", { retryDelayMs: 0 }).listMarkets();
+
+    expect(markets).toHaveLength(2);
+    // All snapshots from one batch should share the same capturedAt.
+    expect(markets[0].capturedAt).toBe(markets[1].capturedAt);
   });
 
   it("does not add extra retries when a non-retryable status arrives on the final attempt", async () => {

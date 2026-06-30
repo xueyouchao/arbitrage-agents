@@ -225,7 +225,7 @@ export class ReadOnlyScanner {
     const fetchMetrics: ScanMetrics = { ...emptyMetrics(), marketsScanned: snapshots.length };
     const llmBudget = newLlmScanBudget(this.dependencies);
     if (this.dependencies.llmGateway && llmBudget.maxEvaluations > 0) {
-      console.log(
+      console.info(
         `[scanner:llm:budget] scanId=${scanId} model=${this.dependencies.llmModel ?? "scanner-default"} ` +
           `totalCap=${llmBudget.maxEvaluations} normalizationCap=${llmBudget.maxNormalizationEvaluations} equivalenceCap=${llmBudget.maxEquivalenceEvaluations}`
       );
@@ -300,7 +300,7 @@ export class ReadOnlyScanner {
     };
 
     if (this.dependencies.llmGateway && llmBudget.maxEvaluations > 0) {
-      console.log(
+      console.info(
         `[scanner:llm:usage] scanId=${scanId} fresh=${llmBudget.freshEvaluations} ` +
           `skipped=${llmBudget.skipped} cacheHits=${llmBudget.cacheHits} ` +
           `promptTokens=${llmBudget.promptTokens} completionTokens=${llmBudget.completionTokens} ` +
@@ -463,7 +463,14 @@ export class ReadOnlyScanner {
       console.warn(
         `[scanner:llm:fallback] ${request.taskType} failed for model=${request.model}: ${sanitizeProviderErrorMessage(error)}`
       );
-      record = {
+      // Issue #47: a thrown/failed evaluation must not consume the per-scan
+      // budget. Increment skipped so metrics reflect the degradation, then
+      // return the failed record without touching evaluations/freshEvaluations
+      // or task-specific counters.
+      budget.skipped += 1;
+      if (request.taskType === "market_normalization") budget.normalizationSkipped += 1;
+      if (request.taskType === "market_equivalence") budget.equivalenceSkipped += 1;
+      return {
         ...request,
         id: randomUUID(),
         inputHash: "scanner-isolated-failure",

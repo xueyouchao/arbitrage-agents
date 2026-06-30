@@ -308,11 +308,20 @@ function parseThreshold(
   }
 
   if (topic === "macro") {
-    // Preserve simple percentage / basis point thresholds if present.
+    // Reject bare year-like numbers (e.g. "between 2024 and 2025") unless they
+    // carry an explicit unit (% / bps / points). This avoids treating years as
+    // economic thresholds.
     const macroMatch = lower.match(
-      /(?:above|below|greater than|less than|between)\s+(\d+(?:\.\d+)?)%?/
+      /(?:above|below|greater than|less than|between)\s+(\d+(?:\.\d+)?)(%|\s*(?:bps|basis points?|points?))?/i
     );
-    if (macroMatch) return numericThresholdFromMatch(macroMatch);
+    if (macroMatch) {
+      const value = Number(macroMatch[1]);
+      const unit = macroMatch[2] ?? "";
+      const hasUnit = /%|bps|basis|point/.test(unit);
+      if (hasUnit || !isYearLikeNumber(value)) {
+        return numericThresholdFromMatch(macroMatch);
+      }
+    }
   }
 
   return undefined;
@@ -331,6 +340,10 @@ function parseCryptoThreshold(text: string): number | undefined {
   }
 
   return undefined;
+}
+
+function isYearLikeNumber(value: number): boolean {
+  return Number.isInteger(value) && value >= 1900 && value <= 2100;
 }
 
 function numericThresholdFromMatch(match: RegExpMatchArray): number | undefined {
@@ -467,28 +480,73 @@ function parseDeadline(text: string): string | undefined {
   const lower = text.toLowerCase();
 
   // ISO-like timestamps.
+  // Issue #49: validate the parsed date before calling toISOString — an
+  // out-of-range ISO string produces an Invalid Date whose toISOString()
+  // throws RangeError, which would fail the whole normalization path.
   const isoMatch = text.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/);
-  if (isoMatch) return new Date(isoMatch[0]).toISOString();
+  if (isoMatch) {
+    const date = new Date(isoMatch[0]);
+    if (!Number.isFinite(date.getTime())) return undefined;
+    return date.toISOString();
+  }
 
   // "Jan 1, 2026" / "January 1, 2026"
   const janMatch = text.match(/Jan(?:uary)?\s+([0-9]{1,2}),\s*([0-9]{4})/i);
   if (janMatch) {
     const day = Number(janMatch[1]);
     const year = Number(janMatch[2]);
-    return new Date(Date.UTC(year, 0, day, 0, 0, 0)).toISOString();
+    const date = new Date(Date.UTC(year, 0, day, 0, 0, 0));
+    // Issue #49: reject out-of-range day values that roll over into the next
+    // month (e.g. Jan 32 -> Feb 1) before toISOString can produce a wrong date.
+    if (!Number.isFinite(date.getTime()) || date.getUTCDate() !== day) return undefined;
+    return date.toISOString();
   }
 
-  // Generic month-day-year phrase: "by December 31, 2026", "on November 5, 2024"
-  const monthYearMatch = text.match(
-    /(?:by|on|at|before)\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+([0-9]{1,2}),?\s*([0-9]{4})/i
-  );
-  if (monthYearMatch) {
-    const month = monthNameToIndex(monthYearMatch[1]);
-    const day = Number(monthYearMatch[2]);
-    const year = Number(monthYearMatch[3]);
-    if (month !== undefined) {
-      return new Date(Date.UTC(year, month, day, 0, 0, 0)).toISOString();
+  // Generic month-day-year phrases with prepositions/keywords.
+  // Issue #50: collect all matches, preferring resolution keywords (resolves,
+  // by, before, expires) over generic "on"/"at" dates, and preferring the
+  // latest date when multiple candidates exist. This prevents an early
+  // "on <event date>" from shadowing a later "resolves by <deadline>".
+  const monthYearPattern =
+    /(?:(resolves?|expires?)\s+)?(by\s+|before\s+|until\s+|on\s+|at\s+)(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+([0-9]{1,2}),?\s*([0-9]{4})/gi;
+
+  const resolutionDates: number[] = [];
+  const genericDates: number[] = [];
+
+  let monthYearMatch: RegExpExecArray | null;
+  while ((monthYearMatch = monthYearPattern.exec(text)) !== null) {
+    const prefixKeyword = monthYearMatch[1]?.toLowerCase();
+    const preposition = monthYearMatch[2]?.toLowerCase().trim();
+    const month = monthNameToIndex(monthYearMatch[3]);
+    const day = Number(monthYearMatch[4]);
+    const year = Number(monthYearMatch[5]);
+    if (month === undefined) continue;
+
+    const ts = Date.UTC(year, month, day, 0, 0, 0);
+    // Issue #49: skip invalid/out-of-range dates instead of letting
+    // toISOString throw RangeError.
+    if (!Number.isFinite(ts)) continue;
+    // Issue #49: reject rolled-over dates (e.g. Dec 32 -> Jan 1 of next year).
+    const constructed = new Date(ts);
+    if (constructed.getUTCDate() !== day || constructed.getUTCMonth() !== month) continue;
+
+    const isResolution =
+      prefixKeyword !== undefined ||
+      preposition === "by" ||
+      preposition === "before" ||
+      preposition === "until";
+
+    if (isResolution) {
+      resolutionDates.push(ts);
+    } else {
+      genericDates.push(ts);
     }
+  }
+
+  const candidates =
+    resolutionDates.length > 0 ? resolutionDates : genericDates;
+  if (candidates.length > 0) {
+    return new Date(Math.max(...candidates)).toISOString();
   }
 
   // Just a year with an event name: "2026 FIFA World Cup" -> final is July 19, 2026.

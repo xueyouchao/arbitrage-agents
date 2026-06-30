@@ -107,4 +107,18 @@ describe("DeterministicEquivalencePolicy", () => {
       reasons: ["operator_mismatch"]
     });
   });
+
+  it("treats undefined thresholds as compatible for sports/winner markets", () => {
+    const pair = {
+      id: "k-1:p-1",
+      kalshiMarket: market({ id: "k-1", venue: "kalshi", threshold: undefined, eventType: "winner", asset: "Chiefs", operator: undefined }),
+      polymarketMarket: market({ id: "p-1", venue: "polymarket", threshold: undefined, eventType: "winner", asset: "Chiefs", operator: undefined }),
+      reasons: []
+    };
+
+    const decision = new DeterministicEquivalencePolicy().classify(pair);
+
+    expect(decision.decision).toBe("tradable");
+    expect(decision.reasons).not.toContain("threshold_mismatch");
+  });
 });

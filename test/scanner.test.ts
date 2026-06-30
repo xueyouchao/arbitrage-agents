@@ -9,6 +9,7 @@ import { CompletedScanArtifacts, CompletedScanResult } from "../src/contexts/sca
 import { InMemoryLlmEvaluationRepository } from "../src/contexts/llm/application/in-memory-llm-evaluation-repository";
 import { PersistedLlmGateway } from "../src/contexts/llm/application/persisted-llm-gateway";
 import { venueMarketSnapshot } from "./helpers/markets";
+import { MarketNormalizer } from "../src/contexts/matching/domain/market-normalizer";
 
 const capturedAt = "2026-06-03T12:00:00.000Z";
 
@@ -365,29 +366,36 @@ describe("ReadOnlyScanner", () => {
   });
 
   it("records sanitized processing failures", async () => {
-    const repository = new InMemoryScannerRepository();
-    const scanner = new ReadOnlyScanner({
-      kalshiClient: new StaticVenueClient({
-        markets: [market("kalshi", "K1", "Will Bitcoin be above $100,000 on Jan 1, 2026?")],
-        books: [{ marketId: "K1", venue: "kalshi", yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 20, noAvailableUsd: 30, capturedAt }]
-      }),
-      polymarketClient: new StaticVenueClient({
-        markets: [market("polymarket", "P1", "Will BTC be above $100,000 on Jan 1, 2026?", "Resolves using Coinbase BTC/USD at 2026-99-99T00:00:00Z")],
-        books: [{ marketId: "P1", venue: "polymarket", yesAsk: 0.5, noAsk: 0.51, yesAvailableUsd: 50, noAvailableUsd: 12, capturedAt }]
-      }),
-      repository,
-      now: capturedAt
-    });
+    const spy = vi.spyOn(MarketNormalizer.prototype, "normalize")
+      .mockImplementationOnce(() => { throw new Error("Processing failed: Authorization: Bearer secret"); });
 
-    const result = await scanner.runOnce();
+    try {
+      const repository = new InMemoryScannerRepository();
+      const scanner = new ReadOnlyScanner({
+        kalshiClient: new StaticVenueClient({
+          markets: [market("kalshi", "K1", "Will Bitcoin be above $100,000 on Jan 1, 2026?")],
+          books: [{ marketId: "K1", venue: "kalshi", yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 20, noAvailableUsd: 30, capturedAt }]
+        }),
+        polymarketClient: new StaticVenueClient({
+          markets: [market("polymarket", "P1", "Will BTC be above $100,000 on Jan 1, 2026?")],
+          books: [{ marketId: "P1", venue: "polymarket", yesAsk: 0.5, noAsk: 0.51, yesAvailableUsd: 50, noAvailableUsd: 12, capturedAt }]
+        }),
+        repository,
+        now: capturedAt
+      });
 
-    expect(result).toMatchObject({
-      status: "failed",
-      failureCategory: "processing"
-    });
-    expect(result.metrics.marketsScanned).toBe(2);
-    expect(result.failureReason).not.toContain("secret");
-    expect(repository.scanRuns.at(-1)).toMatchObject(result);
+      const result = await scanner.runOnce();
+
+      expect(result).toMatchObject({
+        status: "failed",
+        failureCategory: "processing"
+      });
+      expect(result.metrics.marketsScanned).toBe(2);
+      expect(result.failureReason).not.toContain("secret");
+      expect(repository.scanRuns.at(-1)).toMatchObject(result);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("records sanitized persistence failures", async () => {
