@@ -534,13 +534,115 @@ describe("Review fix #11 — LLM gateway exceptions are isolated", () => {
     // Issue #11: the LLM path is exercised and throws, but scan processing
     // still succeeds with deterministic fallback artifacts persisted.
     expect(result.status).toBe("succeeded");
-    expect(result.metrics.llmEvaluations).toBe(3);
+    expect(result.metrics.llmEvaluations).toBe(0);
+    expect(result.metrics.llmEvaluationsSkipped).toBe(3);
     expect(repository.normalizedMarkets).toHaveLength(2);
     expect(repository.candidatePairs).toHaveLength(1);
   });
 });
 
+describe("Review fix #47 — Thrown LLM evaluations do not consume per-scan budget", () => {
+  it("counts a failed LLM evaluation as skipped instead of fresh so remaining budget is preserved", async () => {
+    let calls = 0;
+    const llmGateway: { evaluate(request: LlmEvaluationRequest): Promise<LlmEvaluationRecord> } = {
+      async evaluate(request) {
+        calls += 1;
+        if (calls === 1) {
+          throw new Error("first normalization fails");
+        }
+        return {
+          ...request,
+          id: `${request.taskType}-success`,
+          inputHash: "ok",
+          output: request.taskType === "market_normalization"
+            ? {
+                topic: "crypto",
+                eventType: "price_above",
+                asset: "BTC",
+                threshold: 100000,
+                operator: ">",
+                deadline: "2026-01-01T00:00:00.000Z",
+                timezone: "UTC",
+                resolutionSource: "Coinbase BTC/USD",
+                payoffType: "at_time",
+                confidence: 0.9,
+                ambiguityFlags: []
+              }
+            : { equivalent: true, confidence: 0.95, explanation: "ok" },
+          parsedOutput: request.taskType === "market_normalization"
+            ? {
+                topic: "crypto",
+                eventType: "price_above",
+                asset: "BTC",
+                threshold: 100000,
+                operator: ">",
+                deadline: "2026-01-01T00:00:00.000Z",
+                timezone: "UTC",
+                resolutionSource: "Coinbase BTC/USD",
+                payoffType: "at_time",
+                confidence: 0.9,
+                ambiguityFlags: []
+              }
+            : { equivalent: true, confidence: 0.95 },
+          status: "succeeded",
+          promptTokens: 10,
+          completionTokens: 5,
+          estimatedCostUsd: 0,
+          latencyMs: 1,
+          createdAt: capturedAt
+        };
+      }
+    };
+
+    const rawResolutionText = "Resolves on 2026-01-01T00:00:00Z";
+    const repository = new InMemoryScannerRepository();
+    const result = await new ReadOnlyScanner({
+      kalshiClient: new StaticVenueClient({
+        markets: [
+          market("kalshi", "K1", "Will Bitcoin be above $100,000 on Jan 1, 2026?", rawResolutionText),
+          market("kalshi", "K2", "Will Bitcoin be above $200,000 on Jan 1, 2026?", rawResolutionText)
+        ],
+        books: [
+          { marketId: "K1", venue: "kalshi", yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 20, noAvailableUsd: 30, capturedAt },
+          { marketId: "K2", venue: "kalshi", yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 20, noAvailableUsd: 30, capturedAt }
+        ]
+      }),
+      polymarketClient: new StaticVenueClient({
+        markets: [
+          market("polymarket", "P1", "Will BTC be above $100,000 on Jan 1, 2026?", rawResolutionText),
+          market("polymarket", "P2", "Will BTC be above $200,000 on Jan 1, 2026?", rawResolutionText)
+        ],
+        books: [
+          { marketId: "P1", venue: "polymarket", yesAsk: 0.5, noAsk: 0.51, yesAvailableUsd: 50, noAvailableUsd: 12, capturedAt },
+          { marketId: "P2", venue: "polymarket", yesAsk: 0.5, noAsk: 0.51, yesAvailableUsd: 50, noAvailableUsd: 12, capturedAt }
+        ]
+      }),
+      repository,
+      llmGateway: llmGateway as PersistedLlmGateway,
+      // Tight budget: 4 total slots with per-task split gives normalization 3
+      // slots and equivalence 1. If a thrown normalization consumed budget,
+      // the second normalization would be skipped and the scan would degrade.
+      scannerLlmMaxEvaluationsPerScan: 4,
+      now: capturedAt
+    }).runOnce();
+
+    // Issue #47: a thrown evaluation must count as skipped, not fresh, so the
+    // remaining per-scan budget is preserved for later successful calls.
+    // 4 fresh = 3 successful normalization + 1 successful equivalence;
+    // 2 skipped = 1 (throw) + 1 (2nd equivalence pair over equiv-budget cap of 1).
+    expect(result.status).toBe("succeeded");
+    expect(result.metrics.llmEvaluations).toBe(4);
+    expect(result.metrics.llmEvaluationsSkipped).toBe(2);
+    expect(repository.normalizedMarkets).toHaveLength(4);
+    expect(repository.candidatePairs).toHaveLength(2);
+    // The first market should have fallen back to deterministic normalization
+    // while the other three markets received the successful LLM review.
+    expect(repository.normalizedMarkets[0].confidence).toBeLessThan(0.8);
+  });
+});
+
 describe("Review fix #12 — Cached records are re-validated against current schema", () => {
+
   it("downgrades a cached record whose payloadSchemaVersion does not match the current version", async () => {
     const llmRepository = new InMemoryLlmEvaluationRepository();
     // Drive the gateway once with a stable provider so the cache row we

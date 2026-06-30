@@ -463,7 +463,14 @@ export class ReadOnlyScanner {
       console.warn(
         `[scanner:llm:fallback] ${request.taskType} failed for model=${request.model}: ${sanitizeProviderErrorMessage(error)}`
       );
-      record = {
+      // Issue #47: a thrown/failed evaluation must not consume the per-scan
+      // budget. Increment skipped so metrics reflect the degradation, then
+      // return the failed record without touching evaluations/freshEvaluations
+      // or task-specific counters.
+      budget.skipped += 1;
+      if (request.taskType === "market_normalization") budget.normalizationSkipped += 1;
+      if (request.taskType === "market_equivalence") budget.equivalenceSkipped += 1;
+      return {
         ...request,
         id: randomUUID(),
         inputHash: "scanner-isolated-failure",
