@@ -124,8 +124,10 @@ def fetch_events(router, query: str, captured_at: str, venue: str = "polymarket"
     books = []
     for event in events:
         # If a specific venue is requested, filter by source_exchange.
+        # Events with missing/empty source_exchange are skipped too — without
+        # this, untagged events leak through and cause cross-venue contamination.
         event_venue = getattr(event, "source_exchange", None) or ""
-        if venue != "polymarket" and event_venue and event_venue != venue:
+        if venue != "polymarket" and event_venue != venue:
             continue
         for m in (getattr(event, "markets", None) or []):
             markets.append(extract_poly_snapshot(m, captured_at, venue=venue))
