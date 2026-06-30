@@ -339,7 +339,6 @@ describe("MarketNormalizer", () => {
     expect(pairs[0].polymarketMarket.topic).toBe("sports");
     expect(pairs[0].reasons).toContain("same_asset");
   });
-
   // -------------------------------------------------------------------------
   // Issue #49: invalid ISO dates must not throw RangeError from toISOString
   // -------------------------------------------------------------------------

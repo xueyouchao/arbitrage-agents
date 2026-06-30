@@ -345,7 +345,6 @@ function parseCryptoThreshold(text: string): number | undefined {
 function isYearLikeNumber(value: number): boolean {
   return Number.isInteger(value) && value >= 1900 && value <= 2100;
 }
-
 function numericThresholdFromMatch(match: RegExpMatchArray): number | undefined {
   if (!match[1]) return undefined;
   const raw = match[1].replace(/,/g, "");
@@ -548,7 +547,6 @@ function parseDeadline(text: string): string | undefined {
   if (candidates.length > 0) {
     return new Date(Math.max(...candidates)).toISOString();
   }
-
   // Just a year with an event name: "2026 FIFA World Cup" -> final is July 19, 2026.
   if (/2026\s+fifa\s+world\s+cup/.test(lower)) {
     return new Date(Date.UTC(2026, 6, 19, 0, 0, 0)).toISOString();

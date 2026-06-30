@@ -178,7 +178,6 @@ describe("public venue HTTP clients", () => {
       })
     ]);
   });
-
   it("does not mark Kalshi books stale when bid-only payload derives usable YES/NO asks", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({
