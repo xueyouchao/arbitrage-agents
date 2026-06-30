@@ -123,12 +123,25 @@ def fetch_events(router, query: str, captured_at: str, venue: str = "polymarket"
     markets = []
     books = []
     for event in events:
+        # If a specific venue is requested, filter by source_exchange.
+        # Events with missing/empty source_exchange are skipped too — without
+        # this, untagged events leak through and cause cross-venue contamination.
+        event_venue = getattr(event, "source_exchange", None) or ""
+        if venue != "polymarket" and event_venue != venue:
+            continue
         for m in (getattr(event, "markets", None) or []):
             markets.append(extract_poly_snapshot(m, captured_at, venue=venue))
             book = extract_poly_book(m, captured_at, venue=venue)
             if book:
                 books.append(book)
     return markets, books
+
+
+def fetch_winner_events(router, captured_at: str):
+    """Fetch World Cup Winner tournament markets (still live)."""
+    poly_markets, poly_books = fetch_events(router, "world cup winner", captured_at, venue="polymarket")
+    kalshi_markets, kalshi_books = fetch_events(router, "world cup winner", captured_at, venue="kalshi")
+    return poly_markets, poly_books, kalshi_markets, kalshi_books
 
 
 def main():
@@ -140,17 +153,33 @@ def main():
         print(json.dumps({"error": f"Failed to create pmxt Router: {exc}"}))
         sys.exit(1)
 
+    poly_markets, poly_books = [], []
+    kalshi_markets, kalshi_books = [], []
+
+    # Fetch fifwc match events (all settled, but keep for completeness).
     try:
-        poly_markets, poly_books = fetch_events(router, "fifwc", captured_at)
+        pm, pb = fetch_events(router, "fifwc", captured_at)
+        poly_markets.extend(pm)
+        poly_books.extend(pb)
     except Exception as exc:
-        poly_markets, poly_books = [], []
-        sys.stderr.write(f"Warning: Polymarket fetch failed: {exc}\n")
+        sys.stderr.write(f"Warning: Polymarket fifwc fetch failed: {exc}\n")
 
     try:
-        kalshi_markets, kalshi_books = fetch_events(router, "KXWC", captured_at, venue="kalshi")
+        km, kb = fetch_events(router, "KXWC", captured_at, venue="kalshi")
+        kalshi_markets.extend(km)
+        kalshi_books.extend(kb)
     except Exception as exc:
-        kalshi_markets, kalshi_books = [], []
-        sys.stderr.write(f"Warning: Kalshi fetch failed: {exc}\n")
+        sys.stderr.write(f"Warning: Kalshi KXWC fetch failed: {exc}\n")
+
+    # Fetch World Cup Winner events (still live — tournament final July 19).
+    try:
+        wp_m, wp_b, wk_m, wk_b = fetch_winner_events(router, captured_at)
+        poly_markets.extend(wp_m)
+        poly_books.extend(wp_b)
+        kalshi_markets.extend(wk_m)
+        kalshi_books.extend(wk_b)
+    except Exception as exc:
+        sys.stderr.write(f"Warning: World Cup Winner fetch failed: {exc}\n")
 
     result = {
         "capturedAt": captured_at,
