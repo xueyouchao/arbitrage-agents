@@ -144,24 +144,26 @@ function tryExactTeam(text: string, pattern: RegExp, groupIndex: number = 1): st
  */
 function extractTeamCode(text: string): string | undefined {
   // "Will Brazil win/be the champion of…"
-  return tryExtractTeam(text, /will\s+([a-z][a-z\s.'’-]{1,30}?)\s+(?:win|beat|defeat|advance|qualify)\b/)
+  return tryExtractTeam(text, /will\s+(\p{L}[\p{L}\s.'’-]{1,30}?)\s+(?:win|beat|defeat|advance|qualify)\b/u)
     // "{Team} to win the World Cup"
-    ?? tryExtractTeam(text, /^([a-z][a-z\s.'’-]{1,30}?)\s+(?:to\s+)?win\b/)
+    ?? tryExtractTeam(text, /^(\p{L}[\p{L}\s.'’-]{1,30}?)\s+(?:to\s+)?win\b/u)
     // "{Team} vs {Opponent}" — take the left-hand side.
-    ?? tryExtractTeam(text, /([a-z][a-z\s.'’-]{1,20}?)\s+(?:vs\.?|versus)\s+/)
+    ?? tryExtractTeam(text, /(\p{L}[\p{L}\s.'’-]{1,20}?)\s+(?:vs\.?|versus)\s+/u)
     // Last resort: scan the whole text for known team aliases via word boundary.
     ?? scanTeamAliases(text);
 }
 
 function extractOpponent(text: string, primaryTeam: string | undefined): string | undefined {
   // "Will {team} beat {opponent}"
-  const beatResolved = tryExactTeam(text, /(?:beat|defeat|win\s+(?:against|over))\s+([a-z][a-z\s.'’-]{1,30}?)(?:\s+(?:in|at|during|\?|$))/);
+  const beatResolved = tryExactTeam(text, /(?:beat|defeat|win\s+(?:against|over))\s+(\p{L}[\p{L}\s.'’-]{1,30}?)(?:\s+(?:in|at|during|\?|$))/u);
   if (beatResolved && beatResolved !== primaryTeam) return beatResolved;
 
   // "{Left} vs {Right}" pattern
   // Greedy quantifier on opponent group + ":" in terminator to handle
   // titles like "Argentina vs Cape Verde: To Advance"
-  const vsMatch = text.match(/([a-z][a-z\s.'’-]{1,20}?)\s+(?:vs\.?|versus)\s+([a-z][a-z\s.'’-]{1,30})(?:\s|$|[?.,:])/);
+  // Uses \p{L} instead of [a-z] so accented team names like "Curaçao" and
+  // "Côte d'Ivoire" are captured correctly.
+  const vsMatch = text.match(/(\p{L}[\p{L}\s.'’-]{1,20}?)\s+(?:vs\.?|versus)\s+(\p{L}[\p{L}\s.'’-]{1,30})(?:\s|$|[?.,:])/u);
   if (vsMatch) {
     const left = resolveWorldCupTeam(cleanTeamToken(vsMatch[1]));
     const right = resolveWorldCupTeam(cleanTeamToken(vsMatch[2]));

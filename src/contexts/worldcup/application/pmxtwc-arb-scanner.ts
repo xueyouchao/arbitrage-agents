@@ -64,8 +64,6 @@ const DEFAULT_OPTIONS: Required<PmxtWcArbScannerOptions> = {
  * as the unified data source.
  */
 export class PmxtWcArbScanner {
-  // TODO: add unit tests (mocking PmxtFetcher subprocess call) mirroring
-  // test/worldcup-finder.test.ts coverage for the pmxt scanner path.
   constructor(
     private readonly fetcher: PmxtFetcher,
     private readonly calculator?: OpportunityCalculator,

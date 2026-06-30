@@ -54,7 +54,7 @@ export class KalshiPublicVenueClient implements VenueClient {
     );
     const capturedAt = new Date().toISOString();
     const raw = body.markets ?? [];
-    const snapshots = raw.map(toKalshiSnapshot);
+    const snapshots = raw.map((r) => toKalshiSnapshotFromRaw(r, capturedAt));
 
     // When expandSubMarkets is enabled, parse combo/parlay payloads for
     // KXWC* sub-market tickers and fetch them individually. This is required
@@ -457,10 +457,6 @@ function kalshiResolutionText(market: Record<string, unknown>): string {
 }
 
 // Helper functions for listMarkets with expandSubMarkets
-function toKalshiSnapshot(raw: Record<string, unknown>): VenueMarketSnapshot {
-  return toKalshiSnapshotFromRaw(raw, new Date().toISOString());
-}
-
 function toKalshiSnapshotFromRaw(
   raw: Record<string, unknown>,
   capturedAt: string

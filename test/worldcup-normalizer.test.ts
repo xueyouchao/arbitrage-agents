@@ -124,6 +124,34 @@ describe("World Cup normalizer", () => {
     expect(market?.opponentCode).toBe("ksa");
   });
 
+  it("handles accented team names in vs pattern (Curaçao)", () => {
+    const market = classifyWorldCupMarket(
+      snapshot({
+        venue: "kalshi",
+        venueMarketId: "KXWCGAME-CUW",
+        title: "Egypt vs Curaçao: To Advance",
+      })
+    );
+
+    expect(market).toBeDefined();
+    expect(market?.teamCode).toBe("egy");
+    expect(market?.opponentCode).toBe("cuw");
+  });
+
+  it("handles accented team names in vs pattern (Côte d'Ivoire)", () => {
+    const market = classifyWorldCupMarket(
+      snapshot({
+        venue: "kalshi",
+        venueMarketId: "KXWCGAME-CIV",
+        title: "Côte d'Ivoire vs Ecuador: To Advance",
+      })
+    );
+
+    expect(market).toBeDefined();
+    expect(market?.teamCode).toBe("civ");
+    expect(market?.opponentCode).toBe("ecu");
+  });
+
   it("returns undefined for non-World-Cup markets", () => {
     expect(classifyWorldCupMarket(snapshot({ title: "Will Bitcoin reach $100k?", rawResolutionText: "" }))).toBeUndefined();
     expect(classifyWorldCupMarket(snapshot({ title: "Will it rain tomorrow?", rawResolutionText: "2026 weather forecast" }))).toBeUndefined();

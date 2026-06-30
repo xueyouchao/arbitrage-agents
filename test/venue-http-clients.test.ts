@@ -396,6 +396,24 @@ describe("public venue HTTP clients", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it("uses consistent capturedAt timestamp for all Kalshi markets in a batch", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({
+        markets: [
+          { ticker: "KXWC-A", title: "Market A", rules_primary: "Rules A" },
+          { ticker: "KXWC-B", title: "Market B", rules_primary: "Rules B" }
+        ]
+      }), { status: 200 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const markets = await new KalshiPublicVenueClient("https://kalshi.test", { retryDelayMs: 0 }).listMarkets();
+
+    expect(markets).toHaveLength(2);
+    // All snapshots from one batch should share the same capturedAt.
+    expect(markets[0].capturedAt).toBe(markets[1].capturedAt);
+  });
+
   it("does not add extra retries when a non-retryable status arrives on the final attempt", async () => {
     const fetchMock = vi
       .fn()
