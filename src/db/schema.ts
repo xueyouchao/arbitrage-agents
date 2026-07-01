@@ -232,3 +232,61 @@ export const paperTradeSimulations = pgTable(
     index("paper_trade_simulations_opportunity_simulated_at_idx").on(table.opportunityId, table.simulatedAt)
   ]
 );
+
+// Issue #79: execution-state tables. The execution orchestrator records every
+// submitted order, every (possibly partial) fill, and the resulting position
+// linking the two venue legs so #80 can unwind partials.
+//
+// `orders` holds one row per leg submission. `venue` distinguishes kalshi vs
+// polymarket; `market` is the ticker (kalshi) or token id (polymarket).
+// `status` is the orchestrator's own lifecycle value
+// (pending/filled/cancelled/failed), independent of each venue's raw order
+// status string.
+export const orders = pgTable(
+  "orders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    venue: text("venue").notNull(),
+    market: text("market").notNull(),
+    side: text("side").notNull(),
+    price: numeric("price").notNull(),
+    size: numeric("size").notNull(),
+    status: text("status").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [index("orders_status_idx").on(table.status)]
+);
+
+// `fills` records the realised fill for an order once the venue reports back.
+// One row per (order, fill event); `fills` link back to `orders` via FK.
+export const fills = pgTable(
+  "fills",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id").references(() => orders.id, { onDelete: "cascade" }).notNull(),
+    fillPrice: numeric("fill_price").notNull(),
+    fillSize: numeric("fill_size").notNull(),
+    filledAt: timestamp("filled_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [index("fills_order_id_idx").on(table.orderId)]
+);
+
+// `positions` ties the two legs of a single cross-venue opportunity together.
+// `opportunityId` is the id of the CrossVenueOpportunity that was executed.
+// `kalshiOrderId`/`polyOrderId` reference the recorded `orders` rows.
+// `status` is open (both legs filled), partial (only one filled — #80 unwinds),
+// exposed (one leg filled, the other still in-flight/outstanding), or closed
+// (fully unwound). PnL starts at 0 and is updated by later P&L roll-ups.
+export const positions = pgTable(
+  "positions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    opportunityId: text("opportunity_id").notNull(),
+    kalshiOrderId: uuid("kalshi_order_id").references(() => orders.id),
+    polyOrderId: uuid("poly_order_id").references(() => orders.id),
+    status: text("status").notNull(),
+    pnl: numeric("pnl").notNull().default("0"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [index("positions_status_idx").on(table.status)]
+);

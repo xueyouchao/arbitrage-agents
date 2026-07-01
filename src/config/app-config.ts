@@ -50,7 +50,11 @@ const AppConfigSchema = z.object({
   // are provisioned (HITL gate). Defaults to empty string so the app
   // boots without them.
   polyPrivateKey: z.string().default(""),
-  polyWalletAddress: z.string().default("")
+  polyWalletAddress: z.string().default(""),
+  // Issue #81: max capital deployed across all open positions. If
+  // total open position notional exceeds this, new executions are
+  // rejected by the RiskManager pre-trade guard.
+  maxCapitalDeployedUsd: z.coerce.number().positive().default(5000)
 });
 
 export type AppConfig = z.infer<typeof AppConfigSchema>;
@@ -77,7 +81,8 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     kalshiApiKeyId: env.KALSHI_API_KEY_ID,
     kalshiPrivateKey: env.KALSHI_PRIVATE_KEY,
     polyPrivateKey: env.POLY_PRIVATE_KEY,
-    polyWalletAddress: env.POLY_WALLET_ADDRESS
+    polyWalletAddress: env.POLY_WALLET_ADDRESS,
+    maxCapitalDeployedUsd: env.MAX_CAPITAL_DEPLOYED_USD
   });
 }
 

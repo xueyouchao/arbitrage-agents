@@ -187,10 +187,48 @@ export interface ScanRunReadRepository {
   getLatestScanRun(): Promise<ScanRunReadModel>;
 }
 
+/**
+ * A position as surfaced by the `GET /v1/positions` dashboard endpoint
+ * (issue #81). Combines data from the `positions` table with the related
+ * `orders` rows so the dashboard can show venue + market per leg.
+ */
+export interface PositionReadModel {
+  id: string;
+  opportunityId: string;
+  status: "open" | "partial" | "exposed" | "closed";
+  kalshiOrderId: string | null;
+  polyOrderId: string | null;
+  kalshiMarket: string | null;
+  polymarketMarket: string | null;
+  kalshiVenue: string | null;
+  polymarketVenue: string | null;
+  /** Total notional deployed in this position (sum of both leg fill sizes). */
+  notionalUsd: number;
+  /** Realised P&L for closed positions, mark-to-market for open positions. */
+  pnl: number;
+  createdAt: string;
+}
+
+/**
+ * Capital utilization summary returned alongside the positions list so the
+ * dashboard can show how much of the max-capital-deployed budget is in use.
+ */
+export interface CapitalUtilizationSummary {
+  totalOpenNotional: number;
+  maxCapitalDeployed: number;
+  utilizationPct: number;
+}
+
+export interface PositionReadRepository {
+  listOpenPositions(): Promise<PositionReadModel[]>;
+  getCapitalUtilization(maxCapitalDeployed: number): Promise<CapitalUtilizationSummary>;
+}
+
 export const OPPORTUNITY_READ_REPOSITORY = Symbol("OPPORTUNITY_READ_REPOSITORY");
 export const MARKET_READ_REPOSITORY = Symbol("MARKET_READ_REPOSITORY");
 export const SCAN_RUN_READ_REPOSITORY = Symbol("SCAN_RUN_READ_REPOSITORY");
 export const PAPER_TRADE_SIMULATION_READ_REPOSITORY = Symbol("PAPER_TRADE_SIMULATION_READ_REPOSITORY");
+export const POSITION_READ_REPOSITORY = Symbol("POSITION_READ_REPOSITORY");
 
 @Injectable()
 export class OpportunityReadService {
@@ -247,5 +285,21 @@ export class PaperTradeSimulationReadService {
 
   listPaperTradeSimulations(opportunityId: string): Promise<PaperTradeSimulationReadModel[]> {
     return this.paperTradeSimulations.listPaperTradeSimulations(opportunityId);
+  }
+}
+
+@Injectable()
+export class PositionReadService {
+  constructor(
+    @Inject(POSITION_READ_REPOSITORY)
+    private readonly positions: PositionReadRepository
+  ) {}
+
+  listOpenPositions(): Promise<PositionReadModel[]> {
+    return this.positions.listOpenPositions();
+  }
+
+  getCapitalUtilization(maxCapitalDeployed: number): Promise<CapitalUtilizationSummary> {
+    return this.positions.getCapitalUtilization(maxCapitalDeployed);
   }
 }

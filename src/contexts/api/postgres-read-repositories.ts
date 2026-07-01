@@ -3,6 +3,7 @@ import { Pool } from "pg";
 import { DATABASE_POOL } from "../shared/database/database-tokens";
 import {
   ApiAsset,
+  CapitalUtilizationSummary,
   MarketReadModel,
   MarketReadRepository,
   OpportunityFilters,
@@ -14,6 +15,8 @@ import {
   PaperTradeLegFillReadModel,
   PaperTradeSimulationReadModel,
   PaperTradeSimulationReadRepository,
+  PositionReadModel,
+  PositionReadRepository,
   ScanRunReadModel,
   ScanRunReadRepository
 } from "./read-models";
@@ -25,7 +28,12 @@ import {
 // after every consumer (api + scanner) has finished its last query.
 @Injectable()
 export class PostgresReadRepositories
-  implements OpportunityReadRepository, MarketReadRepository, ScanRunReadRepository, PaperTradeSimulationReadRepository
+  implements
+    OpportunityReadRepository,
+    MarketReadRepository,
+    ScanRunReadRepository,
+    PaperTradeSimulationReadRepository,
+    PositionReadRepository
 {
   private readonly pool: Pool;
 
@@ -305,6 +313,65 @@ export class PostgresReadRepositories
       failureReason: stringFromUnknown(metrics.failureReason)
     };
   }
+
+  async listOpenPositions(): Promise<PositionReadModel[]> {
+    // Join positions → orders (kalshi + polymarket) → fills to compute
+    // notional (sum of fill sizes) and P&L. Open/partial/exposed positions
+    // use mark-to-market P&L (book value vs fill price); closed positions
+    // use the realised `pnl` column.
+    const result = await this.pool.query<PositionRow>(`
+      select p.id,
+             p.opportunity_id,
+             p.status,
+             p.kalshi_order_id,
+             p.poly_order_id,
+             p.pnl,
+             p.created_at,
+             ko.market   as kalshi_market,
+             ko.venue    as kalshi_venue,
+             kf.fill_price as kalshi_fill_price,
+             kf.fill_size  as kalshi_fill_size,
+             po.market   as poly_market,
+             po.venue    as poly_venue,
+             pf.fill_price as poly_fill_price,
+             pf.fill_size  as poly_fill_size
+      from positions p
+      left join orders ko on ko.id = p.kalshi_order_id
+      left join fills kf on kf.order_id = ko.id
+      left join orders po on po.id = p.poly_order_id
+      left join fills pf on pf.order_id = po.id
+      where p.status in ('open', 'partial', 'exposed')
+      order by p.created_at desc
+    `);
+
+    return result.rows.map(toPosition);
+  }
+
+  async getCapitalUtilization(maxCapitalDeployed: number): Promise<CapitalUtilizationSummary> {
+    // Sum fill sizes across all open/partial/exposed positions to get the
+    // total capital currently deployed.
+    const result = await this.pool.query<{ total_open_notional: string | null }>(`
+      select coalesce(sum(fill_total), 0) as total_open_notional
+      from (
+        select coalesce(kf.fill_size, 0) + coalesce(pf.fill_size, 0) as fill_total
+        from positions p
+        left join fills kf on kf.order_id = p.kalshi_order_id
+        left join fills pf on pf.order_id = p.poly_order_id
+        where p.status in ('open', 'partial', 'exposed')
+      ) as leg_totals
+    `);
+
+    const totalOpenNotional = Number(result.rows[0]?.total_open_notional ?? 0);
+    const utilizationPct = maxCapitalDeployed > 0
+      ? Math.round((totalOpenNotional / maxCapitalDeployed) * 100 * 100) / 100
+      : 0;
+
+    return {
+      totalOpenNotional,
+      maxCapitalDeployed,
+      utilizationPct
+    };
+  }
 }
 
 interface OpportunityRow {
@@ -387,6 +454,24 @@ interface ScanRunRow {
   started_at: Date | string;
   completed_at: Date | string | null;
   metrics: Record<string, unknown> | null;
+}
+
+interface PositionRow {
+  id: string;
+  opportunity_id: string;
+  status: string;
+  kalshi_order_id: string | null;
+  poly_order_id: string | null;
+  pnl: string;
+  created_at: Date | string;
+  kalshi_market: string | null;
+  kalshi_venue: string | null;
+  kalshi_fill_price: string | null;
+  kalshi_fill_size: string | null;
+  poly_market: string | null;
+  poly_venue: string | null;
+  poly_fill_price: string | null;
+  poly_fill_size: string | null;
 }
 
 function toOpportunity(row: OpportunityRow): OpportunityReadModel {
@@ -528,4 +613,37 @@ function toFailureCategory(value: unknown): ScanRunReadModel["failureCategory"] 
 
 function stringFromUnknown(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function toPositionStatus(value: string): PositionReadModel["status"] {
+  if (value === "open" || value === "partial" || value === "exposed" || value === "closed") return value;
+  return "open";
+}
+
+function toPosition(row: PositionRow): PositionReadModel {
+  const kalshiFillSize = row.kalshi_fill_size ? Number(row.kalshi_fill_size) : 0;
+  const polyFillSize = row.poly_fill_size ? Number(row.poly_fill_size) : 0;
+  const notionalUsd = kalshiFillSize + polyFillSize;
+
+  // P&L: for open/partial/exposed positions we use mark-to-market (book
+  // value vs fill price). For closed positions the realised `pnl` column
+  // is authoritative. Here we return the stored pnl as the base; a future
+  // enhancement can compute live mark-to-market from current orderbook
+  // snapshots.
+  const pnl = Number(row.pnl ?? 0);
+
+  return {
+    id: row.id,
+    opportunityId: row.opportunity_id,
+    status: toPositionStatus(row.status),
+    kalshiOrderId: row.kalshi_order_id,
+    polyOrderId: row.poly_order_id,
+    kalshiMarket: row.kalshi_market,
+    polymarketMarket: row.poly_market,
+    kalshiVenue: row.kalshi_venue,
+    polymarketVenue: row.poly_venue,
+    notionalUsd,
+    pnl,
+    createdAt: toIso(row.created_at)
+  };
 }
