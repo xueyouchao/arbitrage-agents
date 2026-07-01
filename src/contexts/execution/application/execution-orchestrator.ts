@@ -1,4 +1,6 @@
 import type { CrossVenueOpportunity } from "../../arbitrage/domain/opportunity";
+import { RiskManager } from "./risk-manager";
+import { PositionUnwinder, type FilledLegDescriptor } from "./position-unwinder";
 
 /**
  * Unified fill outcome the orchestrator works against. The two venue trading
@@ -25,9 +27,12 @@ export interface LegFillResult {
  * once wrapped (see `KalshiTradingClientAdapter` / `PolymarketTradingClientAdapter`
  * below). Injecting this interface keeps the orchestrator testable without
  * real API calls and decouples it from per-venue auth/signing details.
+ *
+ * `placeOrder` accepts an optional `AbortSignal` so the orchestrator can
+ * abort in-flight requests when its timeout wins the race.
  */
 export interface TradingClient {
-  placeOrder(market: string, side: string, price: number, size: number): Promise<LegFillResult>;
+  placeOrder(market: string, side: string, price: number, size: number, signal?: AbortSignal): Promise<LegFillResult>;
   cancelOrder(orderId: string): Promise<void>;
 }
 
@@ -69,10 +74,36 @@ export interface RecordedPosition {
 }
 
 /**
+ * Thrown when `execute()` is called for an opportunity that already has a
+ * non-terminal position, enforcing idempotency so the same opportunity is
+ * never executed twice.
+ */
+export class AlreadyExecutedError extends Error {
+  constructor(public readonly opportunityId: string, public readonly existingStatus: string) {
+    super(`Opportunity ${opportunityId} already executed (position status: ${existingStatus})`);
+    this.name = "AlreadyExecutedError";
+  }
+}
+
+/**
+ * Thrown when the RiskManager rejects the execution because it would breach
+ * the max-capital-deployed limit.
+ */
+export class RiskRejectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RiskRejectedError";
+  }
+}
+
+/**
  * Persistence sink the orchestrator writes orders/fills/positions through.
  * Tests pass an in-memory implementation; production passes a drizzle-backed
  * implementation. The interface mirrors only the insert surface the
  * orchestrator needs.
+ *
+ * `positions.existsForOpportunity` is optional — when absent the orchestrator
+ * skips the idempotency check (tests that don't care can omit it).
  */
 export interface ExecutionRepositories {
   orders: {
@@ -96,7 +127,29 @@ export interface ExecutionRepositories {
       status: string;
       pnl?: string;
     }): Promise<RecordedPosition> | RecordedPosition;
+    /**
+     * Returns true when a position already exists for the given opportunity
+     * id. Optional — the orchestrator skips the idempotency check when this
+     * is not provided.
+     */
+    existsForOpportunity?(opportunityId: string): Promise<boolean> | boolean;
   };
+}
+
+/**
+ * Optional dependencies injected into the orchestrator. When omitted, the
+ * corresponding behaviour is skipped (risk check / auto-unwind), keeping the
+ * orchestrator usable in minimal test setups.
+ */
+export interface ExecutionOrchestratorOptions {
+  /** Pre-trade risk guard. When provided, `execute()` calls it before placing orders. */
+  riskManager?: RiskManager;
+  /** Auto-unwinder for partial fills. When provided, `execute()` calls it after a partial fill. */
+  unwinder?: PositionUnwinder;
+  /** Current total open notional across all positions. Used for the risk check. Defaults to 0. */
+  totalOpenNotional?: number;
+  /** Max capital deployable across all positions. Used for the risk check. */
+  maxCapitalDeployed?: number;
 }
 
 export interface ExecutionResult {
@@ -120,24 +173,74 @@ export interface ExecutionResult {
  * - both fill  → position `open`
  * - one fills  → position `partial` (handed off to #80 for unwinding)
  * - none fill  → no position created
+ *
+ * Idempotency: when `repos.positions.existsForOpportunity` is available,
+ * `execute()` refuses to re-execute an opportunity that already has a
+ * non-terminal position (`open`, `partial`, `exposed`), throwing
+ * `AlreadyExecutedError`.
+ *
+ * Risk: when `options.riskManager` is provided, `execute()` calls
+ * `riskManager.checkExecution(totalOpenNotional, requestedNotional, maxCapitalDeployed)`
+ * before placing orders and throws `RiskRejectedError` if rejected.
+ *
+ * Unwinding: when `options.unwinder` is provided and the position ends up
+ * `partial`, the unwinder is automatically invoked to reverse the filled leg.
  */
 export class ExecutionOrchestrator {
   /** Hardcoded 30s leg timeout. Not configurable — by design (issue #79). */
   static readonly TIMEOUT_MS = 30_000;
 
-  constructor(private readonly repos: ExecutionRepositories) {}
+  private readonly riskManager?: RiskManager;
+  private readonly unwinder?: PositionUnwinder;
+  private readonly totalOpenNotional: number;
+  private readonly maxCapitalDeployed: number;
+
+  constructor(
+    private readonly repos: ExecutionRepositories,
+    options: ExecutionOrchestratorOptions = {}
+  ) {
+    this.riskManager = options.riskManager;
+    this.unwinder = options.unwinder;
+    this.totalOpenNotional = options.totalOpenNotional ?? 0;
+    this.maxCapitalDeployed = options.maxCapitalDeployed ?? 0;
+  }
 
   async execute(opportunity: CrossVenueOpportunity, clients: TradingClients): Promise<ExecutionResult> {
+    // Idempotency: refuse to re-execute an opportunity that already has a
+    // non-terminal position.
+    if (typeof this.repos.positions.existsForOpportunity === "function") {
+      const exists = await this.repos.positions.existsForOpportunity(opportunity.id);
+      if (exists) {
+        throw new AlreadyExecutedError(opportunity.id, "existing");
+      }
+    }
+
     const kalshiLeg = this.toLegSubmission(opportunity, opportunity.longLeg, "kalshi");
     const polyLeg = this.toLegSubmission(opportunity, opportunity.hedgeLeg, "polymarket");
+
+    // Pre-trade risk guard: reject if total open + requested exceeds max.
+    if (this.riskManager) {
+      const requestedNotional = kalshiLeg.size + polyLeg.size;
+      const allowed = this.riskManager.checkExecution(
+        this.totalOpenNotional,
+        requestedNotional,
+        this.maxCapitalDeployed
+      );
+      if (!allowed) {
+        throw new RiskRejectedError(
+          `Execution rejected by RiskManager: total open ${this.totalOpenNotional} + requested ${requestedNotional} exceeds max ${this.maxCapitalDeployed}`
+        );
+      }
+    }
 
     // `Promise.allSettled` ensures a rejection on one leg (network error,
     // venue rejection) does not short-circuit the other — both legs always
     // run to completion (or the 30s timeout) before we decide position
-    // status.
+    // status. Each leg receives the AbortSignal so in-flight requests are
+    // cancelled when the timeout wins.
     const [kalshiSettled, polySettled] = await Promise.allSettled([
-      this.raceWithTimeout(clients.kalshi.placeOrder(kalshiLeg.market, kalshiLeg.side, kalshiLeg.price, kalshiLeg.size)),
-      this.raceWithTimeout(clients.polymarket.placeOrder(polyLeg.market, polyLeg.side, polyLeg.price, polyLeg.size))
+      this.raceWithTimeout((signal) => clients.kalshi.placeOrder(kalshiLeg.market, kalshiLeg.side, kalshiLeg.price, kalshiLeg.size, signal)),
+      this.raceWithTimeout((signal) => clients.polymarket.placeOrder(polyLeg.market, polyLeg.side, polyLeg.price, polyLeg.size, signal))
     ]);
 
     const kalshiResult = this.toLegResult(kalshiSettled);
@@ -199,6 +302,14 @@ export class ExecutionOrchestrator {
     }
     // both failed → no position recorded.
 
+    // Auto-unwind partial positions when an unwinder is injected.
+    if (position && position.status === "partial" && this.unwinder) {
+      const filledLeg = kalshiFilled
+        ? this.toFilledLegDescriptor(opportunity.longLeg, "kalshi", kalshiResult)
+        : this.toFilledLegDescriptor(opportunity.hedgeLeg, "polymarket", polyResult);
+      position = await this.unwinder.unwind(position, filledLeg, clients);
+    }
+
     return { position, legs: { kalshi: kalshiResult, polymarket: polyResult } };
   }
 
@@ -216,16 +327,40 @@ export class ExecutionOrchestrator {
     };
   }
 
-  private async raceWithTimeout(p: Promise<LegFillResult>): Promise<LegFillResult> {
+  private toFilledLegDescriptor(
+    leg: CrossVenueOpportunity["longLeg"],
+    venue: "kalshi" | "polymarket",
+    result: LegFillResult
+  ): FilledLegDescriptor {
+    return {
+      venue,
+      market: leg.marketId,
+      side: leg.side,
+      price: result.fillPrice,
+      size: result.fillSize
+    };
+  }
+
+  /**
+   * Races a leg promise against a 30s timeout. When the timeout wins,
+   * the `AbortController` is aborted so any in-flight request is cancelled
+   * rather than left running in the background. The `start` callback receives
+   * the signal so the underlying request can observe the abort.
+   */
+  private async raceWithTimeout(start: (signal: AbortSignal) => Promise<LegFillResult>): Promise<LegFillResult> {
+    const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<LegFillResult>((resolve) => {
       timer = setTimeout(
-        () => resolve({ orderId: "", filled: false, fillPrice: 0, fillSize: 0, error: "timeout" }),
+        () => {
+          controller.abort();
+          resolve({ orderId: "", filled: false, fillPrice: 0, fillSize: 0, error: "timeout" });
+        },
         ExecutionOrchestrator.TIMEOUT_MS
       );
     });
     try {
-      return await Promise.race([p, timeout]);
+      return await Promise.race([start(controller.signal), timeout]);
     } finally {
       if (timer) clearTimeout(timer);
     }

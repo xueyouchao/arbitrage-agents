@@ -315,10 +315,14 @@ export class PostgresReadRepositories
   }
 
   async listOpenPositions(): Promise<PositionReadModel[]> {
-    // Join positions → orders (kalshi + polymarket) → fills to compute
-    // notional (sum of fill sizes) and P&L. Open/partial/exposed positions
-    // use mark-to-market P&L (book value vs fill price); closed positions
-    // use the realised `pnl` column.
+    // Join positions → orders (kalshi + polymarket) → aggregated fills to
+    // compute notional (sum of fill sizes) and P&L. Open/partial/exposed
+    // positions use mark-to-market P&L (book value vs fill price); closed
+    // positions use the realised `pnl` column.
+    //
+    // LATERAL subqueries SUM fills per order before joining so a position
+    // with multiple fills on either leg does NOT fan out into duplicate
+    // rows. LIMIT 500 caps the unpaginated endpoint.
     const result = await this.pool.query<PositionRow>(`
       select p.id,
              p.opportunity_id,
@@ -337,11 +341,22 @@ export class PostgresReadRepositories
              pf.fill_size  as poly_fill_size
       from positions p
       left join orders ko on ko.id = p.kalshi_order_id
-      left join fills kf on kf.order_id = ko.id
+      left join lateral (
+        select sum(f.fill_size) as fill_size,
+               coalesce(avg(f.fill_price), 0) as fill_price
+        from fills f
+        where f.order_id = ko.id
+      ) kf on true
       left join orders po on po.id = p.poly_order_id
-      left join fills pf on pf.order_id = po.id
+      left join lateral (
+        select sum(f.fill_size) as fill_size,
+               coalesce(avg(f.fill_price), 0) as fill_price
+        from fills f
+        where f.order_id = po.id
+      ) pf on true
       where p.status in ('open', 'partial', 'exposed')
       order by p.created_at desc
+      limit 500
     `);
 
     return result.rows.map(toPosition);
@@ -349,14 +364,24 @@ export class PostgresReadRepositories
 
   async getCapitalUtilization(maxCapitalDeployed: number): Promise<CapitalUtilizationSummary> {
     // Sum fill sizes across all open/partial/exposed positions to get the
-    // total capital currently deployed.
+    // total capital currently deployed. LATERAL subqueries SUM fills per
+    // order so a position with multiple fills on either leg does not fan
+    // out and double-count capital.
     const result = await this.pool.query<{ total_open_notional: string | null }>(`
       select coalesce(sum(fill_total), 0) as total_open_notional
       from (
         select coalesce(kf.fill_size, 0) + coalesce(pf.fill_size, 0) as fill_total
         from positions p
-        left join fills kf on kf.order_id = p.kalshi_order_id
-        left join fills pf on pf.order_id = p.poly_order_id
+        left join lateral (
+          select sum(f.fill_size) as fill_size
+          from fills f
+          where f.order_id = p.kalshi_order_id
+        ) kf on true
+        left join lateral (
+          select sum(f.fill_size) as fill_size
+          from fills f
+          where f.order_id = p.poly_order_id
+        ) pf on true
         where p.status in ('open', 'partial', 'exposed')
       ) as leg_totals
     `);

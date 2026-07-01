@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PolymarketTradingClient } from "../src/contexts/venues/infrastructure/polymarket-trading-client";
+import type { PolymarketTradingClientOptions } from "../src/contexts/venues/infrastructure/polymarket-trading-client";
 import type { OrderSigner } from "../src/contexts/venues/domain/trading";
 
 afterEach(() => {
@@ -10,14 +11,25 @@ function okResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 }
 
+function mockSigner(impl?: (payload: Record<string, unknown>) => Promise<string>): OrderSigner {
+  return { signOrder: vi.fn(impl ?? (async () => "0xmocksignature")) };
+}
+
+describe("PolymarketTradingClient constructor", () => {
+  it("throws when no signer is provided", () => {
+    expect(() => new PolymarketTradingClient({
+      privateKey: "0xabc123",
+      walletAddress: "0xWallet"
+    } as unknown as PolymarketTradingClientOptions)).toThrow(/signer/);
+  });
+});
+
 describe("PolymarketTradingClient.placeOrder", () => {
   it("POSTs to the CLOB /order endpoint with the correct payload shape and an auth signature", async () => {
     const fetchMock = vi.fn(async () => okResponse({ success: true, orderId: "poly-order-1" }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const signer: OrderSigner = {
-      signOrder: vi.fn(async () => "0xmocksignature")
-    };
+    const signer = mockSigner();
 
     const client = new PolymarketTradingClient({
       privateKey: "0xabc123",
@@ -55,9 +67,7 @@ describe("PolymarketTradingClient.cancelOrder", () => {
     const fetchMock = vi.fn(async () => okResponse({ success: true }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const signer: OrderSigner = {
-      signOrder: vi.fn(async () => "0xcancelsig")
-    };
+    const signer = mockSigner(async () => "0xcancelsig");
 
     const client = new PolymarketTradingClient({
       privateKey: "0xabc123",
@@ -82,7 +92,7 @@ describe("PolymarketTradingClient.cancelOrder", () => {
     const fetchMock = vi.fn(async () => new Response("bad", { status: 400 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const signer: OrderSigner = { signOrder: vi.fn(async () => "0x") };
+    const signer = mockSigner(async () => "0x");
     const client = new PolymarketTradingClient({
       privateKey: "0xabc123",
       walletAddress: "0xWallet",
@@ -124,21 +134,5 @@ describe("PolymarketTradingClient signing flow", () => {
     // The signature forwarded in the POST body must be derived from the signer.
     const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
     expect(body.signature).toBe(`0xderived-from-"token-sign"-sell`);
-  });
-
-  it("uses the default placeholder signer when no signer is injected (ethers not yet installed)", async () => {
-    const fetchMock = vi.fn(async () => okResponse({ orderId: "poly-default-1" }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const client = new PolymarketTradingClient({
-      privateKey: "0xabc123",
-      walletAddress: "0xWallet"
-    });
-
-    await client.placeOrder("token-default", "buy", 0.5, 1);
-
-    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
-    // Default signer returns a 65-byte zero signature placeholder.
-    expect(body.signature).toMatch(/^0x0{130}$/);
   });
 });

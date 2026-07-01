@@ -11,9 +11,18 @@ export type OrderStatus = "placed" | "cancelled" | "failed";
 export interface OrderResult {
   orderId: string;
   venue: string;
-  status: OrderStatus;
+  /**
+   * Venue order status. Polymarket uses the `OrderStatus` values; Kalshi
+   * returns its own status strings ("resting", "matched", ...), so this
+   * is typed as `string` to accommodate both venues.
+   */
+  status: string;
   /** Raw exchange response body, kept for debugging/audit. */
   rawResponse?: unknown;
+  /** Realised fill size (0 when not filled). Used by Kalshi adapter. */
+  filledSize?: number;
+  /** Average fill price (0 when not filled). Used by Kalshi adapter. */
+  avgFillPrice?: number;
 }
 
 /**

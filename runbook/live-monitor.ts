@@ -52,6 +52,28 @@ import { uuidFromStableKey } from "../src/contexts/shared/stable-id";
 
 config({ quiet: true });
 
+/**
+ * Module-level lazy pg.Pool. Created once on first use and reused across
+ * scans; closed only on shutdown via `closeSharedPool()`. Previously a new
+ * Pool was constructed on every scan (and every persistAlerts call), which
+ * exhausted connections and slowed the loop.
+ */
+let sharedPool: Pool | undefined;
+
+function getSharedPool(): Pool {
+  if (!sharedPool) {
+    sharedPool = new Pool({ connectionString: process.env.DATABASE_URL });
+  }
+  return sharedPool;
+}
+
+async function closeSharedPool(): Promise<void> {
+  if (sharedPool) {
+    await sharedPool.end();
+    sharedPool = undefined;
+  }
+}
+
 interface CliOptions {
   json: boolean;
   once: boolean;
@@ -234,7 +256,15 @@ export interface VerifiedEdge {
   polymarketTitle: string;
   // Issue #76: venue ask prices for the console alert line so an operator
   // can see the two prices that produce the edge without querying the DB.
+  // `kalshiSide`/`polymarketSide` identify which side (YES/NO) each venue's
+  // ask price belongs to, so the labels are correct for both directions.
+  kalshiAsk: number;
+  kalshiSide: string;
+  polymarketAsk: number;
+  polymarketSide: string;
+  /** @deprecated use kalshiAsk — kept for backward compatibility. */
   kalshiYesAsk: number;
+  /** @deprecated use polymarketAsk — kept for backward compatibility. */
   polymarketNoAsk: number;
 }
 
@@ -285,21 +315,30 @@ export function toVerifiedOutput(result: WorldCupArbResult, maxBookAgeMs: number
 function toEdge(opp: WorldCupArbOpportunity): VerifiedEdge {
   const kalshi = opp.pair.kalshiMarket;
   const poly = opp.pair.polymarketMarket;
-  // Venue ask prices: the long leg is the YES ask, the hedge leg is the NO
-  // ask. For "kalshi_yes/poly_no" the Kalshi YES ask and the Polymarket NO
-  // ask are the two prices; for the opposite direction they swap venues.
-  const kalshiYesAsk = opp.opportunity.longLeg.venue === "kalshi"
-    ? opp.opportunity.longLeg.askPrice
-    : opp.opportunity.hedgeLeg.askPrice;
-  const polymarketNoAsk = opp.opportunity.hedgeLeg.venue === "polymarket"
-    ? opp.opportunity.hedgeLeg.askPrice
-    : opp.opportunity.longLeg.askPrice;
+  // Venue ask prices per direction. For "kalshi_yes/poly_no" the Kalshi leg
+  // is the long (YES) leg and the Polymarket leg is the hedge (NO) leg. For
+  // "poly_yes/kalshi_no" the venues swap: Polymarket supplies the YES (long)
+  // ask and Kalshi supplies the NO (hedge) ask. Use the long/hedge leg's
+  // venue to assign each venue's ask price and side label correctly.
+  const kalshiLeg = opp.opportunity.longLeg.venue === "kalshi"
+    ? opp.opportunity.longLeg
+    : opp.opportunity.hedgeLeg;
+  const polymarketLeg = opp.opportunity.longLeg.venue === "polymarket"
+    ? opp.opportunity.longLeg
+    : opp.opportunity.hedgeLeg;
+  const direction = opp.opportunity.longLeg.venue === "kalshi"
+    ? "kalshi_yes/poly_no"
+    : "poly_yes/kalshi_no";
+  const kalshiAsk = kalshiLeg?.askPrice ?? 0;
+  const kalshiSide = kalshiLeg?.side ?? "";
+  const polymarketAsk = polymarketLeg?.askPrice ?? 0;
+  const polymarketSide = polymarketLeg?.side ?? "";
   return {
     id: opp.opportunity.id,
     team: kalshi.teamCode?.toUpperCase() ?? poly.teamCode?.toUpperCase() ?? "?",
     marketType: kalshi.marketType ?? poly.marketType ?? "?",
     opponent: kalshi.opponentCode?.toUpperCase() ?? poly.opponentCode?.toUpperCase() ?? null,
-    direction: opp.opportunity.longLeg.venue === "kalshi" ? "kalshi_yes/poly_no" : "poly_yes/kalshi_no",
+    direction,
     grossEdge: opp.opportunity.grossEdge,
     netEdge: opp.opportunity.netEdge,
     maxTradableUsd: opp.opportunity.maxTradableUsd,
@@ -308,8 +347,14 @@ function toEdge(opp: WorldCupArbOpportunity): VerifiedEdge {
     venueRisk: opp.opportunity.venueRisk,
     kalshiTitle: kalshi.originalTitle ?? "",
     polymarketTitle: poly.originalTitle ?? "",
-    kalshiYesAsk,
-    polymarketNoAsk,
+    kalshiAsk,
+    kalshiSide,
+    polymarketAsk,
+    polymarketSide,
+    // Backward-compatible aliases: kalshiYesAsk is the Kalshi leg's ask
+    // (YES for kalshi_yes/poly_no, NO for poly_yes/kalshi_no).
+    kalshiYesAsk: kalshiAsk,
+    polymarketNoAsk: polymarketAsk,
   };
 }
 
@@ -365,6 +410,10 @@ export function buildAlerts(output: ScanOutput, options: AlertOptions): AlertIns
       venueRisk: edge.venueRisk,
       kalshiTitle: edge.kalshiTitle,
       polymarketTitle: edge.polymarketTitle,
+      kalshiAsk: edge.kalshiAsk,
+      kalshiSide: edge.kalshiSide,
+      polymarketAsk: edge.polymarketAsk,
+      polymarketSide: edge.polymarketSide,
       kalshiYesAsk: edge.kalshiYesAsk,
       polymarketNoAsk: edge.polymarketNoAsk,
       scannedAt: output.scannedAt,
@@ -380,7 +429,7 @@ export function buildAlerts(output: ScanOutput, options: AlertOptions): AlertIns
 export function formatAlertLine(edge: VerifiedEdge): string {
   const netEdgePct = (edge.netEdge * 100).toFixed(2);
   const maxUsd = edge.maxTradableUsd.toFixed(2);
-  return `ALERT ${edge.team} ${edge.direction}  net=${netEdgePct}%  kalshi_yes=${edge.kalshiYesAsk.toFixed(4)}  poly_no=${edge.polymarketNoAsk.toFixed(4)}  max=$${maxUsd}`;
+  return `ALERT ${edge.team} ${edge.direction}  net=${netEdgePct}%  kalshi_${edge.kalshiSide.toLowerCase()}=${edge.kalshiAsk.toFixed(4)}  poly_${edge.polymarketSide.toLowerCase()}=${edge.polymarketAsk.toFixed(4)}  max=$${maxUsd}`;
 }
 
 /**
@@ -397,20 +446,23 @@ export async function persistAlerts(
   queryFn?: (text: string, params: unknown[]) => Promise<unknown>
 ): Promise<void> {
   if (alerts.length === 0) return;
-  const pool = queryFn ? undefined : new Pool({ connectionString: process.env.DATABASE_URL });
-  try {
+  // Use the caller-provided query runner when supplied (unit tests); otherwise
+  // reuse the module-level shared pool instead of creating one per call.
+  if (queryFn) {
     for (const alert of alerts) {
       const opportunityUuid = uuidFromStableKey(alert.opportunityId);
       const text = `insert into alerts (opportunity_id, channel, payload) values ($1, $2, $3::jsonb)`;
       const params = [opportunityUuid, alert.channel, JSON.stringify(alert.payload)];
-      if (queryFn) {
-        await queryFn(text, params);
-      } else if (pool) {
-        await pool.query(text, params);
-      }
+      await queryFn(text, params);
     }
-  } finally {
-    if (pool) await pool.end();
+    return;
+  }
+  const pool = getSharedPool();
+  for (const alert of alerts) {
+    const opportunityUuid = uuidFromStableKey(alert.opportunityId);
+    const text = `insert into alerts (opportunity_id, channel, payload) values ($1, $2, $3::jsonb)`;
+    const params = [opportunityUuid, alert.channel, JSON.stringify(alert.payload)];
+    await pool.query(text, params);
   }
 }
 
@@ -441,6 +493,7 @@ async function runScan(opts: CliOptions): Promise<void> {
     kalshiFeeRate: opts.kalshiFeeRate,
     polyFeeRate: opts.polyFeeRate,
     paperTradeNotionals: opts.notionals,
+    maxBookAgeMs: opts.maxBookAgeMs,
   });
 
   const output = toVerifiedOutput(result, opts.maxBookAgeMs, opts.intervalMs);
@@ -490,13 +543,15 @@ async function main(): Promise<void> {
   }
 
   // Loop until interrupted. Each iteration waits for the interval before the
-  // next scan; the first scan runs immediately.
-  let stopped = false;
+  // next scan; the first scan runs immediately. A SIGINT/SIGTERM sets a
+  // cooperative stop flag so the current scan can finish cleanly, then the
+  // loop breaks and the shared pool is closed. We never process.exit(0)
+  // mid-scan because that can corrupt in-flight writes.
+  let wantStop = false;
   const stop = () => {
-    if (stopped) return;
-    stopped = true;
+    if (wantStop) return;
+    wantStop = true;
     console.error("\n⏹  Stopping after current scan completes...");
-    process.exit(0);
   };
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
@@ -510,12 +565,16 @@ async function main(): Promise<void> {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`Scan error: ${message}`);
     }
+    if (wantStop) break;
     const elapsed = Date.now() - start;
     const wait = Math.max(0, opts.intervalMs - elapsed);
     if (wait > 0) {
       await sleep(wait);
     }
+    if (wantStop) break;
   }
+
+  await closeSharedPool();
 }
 
 function sleep(ms: number): Promise<void> {

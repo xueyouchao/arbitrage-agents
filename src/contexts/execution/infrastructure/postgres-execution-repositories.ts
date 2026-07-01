@@ -14,6 +14,13 @@ import type {
  *
  * Kept deliberately thin — the orchestrator owns all decision logic; this
  * class only persists what it's handed.
+ *
+ * NOTE: This class accepts a `pg.Pool` in its constructor. The runbook
+ * (`runbook/execute.ts`) creates its own Pool and is responsible for
+ * closing it. When the execution module is wired into the NestJS app,
+ * pass the shared `DATABASE_POOL` from `src/db/database-pool.ts` instead
+ * of constructing a new pool — the NestJS lifecycle owns that pool's
+ * teardown, not this class.
  */
 export class PostgresExecutionRepositories implements ExecutionRepositories {
   constructor(private readonly pool: Pool) {}

@@ -3,8 +3,7 @@ import { OrderResult, OrderSide, OrderSigner } from "../domain/trading";
 export interface PolymarketTradingClientOptions {
   /**
    * Ethereum EOA private key used to sign CLOB orders. Production callers
-   * pass `config.polyPrivateKey`. Defaults to an empty string so the
-   * client can be constructed (and tested) before keys are provisioned.
+   * pass `config.polyPrivateKey`.
    */
   privateKey?: string;
   /**
@@ -17,23 +16,17 @@ export interface PolymarketTradingClientOptions {
    * dependency of this repo, so the signing implementation is injected
    * rather than hard-wired. The production wiring will pass an
    * ethers.js-based signer; tests pass a mock.
+   *
+   * REQUIRED — there is no default. A caller that omits the signer
+   * cannot sign orders and would silently send zero-signature orders to
+   * the live CLOB, so the constructor throws if it is missing.
    */
-  signer?: OrderSigner;
+  signer: OrderSigner;
   /** CLOB API base URL. Defaults to the production endpoint. */
   clobBaseUrl?: string;
 }
 
 const DEFAULT_CLOB_BASE_URL = "https://clob.polymarket.com";
-
-const DEFAULT_SIGNER: OrderSigner = {
-  // Placeholder signer used when no private key/signer is configured yet.
-  // Returns a zero signature so the client can be exercised end-to-end
-  // before ethers.js is installed. Swappable for an ethers.js Wallet
-  // signer once credentials are provisioned.
-  async signOrder() {
-    return "0x" + "0".repeat(130);
-  }
-};
 
 /**
  * Authenticated trading client for the Polymarket CLOB API
@@ -42,10 +35,8 @@ const DEFAULT_SIGNER: OrderSigner = {
  * CLOB `POST /order` endpoint.
  *
  * NOTE: ethers.js is not currently a dependency of this repo. Until it is
- * installed, callers must inject an `OrderSigner`. The default signer
- * returns a placeholder signature and must NOT be used against the live
- * CLOB API — wire up an ethers.js-based signer once credentials are
- * provisioned (issue #78 is a HITL gate for wallet keys).
+ * installed, callers must inject an `OrderSigner`. The constructor throws
+ * when no signer is provided so unsigned orders can never be sent.
  */
 export class PolymarketTradingClient {
   private readonly clobBaseUrl: string;
@@ -53,11 +44,16 @@ export class PolymarketTradingClient {
   private readonly walletAddress: string;
   private readonly signer: OrderSigner;
 
-  constructor(options: PolymarketTradingClientOptions = {}) {
+  constructor(options: PolymarketTradingClientOptions) {
+    if (!options.signer) {
+      throw new Error(
+        "PolymarketTradingClient requires a signer; provide an OrderSigner (ethers.js Wallet in production)."
+      );
+    }
     this.clobBaseUrl = options.clobBaseUrl ?? DEFAULT_CLOB_BASE_URL;
     this.privateKey = options.privateKey ?? "";
     this.walletAddress = options.walletAddress ?? "";
-    this.signer = options.signer ?? DEFAULT_SIGNER;
+    this.signer = options.signer;
   }
 
   async placeOrder(

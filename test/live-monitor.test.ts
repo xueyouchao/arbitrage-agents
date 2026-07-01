@@ -160,6 +160,32 @@ describe("live-monitor toVerifiedOutput", () => {
     expect(output.edges[0].dataStalenessMs).toBe(60_000);
   });
 
+  it("labels venue ask prices correctly for the poly_yes/kalshi_no direction", () => {
+    // For the opposite direction, Polymarket is the long (YES) leg and Kalshi
+    // is the hedge (NO) leg. kalshiAsk should be the Kalshi NO ask and
+    // polymarketAsk should be the Polymarket YES ask.
+    const opp: WorldCupArbOpportunity = {
+      pair: makePair(),
+      opportunity: makeOpportunity({
+        id: "test:polymarket_yes-kalshi_no",
+        longLeg: { venue: "polymarket", marketId: "P1", side: "YES", askPrice: 0.38, availableUsd: 200 },
+        hedgeLeg: { venue: "kalshi", marketId: "K1", side: "NO", askPrice: 0.55, availableUsd: 200 },
+      }),
+      paperTradeSimulations: [],
+    };
+    const result = makeResult([opp]);
+
+    const output = toVerifiedOutput(result, 60_000, 60_000);
+
+    expect(output.summary.verifiedEdges).toBe(1);
+    const edge = output.edges[0];
+    expect(edge.direction).toBe("poly_yes/kalshi_no");
+    expect(edge.kalshiAsk).toBeCloseTo(0.55);
+    expect(edge.kalshiSide).toBe("NO");
+    expect(edge.polymarketAsk).toBeCloseTo(0.38);
+    expect(edge.polymarketSide).toBe("YES");
+  });
+
   it("includes interval and maxBookAgeMs in the output for traceability", () => {
     const result = makeResult([]);
 
@@ -217,6 +243,10 @@ describe("live-monitor buildAlerts", () => {
         venueRisk: e.venueRisk ?? "low",
         kalshiTitle: e.kalshiTitle ?? "Brazil to win",
         polymarketTitle: e.polymarketTitle ?? "Will Brazil win?",
+        kalshiAsk: e.kalshiAsk ?? 0.4,
+        kalshiSide: e.kalshiSide ?? "YES",
+        polymarketAsk: e.polymarketAsk ?? 0.5,
+        polymarketSide: e.polymarketSide ?? "NO",
         kalshiYesAsk: e.kalshiYesAsk ?? 0.4,
         polymarketNoAsk: e.polymarketNoAsk ?? 0.5,
       })),
@@ -278,6 +308,10 @@ describe("live-monitor formatAlertLine", () => {
       venueRisk: "low",
       kalshiTitle: "Brazil to win",
       polymarketTitle: "Will Brazil win?",
+      kalshiAsk: 0.4,
+      kalshiSide: "YES",
+      polymarketAsk: 0.5,
+      polymarketSide: "NO",
       kalshiYesAsk: 0.4,
       polymarketNoAsk: 0.5,
     };
@@ -324,6 +358,10 @@ describe("live-monitor buildAlerts threshold filtering", () => {
         venueRisk: e.venueRisk ?? "low",
         kalshiTitle: e.kalshiTitle ?? "Brazil to win",
         polymarketTitle: e.polymarketTitle ?? "Will Brazil win?",
+        kalshiAsk: e.kalshiAsk ?? 0.4,
+        kalshiSide: e.kalshiSide ?? "YES",
+        polymarketAsk: e.polymarketAsk ?? 0.5,
+        polymarketSide: e.polymarketSide ?? "NO",
         kalshiYesAsk: e.kalshiYesAsk ?? 0.4,
         polymarketNoAsk: e.polymarketNoAsk ?? 0.5,
       })),

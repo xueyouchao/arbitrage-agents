@@ -16,7 +16,7 @@ import type { LegFillResult, TradingClient } from "../application/execution-orch
 export class PolymarketTradingClientAdapter implements TradingClient {
   constructor(private readonly client: PolymarketTradingClient) {}
 
-  async placeOrder(market: string, side: string, price: number, size: number): Promise<LegFillResult> {
+  async placeOrder(market: string, side: string, price: number, size: number, signal?: AbortSignal): Promise<LegFillResult> {
     try {
       const result = await this.client.placeOrder(market, side === "YES" ? "buy" : "sell", price, size);
       const filled = result.status === "placed" && result.orderId !== "";

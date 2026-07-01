@@ -214,6 +214,21 @@ describe("World Cup normalizer", () => {
     expect(market).toBeUndefined();
   });
 
+  it("does NOT drop a winner market whose rules text contains an ISO date like 2026-07-19", () => {
+    const market = classifyWorldCupMarket(
+      snapshot({
+        venue: "polymarket",
+        venueMarketId: "PM-BRA-WC26",
+        title: "Will Brazil win the 2026 FIFA World Cup?",
+        rawResolutionText: "This market resolves based on official FIFA result. Final match: 2026-07-19.",
+      })
+    );
+
+    expect(market).toBeDefined();
+    expect(market?.marketType).toBe(WorldCupMarketType.Winner);
+    expect(market?.teamCode).toBe("bra");
+  });
+
   it("still classifies match-winner markets with 'Winner' as Match (backward compat)", () => {
     const market = classifyWorldCupMarket(
       snapshot({
@@ -241,6 +256,19 @@ describe("World Cup normalizer", () => {
     );
 
     expect(market).toBeUndefined();
+  });
+
+  it("does NOT drop a match market that mentions 'other' and 'winner' but is not the catch-all", () => {
+    const market = classifyWorldCupMarket(
+      snapshot({
+        venue: "polymarket",
+        venueMarketId: "PM-WC26-OTHER-MATCH",
+        title: "Will the other team beat the previous winner in the 2026 FIFA World Cup?",
+        rawResolutionText: "Resolves per official FIFA results.",
+      })
+    );
+
+    expect(market).toBeDefined();
   });
 
   it("still classifies normal team winner markets titled like 'Winner - {Team}'", () => {

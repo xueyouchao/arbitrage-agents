@@ -1,6 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
-import { ExecutionOrchestrator } from "../src/contexts/execution/application/execution-orchestrator";
-import type { TradingClient, RecordedOrder, RecordedFill, RecordedPosition } from "../src/contexts/execution/application/execution-orchestrator";
+import {
+  ExecutionOrchestrator,
+  AlreadyExecutedError,
+  RiskRejectedError,
+  type TradingClient,
+  type RecordedOrder,
+  type RecordedFill,
+  type RecordedPosition,
+  type ExecutionRepositories
+} from "../src/contexts/execution/application/execution-orchestrator";
+import { RiskManager } from "../src/contexts/execution/application/risk-manager";
+import { PositionUnwinder, type UnwinderRepositories, type FilledLegDescriptor } from "../src/contexts/execution/application/position-unwinder";
 import type { CrossVenueOpportunity } from "../src/contexts/arbitrage/domain/opportunity";
 import { orders, fills, positions } from "../src/db/schema";
 
@@ -71,12 +81,16 @@ function fixtureOpportunity(): CrossVenueOpportunity {
  * repository returns inserted rows so tests can assert on recorded state
  * without a live database.
  */
-function inMemoryRepositories() {
+function inMemoryRepositories(existsForOpportunity?: (id: string) => boolean) {
   const ordersRows: RecordedOrder[] = [];
   const fillsRows: RecordedFill[] = [];
   const positionsRows: RecordedPosition[] = [];
 
-  return {
+  const repos: ExecutionRepositories & {
+    orders: ExecutionRepositories["orders"] & { all: () => RecordedOrder[] };
+    fills: ExecutionRepositories["fills"] & { all: () => RecordedFill[] };
+    positions: ExecutionRepositories["positions"] & { all: () => RecordedPosition[] };
+  } = {
     orders: {
       insert(row: { venue: string; market: string; side: string; price: string; size: string; status: string }): RecordedOrder {
         const withId: RecordedOrder = {
@@ -124,9 +138,11 @@ function inMemoryRepositories() {
         positionsRows.push(withId);
         return withId;
       },
-      all: () => positionsRows
+      all: () => positionsRows,
+      ...(existsForOpportunity ? { existsForOpportunity } : {})
     }
   };
+  return repos;
 }
 
 function mockKalshiClient(orderId: string, filled: boolean, fillSize: number, fillPrice: number): TradingClient {
@@ -248,5 +264,140 @@ describe("ExecutionOrchestrator", () => {
     expect(orders).toBeDefined();
     expect(fills).toBeDefined();
     expect(positions).toBeDefined();
+  });
+
+  // --- Fix 3: idempotency ---
+  it("refuses to re-execute when a position already exists for the opportunity (non-terminal)", async () => {
+    const repos = inMemoryRepositories(() => true);
+    const kalshi = mockKalshiClient("kal-ord-1", true, 10, 0.55);
+    const poly = mockPolymarketClient("poly-ord-1", true, 10, 0.42);
+
+    const orchestrator = new ExecutionOrchestrator(repos);
+    await expect(
+      orchestrator.execute(fixtureOpportunity(), { kalshi, polymarket: poly })
+    ).rejects.toBeInstanceOf(AlreadyExecutedError);
+
+    // No orders should have been placed.
+    expect(kalshi.placeOrder).not.toHaveBeenCalled();
+    expect(poly.placeOrder).not.toHaveBeenCalled();
+  });
+
+  it("executes when no existing position is found", async () => {
+    const repos = inMemoryRepositories(() => false);
+    const kalshi = mockKalshiClient("kal-ord-1", true, 10, 0.55);
+    const poly = mockPolymarketClient("poly-ord-1", true, 10, 0.42);
+
+    const orchestrator = new ExecutionOrchestrator(repos);
+    const result = await orchestrator.execute(fixtureOpportunity(), { kalshi, polymarket: poly });
+    expect(result.position).toBeDefined();
+    expect(result.position!.status).toBe("open");
+  });
+
+  // --- Fix 6: RiskManager ---
+  it("rejects execution when over the capital limit", async () => {
+    const repos = inMemoryRepositories();
+    const kalshi = mockKalshiClient("kal-ord-1", true, 10, 0.55);
+    const poly = mockPolymarketClient("poly-ord-1", true, 10, 0.42);
+
+    // requestedNotional = 50 + 50 = 100; totalOpen 4950 + 100 = 5050 > 5000
+    const orchestrator = new ExecutionOrchestrator(repos, {
+      riskManager: new RiskManager(),
+      totalOpenNotional: 4950,
+      maxCapitalDeployed: 5000
+    });
+
+    await expect(
+      orchestrator.execute(fixtureOpportunity(), { kalshi, polymarket: poly })
+    ).rejects.toBeInstanceOf(RiskRejectedError);
+
+    // No orders placed.
+    expect(kalshi.placeOrder).not.toHaveBeenCalled();
+    expect(poly.placeOrder).not.toHaveBeenCalled();
+  });
+
+  it("allows execution when within the capital limit", async () => {
+    const repos = inMemoryRepositories();
+    const kalshi = mockKalshiClient("kal-ord-1", true, 10, 0.55);
+    const poly = mockPolymarketClient("poly-ord-1", true, 10, 0.42);
+
+    // requestedNotional = 50 + 50 = 100; totalOpen 1000 + 100 = 1100 <= 5000
+    const orchestrator = new ExecutionOrchestrator(repos, {
+      riskManager: new RiskManager(),
+      totalOpenNotional: 1000,
+      maxCapitalDeployed: 5000
+    });
+
+    const result = await orchestrator.execute(fixtureOpportunity(), { kalshi, polymarket: poly });
+    expect(result.position).toBeDefined();
+  });
+
+  // --- Fix 7: PositionUnwinder auto-unwind on partial fill ---
+  it("automatically calls the unwinder when a partial fill occurs", async () => {
+    const repos = inMemoryRepositories();
+    const kalshi = mockKalshiClient("kal-ord-2", true, 50, 0.55);
+    const poly: TradingClient = {
+      placeOrder: vi.fn(async () => {
+        throw new Error("polymarket order rejected");
+      }),
+      cancelOrder: vi.fn(async () => {})
+    };
+
+    // Minimal in-memory unwinder repos that share the positions array.
+    const positionsRows = repos.positions.all();
+    const unwinderRepos: UnwinderRepositories = {
+      positions: {
+        update(id: string, row: { status: string; pnl?: string }): RecordedPosition {
+          const existing = positionsRows.find((p) => p.id === id);
+          if (existing) {
+            existing.status = row.status as RecordedPosition["status"];
+          }
+          return existing ?? { id, opportunityId: "", kalshiOrderId: null, polyOrderId: null, status: row.status as RecordedPosition["status"] };
+        }
+      },
+      alerts: {
+        insert(): void {}
+      }
+    };
+
+    const unwindSpy = vi.fn(async (_position: RecordedPosition, _leg: FilledLegDescriptor) => Promise.resolve(_position));
+    // Wrap PositionUnwinder so we can assert it was called.
+    const unwinder = new PositionUnwinder(unwinderRepos, { waitMs: 0 });
+    const unwindMethod = vi.spyOn(unwinder, "unwind").mockImplementation(async (position, leg, _clients) => {
+      unwindSpy(position, leg);
+      // Simulate a successful unwind → position becomes closed.
+      const updated = unwinderRepos.positions.update(position.id, { status: "closed", pnl: "0.0" });
+      return updated;
+    });
+
+    const orchestrator = new ExecutionOrchestrator(repos, { unwinder });
+    const result = await orchestrator.execute(fixtureOpportunity(), { kalshi, polymarket: poly });
+
+    // The unwinder must have been called with the partial position.
+    expect(unwindMethod).toHaveBeenCalledTimes(1);
+    const [unwoundPosition, filledLeg] = unwindMethod.mock.calls[0];
+    expect(unwoundPosition.opportunityId).toBe("opp-1");
+    expect(filledLeg.venue).toBe("kalshi");
+    expect(filledLeg.market).toBe("KXBTC-100K");
+
+    // The position should now be closed after unwind.
+    expect(result.position!.status).toBe("closed");
+  });
+
+  it("does not call the unwinder when both legs fill (open position)", async () => {
+    const repos = inMemoryRepositories();
+    const kalshi = mockKalshiClient("kal-ord-1", true, 10, 0.55);
+    const poly = mockPolymarketClient("poly-ord-1", true, 10, 0.42);
+
+    const unwinderRepos: UnwinderRepositories = {
+      positions: { update: vi.fn(async (id): Promise<RecordedPosition> => ({ id, opportunityId: "", kalshiOrderId: null, polyOrderId: null, status: "closed" })) },
+      alerts: { insert: vi.fn(async () => {}) }
+    };
+    const unwinder = new PositionUnwinder(unwinderRepos, { waitMs: 0 });
+    const unwindMethod = vi.spyOn(unwinder, "unwind");
+
+    const orchestrator = new ExecutionOrchestrator(repos, { unwinder });
+    await orchestrator.execute(fixtureOpportunity(), { kalshi, polymarket: poly });
+
+    expect(unwindMethod).not.toHaveBeenCalled();
   });
 });

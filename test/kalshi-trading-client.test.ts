@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { generateKeyPairSync } from "node:crypto";
-import { KalshiTradingClient, OrderResult } from "../src/contexts/venues/infrastructure/kalshi-trading-client";
+import { KalshiTradingClient } from "../src/contexts/venues/infrastructure/kalshi-trading-client";
+import { OrderResult } from "../src/contexts/venues/domain/trading";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -13,6 +14,16 @@ function testPrivateKey(): string {
   });
   return privateKey;
 }
+
+describe("KalshiTradingClient constructor", () => {
+  it("throws when apiKeyId is empty", () => {
+    expect(() => new KalshiTradingClient({ apiKeyId: "", privateKey: testPrivateKey() })).toThrow(/apiKeyId/);
+  });
+
+  it("throws when privateKey is empty", () => {
+    expect(() => new KalshiTradingClient({ apiKeyId: "key-id", privateKey: "" })).toThrow(/privateKey/);
+  });
+});
 
 describe("KalshiTradingClient", () => {
   it("placeOrder sends POST /orders with ticker, side, price, size and auth headers", async () => {
@@ -42,8 +53,10 @@ describe("KalshiTradingClient", () => {
     const headers = init?.headers as Record<string, string>;
     expect(headers["KALSHI-ACCESS-KEY-ID"]).toBe("key-id-abc");
     expect(headers["KALSHI-ACCESS-SIGNATURE"]).toBeTruthy();
+    expect(headers["KALSHI-ACCESS-TIMESTAMP"]).toBeTruthy();
     expect(result).toEqual<OrderResult>({
       orderId: "ord-123",
+      venue: "kalshi",
       status: "resting",
       filledSize: 0,
       avgFillPrice: 0
@@ -68,9 +81,10 @@ describe("KalshiTradingClient", () => {
     const headers = init?.headers as Record<string, string>;
     expect(headers["KALSHI-ACCESS-KEY-ID"]).toBe("key-id-abc");
     expect(headers["KALSHI-ACCESS-SIGNATURE"]).toBeTruthy();
+    expect(headers["KALSHI-ACCESS-TIMESTAMP"]).toBeTruthy();
   });
 
-  it("signature header is a valid RSA-SHA256 signature of the request path+method+body", async () => {
+  it("signature is a valid RSA-SHA256 signature of method + path + timestamp + body", async () => {
     const { privateKey, publicKey } = generateKeyPairSync("rsa", {
       modulusLength: 2048,
       privateKeyEncoding: { type: "pkcs8", format: "pem" },
@@ -96,21 +110,26 @@ describe("KalshiTradingClient", () => {
     const [url, init] = fetchMock.mock.calls[0];
     const headers = init?.headers as Record<string, string>;
     const signature = headers["KALSHI-ACCESS-SIGNATURE"];
+    const timestamp = headers["KALSHI-ACCESS-TIMESTAMP"];
     const method = init?.method as string;
     const body = init?.body as string;
+
+    // The signed payload is method + path + timestamp + body (path only,
+    // not the full URL).
+    const path = "/orders";
 
     // Recompute the signed payload the same way the client does and verify
     // against the public key to prove it is a genuine RSA-SHA256 signature.
     const { createVerify } = await import("node:crypto");
     const verifier = createVerify("RSA-SHA256");
-    verifier.update(method + url + body);
+    verifier.update(method + path + timestamp + body);
     verifier.end();
     expect(
       verifier.verify(publicKey, Buffer.from(signature, "base64"))
     ).toBe(true);
   });
 
-  it("OrderResult has the shape orderId, status, filledSize, avgFillPrice", async () => {
+  it("OrderResult has the shape orderId, venue, status, filledSize, avgFillPrice", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({
         order_id: "ord-shape",
@@ -130,11 +149,12 @@ describe("KalshiTradingClient", () => {
 
     expect(result).toEqual({
       orderId: "ord-shape",
+      venue: "kalshi",
       status: "matched",
       filledSize: 10,
       avgFillPrice: 0.55
     });
-    // Type-level check: all four fields are present and correctly typed.
+    // Type-level check: all fields are present and correctly typed.
     const _typeCheck: OrderResult = result;
     expect(_typeCheck).toBe(result);
   });

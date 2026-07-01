@@ -68,6 +68,14 @@ export interface WorldCupArbFinderOptions {
   paperTradeNotionals?: number[];
   /** Adverse selection bps applied to hedge leg in paper-trade sim. Default: 25. */
   paperTradeAdverseSelectionBps?: number;
+  /**
+   * Max acceptable book age in ms. Books older than this are rejected by the
+   * OpportunityCalculator's freshness guard before any edge is computed.
+   * When omitted, the calculator's own default (60_000) applies. Piping this
+   * through from the live-monitor ensures the finder and the defensive filter
+   * in toVerifiedOutput() agree on the same threshold.
+   */
+  maxBookAgeMs?: number;
 }
 
 export interface WorldCupArbFinderDeps {
@@ -162,6 +170,7 @@ export class WorldCupArbFinder {
           slippageRate: 0.005,
           minNetEdge: opts.noFilter ? -Infinity : opts.minNetEdge,
           feeModels,
+          ...(opts.maxBookAgeMs !== undefined ? { maxBookAgeMs: opts.maxBookAgeMs } : {}),
         }
       );
 

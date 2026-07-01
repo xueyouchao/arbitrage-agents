@@ -129,8 +129,8 @@ export function classifyWorldCupMarket(
  * the description lists excluded teams and must not be scanned for aliases.
  */
 function isOtherCatchAllMarket(title: string): boolean {
-  const lower = title.toLowerCase();
-  return /\bother\b/.test(lower) && /\bwinner\b/.test(lower);
+  const lower = title.toLowerCase().trim();
+  return /\bwinner\s*[-–]\s*other\b/.test(lower) || /\bother\s*[-–]\s*winner\b/.test(lower);
 }
 
 /**
@@ -144,7 +144,7 @@ function isOtherCatchAllMarket(title: string): boolean {
  */
 function isExactScoreMarket(text: string): boolean {
   if (/\b(?:exact\s+score|correct\s+score)\b/.test(text)) return true;
-  return /\d\s*[-–]\s*\d/.test(text);
+  return /\b(?:vs\.?|versus)\b[^\d]{0,15}\d\s*[-–]\s*\d/.test(text);
 }
 
 function classifyMarketType(text: string): WorldCupMarketType {
@@ -277,7 +277,10 @@ function resolveFromCandidate(candidate: string): string | undefined {
  */
 function scanTeamAliases(text: string): string | undefined {
   // Sort aliases by length descending so "costa rica" matches before "costa".
-  for (const canonical of WORLDCUP_TEAM_CODES) {
+  const codesByAliasLength = [...WORLDCUP_TEAM_CODES].sort(
+    (a, b) => b.length - a.length
+  );
+  for (const canonical of codesByAliasLength) {
     // Build word-boundary pattern for the canonical code itself.
     if (new RegExp(`\\b${canonical}\\b`).test(text)) return canonical;
   }

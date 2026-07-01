@@ -6,12 +6,16 @@ import { PolymarketTradingClient } from "../src/contexts/venues/infrastructure/p
 import { PostgresReadRepositories } from "../src/contexts/api/postgres-read-repositories";
 import {
   ExecutionOrchestrator,
+  AlreadyExecutedError,
+  RiskRejectedError,
   type TradingClients
 } from "../src/contexts/execution/application/execution-orchestrator";
 import { KalshiTradingClientAdapter } from "../src/contexts/execution/infrastructure/kalshi-trading-client-adapter";
 import { PolymarketTradingClientAdapter } from "../src/contexts/execution/infrastructure/polymarket-trading-client-adapter";
 import { PostgresExecutionRepositories } from "../src/contexts/execution/infrastructure/postgres-execution-repositories";
+import { RiskManager } from "../src/contexts/execution/application/risk-manager";
 import type { CrossVenueOpportunity } from "../src/contexts/arbitrage/domain/opportunity";
+import type { OrderSigner } from "../src/contexts/venues/domain/trading";
 
 config();
 
@@ -20,6 +24,18 @@ function usage(): void {
   console.log("  Loads an opportunity by id from the DB and executes both legs.");
   console.log("  Requires DATABASE_URL and Kalshi/Polymarket trading credentials in env.");
   process.exit(1);
+}
+
+/**
+ * Constructs the OrderSigner for the Polymarket CLOB. ethers.js is not yet a
+ * dependency of this repo, so we cannot sign orders here. Throw a clear error
+ * directing the caller to wire up ethers.js rather than silently sending
+ * unsigned orders.
+ */
+function buildPolymarketSigner(): OrderSigner {
+  throw new Error(
+    "Polymarket order signing requires ethers.js integration. POLY_PRIVATE_KEY is set but no signer is available — implement an ethers.js Wallet-based OrderSigner to sign CLOB orders."
+  );
 }
 
 async function main(): Promise<void> {
@@ -35,6 +51,12 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // NOTE: This runbook creates its own pg Pool rather than using the shared
+  // DATABASE_POOL from src/db. This is acceptable for a standalone CLI
+  // runbook. When the execution module is wired into the NestJS app, it
+  // should use the shared pool (src/db/database-pool.ts) instead of
+  // constructing a new one here. See PostgresExecutionRepositories for the
+  // production persistence path.
   const pool = new Pool({ connectionString: appConfig.databaseUrl });
   const readRepos = new PostgresReadRepositories(pool);
 
@@ -66,19 +88,38 @@ async function main(): Promise<void> {
       polymarket: new PolymarketTradingClientAdapter(
         new PolymarketTradingClient({
           privateKey: appConfig.polyPrivateKey,
-          walletAddress: appConfig.polyWalletAddress
+          walletAddress: appConfig.polyWalletAddress,
+          // Will throw a clear error explaining ethers.js integration is needed.
+          signer: buildPolymarketSigner()
         })
       )
     };
 
     const repos = new PostgresExecutionRepositories(pool);
-    const orchestrator = new ExecutionOrchestrator(repos);
+    const orchestrator = new ExecutionOrchestrator(repos, {
+      riskManager: new RiskManager(),
+      totalOpenNotional: 0,
+      maxCapitalDeployed: appConfig.maxCapitalDeployedUsd
+    });
 
     console.log(`Executing opportunity ${opportunity.id}`);
     console.log(`  longLeg : ${opportunity.longLeg.venue} ${opportunity.longLeg.marketId} ${opportunity.longLeg.side} @ ${opportunity.longLeg.askPrice}`);
     console.log(`  hedgeLeg: ${opportunity.hedgeLeg.venue} ${opportunity.hedgeLeg.marketId} ${opportunity.hedgeLeg.side} @ ${opportunity.hedgeLeg.askPrice}`);
 
-    const result = await orchestrator.execute(opportunity, clients);
+    let result;
+    try {
+      result = await orchestrator.execute(opportunity, clients);
+    } catch (error) {
+      if (error instanceof AlreadyExecutedError) {
+        console.log(`Already executed: ${error.message}`);
+        return;
+      }
+      if (error instanceof RiskRejectedError) {
+        console.log(`Risk rejected: ${error.message}`);
+        process.exit(1);
+      }
+      throw error;
+    }
 
     console.log("--- result ---");
     if (result.position) {
@@ -96,6 +137,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  console.error(error);
+  console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 });
