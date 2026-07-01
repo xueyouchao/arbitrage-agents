@@ -562,19 +562,21 @@ function toPolymarketSnapshotFromRaw(
 }
 
 /**
- * If any tag label contains "world cup" or "fifa" (case-insensitive), prepend
- * "FIFA World Cup 2026\n" to the resolution text so the WC normalizer matches.
+ * If any tag label contains "world cup" AND "2026" (case-insensitive),
+ * prepend "FIFA World Cup 2026\n" to the resolution text so the WC
+ * normalizer matches. Scoping to 2026 avoids matching other World Cup
+ * events (2022, Women's 2023, etc.).
  */
 function injectWorldCupTag(tags: unknown, text: string): string {
   if (!Array.isArray(tags)) return text;
-  const isWc = tags.some((tag) => {
+  const isWc2026 = tags.some((tag) => {
     if (!tag || typeof tag !== "object") return false;
     const label = (tag as Record<string, unknown>).label;
     if (typeof label !== "string") return false;
     const lower = label.toLowerCase();
-    return lower.includes("world cup") || lower.includes("fifa");
+    return lower.includes("world cup") && lower.includes("2026");
   });
-  return isWc ? `FIFA World Cup 2026\n${text}` : text;
+  return isWc2026 ? `FIFA World Cup 2026\n${text}` : text;
 }
 
 function extractKXWCTickers(market: Record<string, unknown>): string[] {

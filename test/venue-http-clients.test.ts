@@ -528,7 +528,7 @@ describe("public venue HTTP clients", () => {
     ]);
   });
 
-  it("injects 'FIFA World Cup 2026\\n' into rawResolutionText when a market tag contains 'world cup'", async () => {
+  it("injects 'FIFA World Cup 2026\\n' into rawResolutionText when a market tag contains 'world cup' and '2026'", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(new Response(JSON.stringify([
@@ -544,7 +544,7 @@ describe("public venue HTTP clients", () => {
           conditionId: "cond-1",
           question: "Netherlands vs Japan",
           description: "Match desc",
-          tags: [{ label: "FIFA World Cup" }]
+          tags: [{ label: "FIFA World Cup 2026" }]
         }
       ]), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
@@ -554,6 +554,35 @@ describe("public venue HTTP clients", () => {
 
     expect(markets).toEqual([
       expect.objectContaining({ rawResolutionText: "FIFA World Cup 2026\nMatch desc" })
+    ]);
+  });
+
+  it("does not inject WC tag when tag contains 'world cup' but not '2026'", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([
+        {
+          id: "evt-fifwc",
+          slug: "fifwc",
+          markets: [{ id: "mkt-1" }]
+        }
+      ]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([
+        {
+          id: "mkt-1",
+          conditionId: "cond-1",
+          question: "Netherlands vs Japan",
+          description: "Match desc",
+          tags: [{ label: "FIFA World Cup 2022" }]
+        }
+      ]), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new PolymarketPublicVenueClient("https://gamma.test", "https://clob.test", { eventSlug: "fifwc", retryDelayMs: 0 });
+    const markets = await client.listMarkets();
+
+    expect(markets).toEqual([
+      expect.objectContaining({ rawResolutionText: "Match desc" })
     ]);
   });
 
