@@ -38,7 +38,7 @@ import { WorldCupArbFinder, WorldCupArbOpportunity, WorldCupArbResult } from "..
 import { PmxtFetcher } from "../src/contexts/venues/infrastructure/pmxt-fetcher";
 import { PmxtWcArbScanner } from "../src/contexts/worldcup/application/pmxtwc-arb-scanner";
 
-config();
+config({ quiet: true });
 
 interface CliOptions {
   json: boolean;
@@ -214,11 +214,13 @@ async function main(): Promise<void> {
       retries: envInt("KALSHI_RETRIES", 3),
       timeoutMs: envInt("KALSHI_TIMEOUT_MS", 15000),
       expandSubMarkets: true,
+      eventTicker: "KXWC",
     });
     const polymarketClient = new PolymarketPublicVenueClient(POLY_BASE_URL, POLY_CLOB_BASE_URL, {
       concurrency: envInt("POLY_CONCURRENCY", 8),
       retries: envInt("POLY_RETRIES", 3),
       timeoutMs: envInt("POLY_TIMEOUT_MS", 15000),
+      eventSlug: "fifwc",
     });
 
     const finder = new WorldCupArbFinder({

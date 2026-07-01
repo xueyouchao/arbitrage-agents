@@ -177,4 +177,86 @@ describe("World Cup normalizer", () => {
     expect(market?.marketType).toBe(WorldCupMarketType.Advance);
     expect(market?.groupName).toBe("A");
   });
+
+  it("drops exact-score markets (returns undefined)", () => {
+    const market = classifyWorldCupMarket(
+      snapshot({
+        venue: "kalshi",
+        venueMarketId: "KXWCGAME-NEDJPN-EXACT",
+        title: "Netherlands vs. Japan - Exact Score: 0-3",
+      })
+    );
+
+    expect(market).toBeUndefined();
+  });
+
+  it("drops correct-score markets (returns undefined)", () => {
+    const market = classifyWorldCupMarket(
+      snapshot({
+        venue: "kalshi",
+        venueMarketId: "KXWCGAME-NEDJPN-CORRECT",
+        title: "Netherlands vs Japan - Correct Score 2-1",
+      })
+    );
+
+    expect(market).toBeUndefined();
+  });
+
+  it("drops score-line pattern markets (returns undefined)", () => {
+    const market = classifyWorldCupMarket(
+      snapshot({
+        venue: "kalshi",
+        venueMarketId: "KXWCGAME-NEDJPN-SCORELINE",
+        title: "Netherlands vs. Japan 1-0",
+      })
+    );
+
+    expect(market).toBeUndefined();
+  });
+
+  it("still classifies match-winner markets with 'Winner' as Match (backward compat)", () => {
+    const market = classifyWorldCupMarket(
+      snapshot({
+        venue: "polymarket",
+        venueMarketId: "PM-NED-JPN-WINNER",
+        title: "Netherlands vs Japan Winner?",
+      })
+    );
+
+    expect(market).toBeDefined();
+    expect(market?.marketType).toBe(WorldCupMarketType.Match);
+    expect(market?.teamCode).toBe("ned");
+    expect(market?.opponentCode).toBe("jpn");
+  });
+
+  it("drops 'Other' catch-all winner markets (returns undefined)", () => {
+    const market = classifyWorldCupMarket(
+      snapshot({
+        venue: "polymarket",
+        venueMarketId: "PM-WC26-OTHER",
+        title: "2026 World Cup Winner - Other",
+        rawResolutionText:
+          "This market resolves YES if the winner of the 2026 FIFA World Cup is not France, Brazil, Argentina, Switzerland, Germany, Spain, England, Portugal, Netherlands, or Belgium.",
+      })
+    );
+
+    expect(market).toBeUndefined();
+  });
+
+  it("still classifies normal team winner markets titled like 'Winner - {Team}'", () => {
+    const market = classifyWorldCupMarket(
+      snapshot({
+        venue: "polymarket",
+        venueMarketId: "PM-WC26-FRA",
+        title: "2026 World Cup Winner - France",
+        rawResolutionText:
+          "This market resolves YES if France wins the 2026 FIFA World Cup.",
+      })
+    );
+
+    expect(market).toBeDefined();
+    expect(market?.marketType).toBe(WorldCupMarketType.Winner);
+    expect(market?.teamCode).toBe("fra");
+    expect(market?.teamResolved).toBe(true);
+  });
 });

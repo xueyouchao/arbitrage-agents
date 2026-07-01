@@ -87,6 +87,18 @@ export function classifyWorldCupMarket(
 
   if (!isWorldCup2026(text) && !venueId.startsWith(KALSHI_WORLD_CUP_PREFIX)) return undefined;
 
+  // Polymarket "World Cup Winner - Other" catch-all markets list excluded teams
+  // in their description (e.g. "...not France, Brazil, Argentina, Switzerland...").
+  // scanTeamAliases greedily matches those excluded-team names and would mislabel
+  // the "Other" market as a specific team, producing fake arbitrage pairs. Detect
+  // the catch-all via the title and drop it before any team extraction runs.
+  if (isOtherCatchAllMarket(snapshot.title)) return undefined;
+
+  // Exact-score / correct-score markets have many outcomes per match and
+  // must never be paired with match-winner markets (which have 3 outcomes).
+  // Drop them from the WC pipeline entirely.
+  if (isExactScoreMarket(text)) return undefined;
+
   const marketType = classifyMarketType(text);
   const teamCode = extractTeamCode(text);
   const opponentCode = extractOpponent(text, teamCode);
@@ -108,6 +120,31 @@ export function classifyWorldCupMarket(
     threshold,
     groupName,
   };
+}
+
+/**
+ * Detect "Other"/catch-all markets by checking if the title contains the word
+ * "other" (word boundary, case-insensitive) near "winner". Polymarket uses
+ * titles like "2026 World Cup Winner - Other" for its catch-all winner market;
+ * the description lists excluded teams and must not be scanned for aliases.
+ */
+function isOtherCatchAllMarket(title: string): boolean {
+  const lower = title.toLowerCase();
+  return /\bother\b/.test(lower) && /\bwinner\b/.test(lower);
+}
+
+/**
+ * Detect exact-score / correct-score markets. These have many outcomes per
+ * match and must not be paired with match-winner markets.
+ *
+ * Matches:
+ *   - "exact score" / "correct score" anywhere in the text
+ *   - a score-line pattern like "0-3", "2 - 1", "1–0" (en-dash) immediately
+ *     after a "vs"/"versus" match, indicating an exact-score market title.
+ */
+function isExactScoreMarket(text: string): boolean {
+  if (/\b(?:exact\s+score|correct\s+score)\b/.test(text)) return true;
+  return /\d\s*[-–]\s*\d/.test(text);
 }
 
 function classifyMarketType(text: string): WorldCupMarketType {

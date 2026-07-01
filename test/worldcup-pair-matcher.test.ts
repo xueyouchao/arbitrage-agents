@@ -113,4 +113,51 @@ describe("buildWorldCupPairs", () => {
     expect(pairs[0].genericPair.kalshiMarket.eventType).toBe("winner");
     expect(pairs[0].genericPair.polymarketMarket.topic).toBe("sports");
   });
+
+  it("does not pair exact-score markets with match-winner markets", () => {
+    const pairs = buildWorldCupPairs([
+      kalshiMarket({
+        venueMarketId: "KXWCGAME-NEDJPN-EXACT-03",
+        title: "Netherlands vs. Japan - Exact Score: 0-3",
+      }),
+      polyMarket({
+        venueMarketId: "PM-NED-JPN-WINNER",
+        title: "Netherlands vs Japan Winner?",
+      }),
+    ]);
+
+    expect(pairs).toHaveLength(0);
+  });
+
+  it("does not pair score-line-only markets with match-winner markets", () => {
+    const pairs = buildWorldCupPairs([
+      kalshiMarket({
+        venueMarketId: "KXWCGAME-NEDJPN-SCORELINE-10",
+        title: "Netherlands vs. Japan 1-0",
+      }),
+      polyMarket({
+        venueMarketId: "PM-NED-JPN-WINNER",
+        title: "Netherlands vs Japan Winner?",
+      }),
+    ]);
+
+    expect(pairs).toHaveLength(0);
+  });
+
+  it("does not pair 'Other' catch-all winner markets with real team markets", () => {
+    const pairs = buildWorldCupPairs([
+      kalshiMarket({
+        venueMarketId: "KWC-SUI-26",
+        title: "Switzerland to win 2026 FIFA World Cup",
+      }),
+      polyMarket({
+        venueMarketId: "PM-WC26-OTHER",
+        title: "2026 World Cup Winner - Other",
+        rawResolutionText:
+          "This market resolves YES if the winner of the 2026 FIFA World Cup is not France, Brazil, Argentina, Switzerland, Germany, Spain, England, Portugal, Netherlands, or Belgium.",
+      }),
+    ]);
+
+    expect(pairs).toHaveLength(0);
+  });
 });

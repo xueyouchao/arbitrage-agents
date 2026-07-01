@@ -457,6 +457,120 @@ describe("public venue HTTP clients", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
+
+  it("includes event_ticker in the query URL when eventTicker option is provided", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ markets: [] }), { status: 200 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await new KalshiPublicVenueClient("https://kalshi.test", { eventTicker: "KXWC", retryDelayMs: 0 }).listMarkets();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://kalshi.test/markets?event_ticker=KXWC&status=open&limit=500",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("does not include event_ticker in the query URL when no eventTicker is provided", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ markets: [] }), { status: 200 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await new KalshiPublicVenueClient("https://kalshi.test", { retryDelayMs: 0 }).listMarkets();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://kalshi.test/markets?status=open&limit=100",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("uses limit=500 when eventTicker is provided", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) =>
+      new Response(JSON.stringify({ markets: [] }), { status: 200 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await new KalshiPublicVenueClient("https://kalshi.test", { eventTicker: "KXWC", retryDelayMs: 0 }).listMarkets();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("limit=500"),
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("queries /events?slug=fifwc and fetches markets under that event when eventSlug is provided", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([
+        {
+          id: "evt-fifwc",
+          slug: "fifwc",
+          markets: [{ id: "mkt-1" }, { id: "mkt-2" }]
+        }
+      ]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([
+        { id: "mkt-1", conditionId: "cond-1", question: "Netherlands vs Japan", description: "Match desc 1" },
+        { id: "mkt-2", conditionId: "cond-2", question: "Brazil vs Argentina", description: "Match desc 2" }
+      ]), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new PolymarketPublicVenueClient("https://gamma.test", "https://clob.test", { eventSlug: "fifwc", retryDelayMs: 0 });
+    const markets = await client.listMarkets();
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "https://gamma.test/events?slug=fifwc", expect.objectContaining({ method: "GET" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "https://gamma.test/markets?closed=false&limit=500&id=mkt-1&id=mkt-2", expect.objectContaining({ method: "GET" }));
+    expect(markets).toHaveLength(2);
+    expect(markets).toEqual([
+      expect.objectContaining({ venueMarketId: "cond-1", title: "Netherlands vs Japan", rawResolutionText: "Match desc 1" }),
+      expect.objectContaining({ venueMarketId: "cond-2", title: "Brazil vs Argentina", rawResolutionText: "Match desc 2" })
+    ]);
+  });
+
+  it("injects 'FIFA World Cup 2026\\n' into rawResolutionText when a market tag contains 'world cup'", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([
+        {
+          id: "evt-fifwc",
+          slug: "fifwc",
+          markets: [{ id: "mkt-1" }]
+        }
+      ]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([
+        {
+          id: "mkt-1",
+          conditionId: "cond-1",
+          question: "Netherlands vs Japan",
+          description: "Match desc",
+          tags: [{ label: "FIFA World Cup" }]
+        }
+      ]), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new PolymarketPublicVenueClient("https://gamma.test", "https://clob.test", { eventSlug: "fifwc", retryDelayMs: 0 });
+    const markets = await client.listMarkets();
+
+    expect(markets).toEqual([
+      expect.objectContaining({ rawResolutionText: "FIFA World Cup 2026\nMatch desc" })
+    ]);
+  });
+
+  it("still queries /markets?closed=false&limit=100 when no eventSlug is provided (backward compat)", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify([]), { status: 200 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await new PolymarketPublicVenueClient("https://gamma.test", "https://clob.test", { retryDelayMs: 0 }).listMarkets();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://gamma.test/markets?closed=false&limit=100",
+      expect.objectContaining({ method: "GET" })
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("mapWithConcurrency", () => {
