@@ -204,8 +204,9 @@ export interface PositionReadModel {
   polymarketVenue: string | null;
   /** Total notional deployed in this position (sum of both leg fill sizes). */
   notionalUsd: number;
-  /** Realised P&L for closed positions, mark-to-market for open positions. */
-  pnl: number;
+  /** Realised P&L (from the `pnl` column). Only accurate for closed positions;
+   *  open/partial/exposed positions return the stored value (0 until closed). */
+  realizedPnl: number;
   createdAt: string;
 }
 

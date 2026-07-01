@@ -50,7 +50,7 @@ describe("PositionsController", () => {
     await app.init();
   }
 
-  it("GET /v1/positions returns a JSON array of positions with id, status, venue, market, pnl", async () => {
+  it("GET /v1/positions returns a JSON array of positions with id, status, venue, market, realizedPnl", async () => {
     const positions: PositionReadModel[] = [
       {
         id: "pos-1",
@@ -63,7 +63,7 @@ describe("PositionsController", () => {
         kalshiVenue: "kalshi",
         polymarketVenue: "polymarket",
         notionalUsd: 1000,
-        pnl: 50,
+        realizedPnl: 50,
         createdAt: "2026-07-01T00:00:00.000Z"
       },
       {
@@ -77,7 +77,7 @@ describe("PositionsController", () => {
         kalshiVenue: "kalshi",
         polymarketVenue: null,
         notionalUsd: 500,
-        pnl: -20,
+        realizedPnl: -20,
         createdAt: "2026-07-01T01:00:00.000Z"
       }
     ];
@@ -97,12 +97,12 @@ describe("PositionsController", () => {
       status: "open",
       kalshiMarket: "KXBTC-100K",
       polymarketMarket: "token-123",
-      pnl: 50
+      realizedPnl: 50
     });
     expect(response.body.positions[1]).toMatchObject({
       id: "pos-2",
       status: "partial",
-      pnl: -20
+      realizedPnl: -20
     });
   });
 

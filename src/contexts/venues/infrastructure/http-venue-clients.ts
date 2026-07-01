@@ -193,8 +193,8 @@ export class PolymarketPublicVenueClient implements VenueClient {
    * Fetches all markets under a Polymarket event by slug. Queries
    * `GET /events?slug={eventSlug}` to get the event (which contains an
    * array of market objects with `id` fields), then fetches those markets
-   * via `GET /markets?closed=false&limit=500&id=...&id=...`. Mirrors what
-   * scripts/fetch-pmxt-markets.py does for the fifwc event.
+   * via `GET /markets?closed=false&limit=500&id=...&id=...` in batches of
+   * 50 IDs to avoid exceeding URL length limits (~4-8KB).
    */
   private async fetchMarketsByEventSlug(eventSlug: string): Promise<Array<Record<string, unknown>>> {
     const events = await fetchPublicJson<Array<Record<string, unknown>>>(
@@ -214,12 +214,22 @@ export class PolymarketPublicVenueClient implements VenueClient {
       }
     }
     if (marketIds.length === 0) return [];
-    const idQuery = marketIds.map((id) => `id=${encodeURIComponent(id)}`).join("&");
-    return fetchPublicJson<Array<Record<string, unknown>>>(
-      `${this.baseUrl}/markets?closed=false&limit=500&${idQuery}`,
-      `Polymarket markets for event ${eventSlug}`,
-      this.httpOptions
-    );
+
+    // Batch market IDs to avoid URL length limits. 50 IDs per batch keeps
+    // the URL well under 4KB.
+    const BATCH_SIZE = 50;
+    const results: Array<Record<string, unknown>> = [];
+    for (let i = 0; i < marketIds.length; i += BATCH_SIZE) {
+      const batch = marketIds.slice(i, i + BATCH_SIZE);
+      const idQuery = batch.map((id) => `id=${encodeURIComponent(id)}`).join("&");
+      const batchResults = await fetchPublicJson<Array<Record<string, unknown>>>(
+        `${this.baseUrl}/markets?closed=false&limit=500&${idQuery}`,
+        `Polymarket markets for event ${eventSlug} (batch ${Math.floor(i / BATCH_SIZE) + 1})`,
+        this.httpOptions
+      );
+      results.push(...batchResults);
+    }
+    return results;
   }
 
   async listOrderbooks(markets: VenueMarketSnapshot[]): Promise<MarketBook[]> {

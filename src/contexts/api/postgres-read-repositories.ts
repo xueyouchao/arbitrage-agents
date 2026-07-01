@@ -650,12 +650,11 @@ function toPosition(row: PositionRow): PositionReadModel {
   const polyFillSize = row.poly_fill_size ? Number(row.poly_fill_size) : 0;
   const notionalUsd = kalshiFillSize + polyFillSize;
 
-  // P&L: for open/partial/exposed positions we use mark-to-market (book
-  // value vs fill price). For closed positions the realised `pnl` column
-  // is authoritative. Here we return the stored pnl as the base; a future
-  // enhancement can compute live mark-to-market from current orderbook
-  // snapshots.
-  const pnl = Number(row.pnl ?? 0);
+  // P&L: the `pnl` column stores realised P&L for closed positions.
+  // For open/partial/exposed positions it is 0 until the position is
+  // closed. Live mark-to-market is a future enhancement — the field name
+  // `realizedPnl` makes this explicit to API consumers.
+  const realizedPnl = Number(row.pnl ?? 0);
 
   return {
     id: row.id,
@@ -668,7 +667,7 @@ function toPosition(row: PositionRow): PositionReadModel {
     kalshiVenue: row.kalshi_venue,
     polymarketVenue: row.poly_venue,
     notionalUsd,
-    pnl,
+    realizedPnl,
     createdAt: toIso(row.created_at)
   };
 }

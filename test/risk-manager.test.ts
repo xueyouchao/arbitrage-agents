@@ -22,4 +22,26 @@ describe("RiskManager", () => {
     const guard = new RiskManager();
     expect(guard.checkExecution(4999, 2, 5000)).toBe(false);
   });
+
+  it("throws when requestedNotional is negative (would bypass the guard)", () => {
+    const guard = new RiskManager();
+    expect(() => guard.checkExecution(0, -1000, 5000)).toThrow(/requestedNotional/);
+  });
+
+  it("throws when totalOpenNotional is negative", () => {
+    const guard = new RiskManager();
+    expect(() => guard.checkExecution(-100, 500, 5000)).toThrow(/totalOpenNotional/);
+  });
+
+  it("throws when maxCapitalDeployed is negative", () => {
+    const guard = new RiskManager();
+    expect(() => guard.checkExecution(0, 500, -1)).toThrow(/maxCapitalDeployed/);
+  });
+
+  it("throws when any input is NaN", () => {
+    const guard = new RiskManager();
+    expect(() => guard.checkExecution(NaN, 500, 5000)).toThrow();
+    expect(() => guard.checkExecution(0, NaN, 5000)).toThrow();
+    expect(() => guard.checkExecution(0, 500, NaN)).toThrow();
+  });
 });
