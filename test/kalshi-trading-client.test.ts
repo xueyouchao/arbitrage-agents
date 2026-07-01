@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync as _generateKeyPairSync } from "node:crypto";
 import { KalshiTradingClient } from "../src/contexts/venues/infrastructure/kalshi-trading-client";
 import { OrderResult } from "../src/contexts/venues/domain/trading";
 
@@ -8,11 +8,16 @@ afterEach(() => {
 });
 
 function testPrivateKey(): string {
-  const { privateKey } = generateKeyPairSync("rsa", {
+  // Cast to avoid Node's x448-only overload resolution quirk with "rsa".
+  const { privateKey } = (_generateKeyPairSync as any)("rsa", {
     modulusLength: 2048,
     privateKeyEncoding: { type: "pkcs8", format: "pem" }
   });
-  return privateKey;
+  return privateKey as string;
+}
+
+function mockCalls(mock: ReturnType<typeof vi.fn>): Array<[string, RequestInit]> {
+  return mock.mock.calls as unknown as Array<[string, RequestInit]>;
 }
 
 describe("KalshiTradingClient constructor", () => {
@@ -45,12 +50,12 @@ describe("KalshiTradingClient", () => {
     const result = await client.placeOrder("KXBTC-100K", "yes", 0.55, 10);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0];
+    const [url, init] = mockCalls(fetchMock)[0];
     expect(url).toBe("https://external-api.kalshi.com/trade-api/v2/orders");
-    expect(init?.method).toBe("POST");
-    const body = JSON.parse(init?.body as string);
+    expect(init.method).toBe("POST");
+    const body = JSON.parse(init.body as string);
     expect(body).toEqual({ ticker: "KXBTC-100K", side: "yes", price: 0.55, size: 10 });
-    const headers = init?.headers as Record<string, string>;
+    const headers = init.headers as Record<string, string>;
     expect(headers["KALSHI-ACCESS-KEY-ID"]).toBe("key-id-abc");
     expect(headers["KALSHI-ACCESS-SIGNATURE"]).toBeTruthy();
     expect(headers["KALSHI-ACCESS-TIMESTAMP"]).toBeTruthy();
@@ -75,17 +80,17 @@ describe("KalshiTradingClient", () => {
     await client.cancelOrder("ord-456");
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0];
+    const [url, init] = mockCalls(fetchMock)[0];
     expect(url).toBe("https://external-api.kalshi.com/trade-api/v2/orders/ord-456");
-    expect(init?.method).toBe("DELETE");
-    const headers = init?.headers as Record<string, string>;
+    expect(init.method).toBe("DELETE");
+    const headers = init.headers as Record<string, string>;
     expect(headers["KALSHI-ACCESS-KEY-ID"]).toBe("key-id-abc");
     expect(headers["KALSHI-ACCESS-SIGNATURE"]).toBeTruthy();
     expect(headers["KALSHI-ACCESS-TIMESTAMP"]).toBeTruthy();
   });
 
   it("signature is a valid RSA-SHA256 signature of method + path + timestamp + body", async () => {
-    const { privateKey, publicKey } = generateKeyPairSync("rsa", {
+    const { privateKey, publicKey } = (_generateKeyPairSync as any)("rsa", {
       modulusLength: 2048,
       privateKeyEncoding: { type: "pkcs8", format: "pem" },
       publicKeyEncoding: { type: "spki", format: "pem" }
@@ -107,12 +112,12 @@ describe("KalshiTradingClient", () => {
 
     await client.placeOrder("KXBTC-200K", "no", 0.30, 5);
 
-    const [url, init] = fetchMock.mock.calls[0];
-    const headers = init?.headers as Record<string, string>;
+    const [url, init] = mockCalls(fetchMock)[0];
+    const headers = init.headers as Record<string, string>;
     const signature = headers["KALSHI-ACCESS-SIGNATURE"];
     const timestamp = headers["KALSHI-ACCESS-TIMESTAMP"];
-    const method = init?.method as string;
-    const body = init?.body as string;
+    const method = init.method as string;
+    const body = init.body as string;
 
     // The signed payload is method + path + timestamp + body (path only,
     // not the full URL).

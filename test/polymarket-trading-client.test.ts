@@ -7,6 +7,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+function mockCalls(mock: ReturnType<typeof vi.fn>): Array<[string, RequestInit]> {
+  return mock.mock.calls as unknown as Array<[string, RequestInit]>;
+}
+
 function okResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 }
@@ -40,11 +44,11 @@ describe("PolymarketTradingClient.placeOrder", () => {
     const result = await client.placeOrder("token-xyz", "buy", 0.55, 10);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0];
+    const [url, init] = mockCalls(fetchMock)[0];
     expect(url).toBe("https://clob.polymarket.com/order");
-    expect(init?.method).toBe("POST");
+    expect(init.method).toBe("POST");
 
-    const body = JSON.parse((init as RequestInit).body as string);
+    const body = JSON.parse(init.body as string);
     expect(body.order).toEqual(expect.objectContaining({
       tokenID: "token-xyz",
       side: "buy",
@@ -78,11 +82,11 @@ describe("PolymarketTradingClient.cancelOrder", () => {
     await client.cancelOrder("poly-order-99");
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0];
+    const [url, init] = mockCalls(fetchMock)[0];
     expect(url).toBe("https://clob.polymarket.com/cancel-orders");
-    expect(init?.method).toBe("POST");
+    expect(init.method).toBe("POST");
 
-    const body = JSON.parse((init as RequestInit).body as string);
+    const body = JSON.parse(init.body as string);
     expect(body.orderID).toBe("poly-order-99");
     expect(body.signature).toBe("0xcancelsig");
     expect(body.signer).toBe("0xWallet");
@@ -132,7 +136,7 @@ describe("PolymarketTradingClient signing flow", () => {
     }));
 
     // The signature forwarded in the POST body must be derived from the signer.
-    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    const body = JSON.parse(mockCalls(fetchMock)[0][1].body as string);
     expect(body.signature).toBe(`0xderived-from-"token-sign"-sell`);
   });
 });
