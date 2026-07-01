@@ -613,6 +613,22 @@ describe("public venue HTTP clients", () => {
     expect(markets).toEqual([]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("gracefully handles batched /markets response being a non-array object instead of an array", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([
+        { id: "evt-fifwc", slug: "fifwc", markets: [{ id: "mkt-1" }, { id: "mkt-2" }] }
+      ]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: "not_found", message: "no markets" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new PolymarketPublicVenueClient("https://gamma.test", "https://clob.test", { eventSlug: "fifwc", retryDelayMs: 0 });
+    const markets = await client.listMarkets();
+
+    expect(markets).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("mapWithConcurrency", () => {

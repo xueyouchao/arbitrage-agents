@@ -228,6 +228,7 @@ export class PolymarketPublicVenueClient implements VenueClient {
         `Polymarket markets for event ${eventSlug} (batch ${Math.floor(i / BATCH_SIZE) + 1})`,
         this.httpOptions
       );
+      if (!Array.isArray(batchResults)) continue;
       results.push(...batchResults);
     }
     return results;
