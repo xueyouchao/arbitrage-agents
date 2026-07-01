@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { readFileSync } from "node:fs";
 
 const booleanFromString = z.preprocess((value) => {
   if (value === "true") {
@@ -79,7 +80,7 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     scannerAbandonedAfterMs: env.SCANNER_ABANDONED_AFTER_MS,
     sentryMonitorSlug: env.SENTRY_MONITOR_SLUG,
     kalshiApiKeyId: env.KALSHI_API_KEY_ID,
-    kalshiPrivateKey: env.KALSHI_PRIVATE_KEY,
+    kalshiPrivateKey: resolveKalshiPrivateKey(env.KALSHI_PRIVATE_KEY),
     polyPrivateKey: env.POLY_PRIVATE_KEY,
     polyWalletAddress: env.POLY_WALLET_ADDRESS,
     maxCapitalDeployedUsd: env.MAX_CAPITAL_DEPLOYED_USD
@@ -88,4 +89,27 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
 function emptyToUndefined(value: string | undefined): string | undefined {
   return value && value.trim().length > 0 ? value : undefined;
+}
+
+/**
+ * Resolve the Kalshi RSA private key. If the env value looks like a file path
+ * (starts with "/" or "." and ends with ".pem"), read the file contents.
+ * Otherwise treat the value as the inline key.
+ */
+function resolveKalshiPrivateKey(value: string | undefined): string {
+  if (!value || value.trim().length === 0) {
+    return "";
+  }
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith("/") || trimmed.startsWith(".")) &&
+    trimmed.endsWith(".pem")
+  ) {
+    try {
+      return readFileSync(trimmed, "utf-8").trim();
+    } catch {
+      return trimmed;
+    }
+  }
+  return trimmed;
 }
