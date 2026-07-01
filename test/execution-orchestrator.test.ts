@@ -81,7 +81,7 @@ function fixtureOpportunity(): CrossVenueOpportunity {
  * repository returns inserted rows so tests can assert on recorded state
  * without a live database.
  */
-function inMemoryRepositories(existsForOpportunity?: (id: string) => boolean) {
+function inMemoryRepositories(existsForOpportunity?: (id: string) => boolean, getStatusForOpportunity?: (id: string) => string | null) {
   const ordersRows: RecordedOrder[] = [];
   const fillsRows: RecordedFill[] = [];
   const positionsRows: RecordedPosition[] = [];
@@ -139,7 +139,11 @@ function inMemoryRepositories(existsForOpportunity?: (id: string) => boolean) {
         return withId;
       },
       all: () => positionsRows,
-      ...(existsForOpportunity ? { existsForOpportunity } : {})
+      ...(getStatusForOpportunity
+        ? { getStatusForOpportunity }
+        : existsForOpportunity
+          ? { getStatusForOpportunity: (id: string) => existsForOpportunity(id) ? "open" : null }
+          : {})
     }
   };
   return repos;
@@ -268,7 +272,7 @@ describe("ExecutionOrchestrator", () => {
 
   // --- Fix 3: idempotency ---
   it("refuses to re-execute when a position already exists for the opportunity (non-terminal)", async () => {
-    const repos = inMemoryRepositories(() => true);
+    const repos = inMemoryRepositories(undefined, () => "open");
     const kalshi = mockKalshiClient("kal-ord-1", true, 10, 0.55);
     const poly = mockPolymarketClient("poly-ord-1", true, 10, 0.42);
 
@@ -282,8 +286,22 @@ describe("ExecutionOrchestrator", () => {
     expect(poly.placeOrder).not.toHaveBeenCalled();
   });
 
+  it("idempotency error includes the actual position status, not a hardcoded string", async () => {
+    const repos = inMemoryRepositories(undefined, () => "partial");
+    const orchestrator = new ExecutionOrchestrator(repos);
+    const kalshi = mockKalshiClient("kal-ord-1", true, 10, 0.55);
+    const poly = mockPolymarketClient("poly-ord-1", true, 10, 0.42);
+
+    await expect(
+      orchestrator.execute(fixtureOpportunity(), { kalshi, polymarket: poly })
+    ).rejects.toMatchObject({
+      name: "AlreadyExecutedError",
+      existingStatus: "partial"
+    });
+  });
+
   it("executes when no existing position is found", async () => {
-    const repos = inMemoryRepositories(() => false);
+    const repos = inMemoryRepositories(undefined, () => null);
     const kalshi = mockKalshiClient("kal-ord-1", true, 10, 0.55);
     const poly = mockPolymarketClient("poly-ord-1", true, 10, 0.42);
 
@@ -300,11 +318,14 @@ describe("ExecutionOrchestrator", () => {
     const poly = mockPolymarketClient("poly-ord-1", true, 10, 0.42);
 
     // requestedNotional = 50 + 50 = 100; totalOpen 4950 + 100 = 5050 > 5000
+    // totalOpenNotional is now fetched at execution time via repos.positions.getTotalOpenNotional
     const orchestrator = new ExecutionOrchestrator(repos, {
       riskManager: new RiskManager(),
-      totalOpenNotional: 4950,
       maxCapitalDeployed: 5000
     });
+
+    // Inject the live total via repos (the new execution-time fetch path)
+    ;(repos.positions as any).getTotalOpenNotional = async () => 4950;
 
     await expect(
       orchestrator.execute(fixtureOpportunity(), { kalshi, polymarket: poly })
@@ -320,7 +341,23 @@ describe("ExecutionOrchestrator", () => {
     const kalshi = mockKalshiClient("kal-ord-1", true, 10, 0.55);
     const poly = mockPolymarketClient("poly-ord-1", true, 10, 0.42);
 
-    // requestedNotional = 50 + 50 = 100; totalOpen 1000 + 100 = 1100 <= 5000
+    const orchestrator = new ExecutionOrchestrator(repos, {
+      riskManager: new RiskManager(),
+      maxCapitalDeployed: 5000
+    });
+
+    ;(repos.positions as any).getTotalOpenNotional = async () => 1000;
+
+    const result = await orchestrator.execute(fixtureOpportunity(), { kalshi, polymarket: poly });
+    expect(result.position).toBeDefined();
+  });
+
+  it("falls back to constructor totalOpenNotional when repos does not provide getTotalOpenNotional", async () => {
+    const repos = inMemoryRepositories();
+    const kalshi = mockKalshiClient("kal-ord-1", true, 10, 0.55);
+    const poly = mockPolymarketClient("poly-ord-1", true, 10, 0.42);
+
+    // No getTotalOpenNotional on repos; should use constructor value
     const orchestrator = new ExecutionOrchestrator(repos, {
       riskManager: new RiskManager(),
       totalOpenNotional: 1000,
@@ -399,5 +436,54 @@ describe("ExecutionOrchestrator", () => {
     await orchestrator.execute(fixtureOpportunity(), { kalshi, polymarket: poly });
 
     expect(unwindMethod).not.toHaveBeenCalled();
+  });
+
+  // --- Fix: Zero/Undefined Order Size ---
+  it("throws when executableSize and maxTradableUsd are both zero", async () => {
+    const repos = inMemoryRepositories();
+    const kalshi = mockKalshiClient("kal-ord-1", true, 10, 0.55);
+    const poly = mockPolymarketClient("poly-ord-1", true, 10, 0.42);
+
+    const orchestrator = new ExecutionOrchestrator(repos);
+    const opp = fixtureOpportunity();
+    opp.executableSizeUsd = 0;
+    opp.maxTradableUsd = 0;
+
+    await expect(
+      orchestrator.execute(opp, { kalshi, polymarket: poly })
+    ).rejects.toThrow(/size/);
+
+    expect(kalshi.placeOrder).not.toHaveBeenCalled();
+    expect(poly.placeOrder).not.toHaveBeenCalled();
+  });
+
+  it("throws when executableSize is negative", async () => {
+    const repos = inMemoryRepositories();
+    const kalshi = mockKalshiClient("kal-ord-1", true, 10, 0.55);
+    const poly = mockPolymarketClient("poly-ord-1", true, 10, 0.42);
+
+    const orchestrator = new ExecutionOrchestrator(repos);
+    const opp = fixtureOpportunity();
+    opp.executableSizeUsd = -10;
+    opp.maxTradableUsd = 0;
+
+    await expect(
+      orchestrator.execute(opp, { kalshi, polymarket: poly })
+    ).rejects.toThrow(/size/);
+  });
+
+  it("throws when executableSize is NaN", async () => {
+    const repos = inMemoryRepositories();
+    const kalshi = mockKalshiClient("kal-ord-1", true, 10, 0.55);
+    const poly = mockPolymarketClient("poly-ord-1", true, 10, 0.42);
+
+    const orchestrator = new ExecutionOrchestrator(repos);
+    const opp = fixtureOpportunity();
+    opp.executableSizeUsd = NaN;
+    opp.maxTradableUsd = 0;
+
+    await expect(
+      orchestrator.execute(opp, { kalshi, polymarket: poly })
+    ).rejects.toThrow(/size/);
   });
 });

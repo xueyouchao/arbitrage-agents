@@ -97,12 +97,23 @@ export class RiskRejectedError extends Error {
 }
 
 /**
+ * Thrown when the order size is not a positive finite number, preventing
+ * zero/NaN orders from being sent to venue APIs.
+ */
+export class InvalidOrderSizeError extends Error {
+  constructor(public readonly size: number) {
+    super(`Order size must be a positive finite number, got: ${size}`);
+    this.name = "InvalidOrderSizeError";
+  }
+}
+
+/**
  * Persistence sink the orchestrator writes orders/fills/positions through.
  * Tests pass an in-memory implementation; production passes a drizzle-backed
  * implementation. The interface mirrors only the insert surface the
  * orchestrator needs.
  *
- * `positions.existsForOpportunity` is optional — when absent the orchestrator
+ * `positions.getStatusForOpportunity` is optional — when absent the orchestrator
  * skips the idempotency check (tests that don't care can omit it).
  */
 export interface ExecutionRepositories {
@@ -128,11 +139,20 @@ export interface ExecutionRepositories {
       pnl?: string;
     }): Promise<RecordedPosition> | RecordedPosition;
     /**
-     * Returns true when a position already exists for the given opportunity
-     * id. Optional — the orchestrator skips the idempotency check when this
-     * is not provided.
+     * Returns the status of an existing position for the given opportunity
+     * id, or null when no position exists. Optional — the orchestrator skips
+     * the idempotency check when this is not provided.
+     *
+     * (Replaces the old boolean `existsForOpportunity` — now returns the
+     * actual status string so `AlreadyExecutedError` can carry it.)
      */
-    existsForOpportunity?(opportunityId: string): Promise<boolean> | boolean;
+    getStatusForOpportunity?(opportunityId: string): Promise<string | null> | string | null;
+    /**
+     * Returns the current total open notional across all positions, for the
+     * risk guard's pre-trade check. Optional — when absent the orchestrator
+     * falls back to the constructor-provided `totalOpenNotional`.
+     */
+    getTotalOpenNotional?(): Promise<number> | number;
   };
 }
 
@@ -174,7 +194,7 @@ export interface ExecutionResult {
  * - one fills  → position `partial` (handed off to #80 for unwinding)
  * - none fill  → no position created
  *
- * Idempotency: when `repos.positions.existsForOpportunity` is available,
+ * Idempotency: when `repos.positions.getStatusForOpportunity` is available,
  * `execute()` refuses to re-execute an opportunity that already has a
  * non-terminal position (`open`, `partial`, `exposed`), throwing
  * `AlreadyExecutedError`.
@@ -208,27 +228,41 @@ export class ExecutionOrchestrator {
   async execute(opportunity: CrossVenueOpportunity, clients: TradingClients): Promise<ExecutionResult> {
     // Idempotency: refuse to re-execute an opportunity that already has a
     // non-terminal position.
-    if (typeof this.repos.positions.existsForOpportunity === "function") {
-      const exists = await this.repos.positions.existsForOpportunity(opportunity.id);
-      if (exists) {
-        throw new AlreadyExecutedError(opportunity.id, "existing");
+    if (typeof this.repos.positions.getStatusForOpportunity === "function") {
+      const existingStatus = await this.repos.positions.getStatusForOpportunity(opportunity.id);
+      if (existingStatus) {
+        throw new AlreadyExecutedError(opportunity.id, existingStatus);
       }
     }
 
-    const kalshiLeg = this.toLegSubmission(opportunity, opportunity.longLeg, "kalshi");
-    const polyLeg = this.toLegSubmission(opportunity, opportunity.hedgeLeg, "polymarket");
+    const kalshiLeg = this.toLegSubmission(opportunity, opportunity.longLeg);
+    const polyLeg = this.toLegSubmission(opportunity, opportunity.hedgeLeg);
+
+    // Validate order sizes before placing orders.
+    if (!Number.isFinite(kalshiLeg.size) || kalshiLeg.size <= 0) {
+      throw new InvalidOrderSizeError(kalshiLeg.size);
+    }
+    if (!Number.isFinite(polyLeg.size) || polyLeg.size <= 0) {
+      throw new InvalidOrderSizeError(polyLeg.size);
+    }
 
     // Pre-trade risk guard: reject if total open + requested exceeds max.
     if (this.riskManager) {
+      // Fetch the current total open notional at execution time, not from
+      // a stale constructor snapshot. Falls back to the constructor value
+      // when the repos doesn't provide a live fetcher.
+      const currentOpenNotional = typeof this.repos.positions.getTotalOpenNotional === "function"
+        ? await this.repos.positions.getTotalOpenNotional()
+        : this.totalOpenNotional;
       const requestedNotional = kalshiLeg.size + polyLeg.size;
       const allowed = this.riskManager.checkExecution(
-        this.totalOpenNotional,
+        currentOpenNotional,
         requestedNotional,
         this.maxCapitalDeployed
       );
       if (!allowed) {
         throw new RiskRejectedError(
-          `Execution rejected by RiskManager: total open ${this.totalOpenNotional} + requested ${requestedNotional} exceeds max ${this.maxCapitalDeployed}`
+          `Execution rejected by RiskManager: total open ${currentOpenNotional} + requested ${requestedNotional} exceeds max ${this.maxCapitalDeployed}`
         );
       }
     }
@@ -315,8 +349,7 @@ export class ExecutionOrchestrator {
 
   private toLegSubmission(
     opportunity: CrossVenueOpportunity,
-    leg: CrossVenueOpportunity["longLeg"],
-    venue: "kalshi" | "polymarket"
+    leg: CrossVenueOpportunity["longLeg"]
   ): { market: string; side: string; price: number; size: number } {
     const executableSize = opportunity.executableSizeUsd > 0 ? opportunity.executableSizeUsd : opportunity.maxTradableUsd;
     return {
