@@ -202,6 +202,7 @@ export class PolymarketPublicVenueClient implements VenueClient {
       `Polymarket event ${eventSlug}`,
       this.httpOptions
     );
+    if (!Array.isArray(events)) return [];
     const marketIds: string[] = [];
     for (const event of events) {
       const eventMarkets = event.markets;

@@ -642,7 +642,10 @@ function stringFromUnknown(value: unknown): string | undefined {
 
 function toPositionStatus(value: string): PositionReadModel["status"] {
   if (value === "open" || value === "partial" || value === "exposed" || value === "closed") return value;
-  return "open";
+  // Unknown status: throw rather than silently defaulting to "open",
+  // which would mask data integrity issues and cause stale positions
+  // to appear active in the API.
+  throw new Error(`Unknown position status: ${value}`);
 }
 
 function toPosition(row: PositionRow): PositionReadModel {
