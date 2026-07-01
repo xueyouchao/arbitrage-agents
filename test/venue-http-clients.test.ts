@@ -600,6 +600,19 @@ describe("public venue HTTP clients", () => {
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("gracefully returns empty array when events API returns an object (non-array) with 200 status", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "single-event", title: "Single event" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new PolymarketPublicVenueClient("https://gamma.test", "https://clob.test", { eventSlug: "fifwc", retryDelayMs: 0 });
+    const markets = await client.listMarkets();
+
+    expect(markets).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("mapWithConcurrency", () => {

@@ -360,6 +360,29 @@ describe("PostgresReadRepositories", () => {
       })
     ]);
   });
+
+  it("throws on unknown position status rather than silently defaulting to 'open'", async () => {
+    const repository = new PostgresReadRepositories(injectedPool());
+    poolQuery.mockResolvedValueOnce({ rows: [{
+      id: "pos-unknown",
+      opportunity_id: "opp-1",
+      status: "cancelled",
+      kalshi_order_id: "ko-1",
+      poly_order_id: null,
+      pnl: "0.00",
+      created_at: new Date("2026-07-01T12:00:00.000Z"),
+      kalshi_market: "KALSHI-123",
+      kalshi_venue: "kalshi",
+      kalshi_fill_price: "0.50",
+      kalshi_fill_size: "10",
+      poly_market: null,
+      poly_venue: null,
+      poly_fill_price: null,
+      poly_fill_size: null
+    }] });
+
+    await expect(repository.listOpenPositions()).rejects.toThrow("Unknown position status: cancelled");
+  });
 });
 
 function opportunityRow(overrides: Partial<Record<string, unknown>> = {}) {
