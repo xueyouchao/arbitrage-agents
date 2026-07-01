@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { readFileSync } from "node:fs";
 
 const booleanFromString = z.preprocess((value) => {
   if (value === "true") {
@@ -40,7 +41,21 @@ const AppConfigSchema = z.object({
   // Phase 4: Sentry cron-monitor slug. Defaults to a stable
   // production-style slug; the worker sends an in_progress check-in
   // at the start of each scan and an ok / error check-in at the end.
-  sentryMonitorSlug: z.string().min(1).default("arbitrage-agents-scan")
+  sentryMonitorSlug: z.string().min(1).default("arbitrage-agents-scan"),
+  // Kalshi trading API credentials. Optional — empty by default so the app
+  // boots without keys; the trading client is only used when configured.
+  kalshiApiKeyId: z.string().default(""),
+  kalshiPrivateKey: z.string().default(""),
+  // Polymarket CLOB trading credentials (issue #78). Optional — the
+  // trading client is built with a placeholder signer until wallet keys
+  // are provisioned (HITL gate). Defaults to empty string so the app
+  // boots without them.
+  polyPrivateKey: z.string().default(""),
+  polyWalletAddress: z.string().default(""),
+  // Issue #81: max capital deployed across all open positions. If
+  // total open position notional exceeds this, new executions are
+  // rejected by the RiskManager pre-trade guard.
+  maxCapitalDeployedUsd: z.coerce.number().positive().default(5000)
 });
 
 export type AppConfig = z.infer<typeof AppConfigSchema>;
@@ -63,10 +78,38 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     scannerLlmPromptVersion: env.SCANNER_LLM_PROMPT_VERSION,
     scannerLlmMaxEvaluationsPerScan: env.SCANNER_LLM_MAX_EVALUATIONS_PER_SCAN,
     scannerAbandonedAfterMs: env.SCANNER_ABANDONED_AFTER_MS,
-    sentryMonitorSlug: env.SENTRY_MONITOR_SLUG
+    sentryMonitorSlug: env.SENTRY_MONITOR_SLUG,
+    kalshiApiKeyId: env.KALSHI_API_KEY_ID,
+    kalshiPrivateKey: resolveKalshiPrivateKey(env.KALSHI_PRIVATE_KEY),
+    polyPrivateKey: env.POLY_PRIVATE_KEY,
+    polyWalletAddress: env.POLY_WALLET_ADDRESS,
+    maxCapitalDeployedUsd: env.MAX_CAPITAL_DEPLOYED_USD
   });
 }
 
 function emptyToUndefined(value: string | undefined): string | undefined {
   return value && value.trim().length > 0 ? value : undefined;
+}
+
+/**
+ * Resolve the Kalshi RSA private key. If the env value looks like a file path
+ * (starts with "/" or "." and ends with ".pem"), read the file contents.
+ * Otherwise treat the value as the inline key.
+ */
+function resolveKalshiPrivateKey(value: string | undefined): string {
+  if (!value || value.trim().length === 0) {
+    return "";
+  }
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith("/") || trimmed.startsWith(".")) &&
+    trimmed.endsWith(".pem")
+  ) {
+    try {
+      return readFileSync(trimmed, "utf-8").trim();
+    } catch {
+      return trimmed;
+    }
+  }
+  return trimmed;
 }

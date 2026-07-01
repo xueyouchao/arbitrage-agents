@@ -483,4 +483,74 @@ describe("OpportunityCalculator", () => {
     expect(equivalenceOnly).toMatchObject({ resolutionRisk: "low", equivalenceRisk: "medium" });
     expect(high).toMatchObject({ resolutionRisk: "low", equivalenceRisk: "high", fillRisk: "high", liquidityRisk: "high", venueRisk: "low" });
   });
+
+  // ── Issue #75: freshness guard using capturedAt vs maxBookAgeMs ──
+
+  it("rejects a MarketBook whose capturedAt is older than maxBookAgeMs", () => {
+    const now = "2026-01-01T00:01:00.000Z"; // 60s after scan start
+    const staleCapturedAt = "2026-01-01T00:00:00.000Z"; // exactly 60s old — boundary
+    const tooOldCapturedAt = "2025-12-31T23:59:59.999Z"; // 60.001s old — just over
+
+    // At the 60s boundary the book is still usable (age <= maxBookAgeMs).
+    const freshEnough = calculator(pair, classA, staleCapturedAt, staleCapturedAt, now, 60_000);
+    expect(freshEnough).toHaveLength(1);
+
+    // One millisecond older than the threshold → rejected.
+    const stale = calculator(pair, classA, tooOldCapturedAt, staleCapturedAt, now, 60_000);
+    expect(stale).toEqual([]);
+  });
+
+  it("accepts a fresh MarketBook whose capturedAt is within maxBookAgeMs", () => {
+    const now = "2026-01-01T00:01:00.000Z";
+    const freshCapturedAt = "2026-01-01T00:00:59.000Z"; // 1s old — well within 60s
+
+    const fresh = calculator(pair, classA, freshCapturedAt, freshCapturedAt, now, 60_000);
+    expect(fresh).toHaveLength(1);
+    expect(fresh[0].dataStalenessMs).toBe(1000);
+    expect(fresh[0].venueRisk).toBe("low");
+  });
+
+  it("rejects the opportunity when only one leg is stale", () => {
+    const now = "2026-01-01T00:01:00.000Z";
+    const freshCapturedAt = "2026-01-01T00:00:59.000Z";
+    const staleCapturedAt = "2025-12-31T23:58:00.000Z"; // 120s old
+
+    const kalshiStale = calculator(pair, classA, staleCapturedAt, freshCapturedAt, now, 60_000);
+    const polyStale = calculator(pair, classA, freshCapturedAt, staleCapturedAt, now, 60_000);
+    expect(kalshiStale).toEqual([]);
+    expect(polyStale).toEqual([]);
+  });
 });
+
+function calculator(
+  pair: CandidatePair,
+  decision: EquivalenceDecision,
+  kalshiCapturedAt: string,
+  polyCapturedAt: string,
+  now: string,
+  maxBookAgeMs: number
+) {
+  return new OpportunityCalculator().calculate(
+    pair,
+    decision,
+    {
+      marketId: "K1",
+      venue: "kalshi",
+      yesAsk: 0.4,
+      noAsk: 0.7,
+      yesAvailableUsd: 100,
+      noAvailableUsd: 100,
+      capturedAt: kalshiCapturedAt,
+    },
+    {
+      marketId: "P1",
+      venue: "polymarket",
+      yesAsk: 0.8,
+      noAsk: 0.5,
+      yesAvailableUsd: 100,
+      noAvailableUsd: 100,
+      capturedAt: polyCapturedAt,
+    },
+    { now, maxBookAgeMs }
+  );
+}

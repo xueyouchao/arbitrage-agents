@@ -37,4 +37,31 @@ describe("Phase 3 schema and migration", () => {
     expect(sql).toContain('PARTITION BY "scan_run_id", "step_name", "attempt"');
     expect(sql).toContain('CREATE UNIQUE INDEX "scan_steps_run_name_attempt_unique" ON "scan_steps"');
   });
+
+  it("creates the execution-state tables (orders, fills, positions) in migration 0012", () => {
+    const sql = readFileSync(resolve(process.cwd(), "drizzle/0012_execution_state.sql"), "utf8");
+
+    expect(sql).toContain('CREATE TABLE "orders"');
+    expect(sql).toContain('"venue" text NOT NULL');
+    expect(sql).toContain('"market" text NOT NULL');
+    expect(sql).toContain('"side" text NOT NULL');
+    expect(sql).toContain('"price" numeric NOT NULL');
+    expect(sql).toContain('"size" numeric NOT NULL');
+    expect(sql).toContain('"status" text NOT NULL');
+
+    expect(sql).toContain('CREATE TABLE "fills"');
+    expect(sql).toContain('"order_id" uuid NOT NULL');
+    expect(sql).toContain('"fill_price" numeric NOT NULL');
+    expect(sql).toContain('"fill_size" numeric NOT NULL');
+
+    expect(sql).toContain('CREATE TABLE "positions"');
+    expect(sql).toContain('"opportunity_id" text NOT NULL');
+    expect(sql).toContain('"kalshi_order_id" uuid');
+    expect(sql).toContain('"poly_order_id" uuid');
+    expect(sql).toContain('"pnl" numeric DEFAULT \'0\' NOT NULL');
+
+    expect(sql).toContain('"fills_order_id_orders_id_fk" FOREIGN KEY ("order_id") REFERENCES "public"."orders"');
+    expect(sql).toContain('"positions_kalshi_order_id_orders_id_fk"');
+    expect(sql).toContain('"positions_poly_order_id_orders_id_fk"');
+  });
 });

@@ -21,11 +21,14 @@ describe("migration smoke tests", () => {
       expect(firstTables).toEqual([
         "alerts",
         "candidate_pairs",
+        "fills",
         "llm_evaluations",
         "normalized_markets",
         "opportunities",
         "orderbook_snapshots",
+        "orders",
         "paper_trade_simulations",
+        "positions",
         "scan_runs",
         "scan_steps",
         "venue_market_snapshots"

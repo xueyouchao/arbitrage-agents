@@ -10,6 +10,13 @@ interface PublicHttpOptions {
   /** Max markets returned per listMarkets call. Default: 100. */
   marketLimit?: number;
   /**
+   * Kalshi-only: when set, listMarkets queries `GET /markets?event_ticker={eventTicker}`
+   * instead of the global top-100. This is required to surface World Cup (KXWC)
+   * markets, which almost never appear in the global top-100. When set, the
+   * default limit is raised to 500 so all markets under the event are returned.
+   */
+  eventTicker?: string;
+  /**
    * Kalshi-only: when true, after fetching the main market list, extract
    * KXWC* sub-market tickers from combo/parlay payloads and fetch them
    * individually via GET /markets/{ticker}. Required because Kalshi's public
@@ -24,9 +31,22 @@ interface PublicHttpOptions {
    * the standard scanner.
    */
   expandSubMarkets?: boolean;
+  /**
+   * Polymarket-only: when set, listMarkets queries `GET /events?slug={eventSlug}`
+   * to get the event and its market IDs, then fetches those markets via
+   * `GET /markets?closed=false&limit=500&id=...`. This is required to surface
+   * World Cup (fifwc) markets, which almost never appear in the global top-100
+   * returned by the default `/markets?closed=false&limit=100` query.
+   */
+  eventSlug?: string;
 }
 
-const DEFAULT_HTTP_OPTIONS: Required<PublicHttpOptions> = {
+type ResolvedHttpOptions = Omit<Required<PublicHttpOptions>, "eventTicker" | "eventSlug"> & {
+  eventTicker: string | undefined;
+  eventSlug: string | undefined;
+};
+
+const DEFAULT_HTTP_OPTIONS: ResolvedHttpOptions = {
   // Keep the per-attempt timeout bounded: with retries:3 the worst case for a
   // single hung request is 4 × 10s plus backoff. This limits the chance that
   // a degraded endpoint pushes an entire scan past the abandoned threshold.
@@ -37,6 +57,8 @@ const DEFAULT_HTTP_OPTIONS: Required<PublicHttpOptions> = {
   jitter: Math.random,
   marketLimit: 100,
   expandSubMarkets: false,
+  eventTicker: undefined,
+  eventSlug: undefined,
 };
 
 export class KalshiPublicVenueClient implements VenueClient {
@@ -46,9 +68,13 @@ export class KalshiPublicVenueClient implements VenueClient {
   ) {}
 
   async listMarkets(): Promise<VenueMarketSnapshot[]> {
-    const limit = this.httpOptions.marketLimit ?? DEFAULT_HTTP_OPTIONS.marketLimit;
+    const limit = this.httpOptions.marketLimit
+      ?? (this.httpOptions.eventTicker ? 500 : DEFAULT_HTTP_OPTIONS.marketLimit);
+    const eventParam = this.httpOptions.eventTicker
+      ? `event_ticker=${encodeURIComponent(this.httpOptions.eventTicker)}&`
+      : "";
     const body = await fetchPublicJson<{ markets?: Array<Record<string, unknown>> }>(
-      `${this.baseUrl}/markets?status=open&limit=${limit}`,
+      `${this.baseUrl}/markets?${eventParam}status=open&limit=${limit}`,
       "Kalshi markets",
       this.httpOptions
     );
@@ -147,20 +173,65 @@ export class PolymarketPublicVenueClient implements VenueClient {
   ) {}
 
   async listMarkets(): Promise<VenueMarketSnapshot[]> {
-    const markets = await fetchPublicJson<Array<Record<string, unknown>>>(
-      `${this.baseUrl}/markets?closed=false&limit=100`,
-      "Polymarket markets",
+    const capturedAt = new Date().toISOString();
+
+    let markets: Array<Record<string, unknown>>;
+    if (this.httpOptions.eventSlug) {
+      markets = await this.fetchMarketsByEventSlug(this.httpOptions.eventSlug);
+    } else {
+      markets = await fetchPublicJson<Array<Record<string, unknown>>>(
+        `${this.baseUrl}/markets?closed=false&limit=100`,
+        "Polymarket markets",
+        this.httpOptions
+      );
+    }
+
+    return markets.map((market) => toPolymarketSnapshotFromRaw(market, capturedAt));
+  }
+
+  /**
+   * Fetches all markets under a Polymarket event by slug. Queries
+   * `GET /events?slug={eventSlug}` to get the event (which contains an
+   * array of market objects with `id` fields), then fetches those markets
+   * via `GET /markets?closed=false&limit=500&id=...&id=...` in batches of
+   * 50 IDs to avoid exceeding URL length limits (~4-8KB).
+   */
+  private async fetchMarketsByEventSlug(eventSlug: string): Promise<Array<Record<string, unknown>>> {
+    const events = await fetchPublicJson<Array<Record<string, unknown>>>(
+      `${this.baseUrl}/events?slug=${encodeURIComponent(eventSlug)}`,
+      `Polymarket event ${eventSlug}`,
       this.httpOptions
     );
-    const capturedAt = new Date().toISOString();
-    return markets.map((market) => ({
-      venue: "polymarket" as const,
-      venueMarketId: String(market.conditionId ?? market.id),
-      title: String(market.question ?? market.title ?? ""),
-      rawResolutionText: String(market.resolutionSource ?? market.description ?? market.question ?? ""),
-      rawPayload: market,
-      capturedAt
-    }));
+    if (!Array.isArray(events)) return [];
+    const marketIds: string[] = [];
+    for (const event of events) {
+      const eventMarkets = event.markets;
+      if (!Array.isArray(eventMarkets)) continue;
+      for (const m of eventMarkets) {
+        if (m && typeof m === "object" && "id" in m) {
+          const id = (m as Record<string, unknown>).id;
+          if (id !== undefined && id !== null) marketIds.push(String(id));
+        }
+      }
+    }
+    if (marketIds.length === 0) return [];
+
+    // Batch market IDs to avoid URL length limits. 50 IDs per batch keeps
+    // the URL well under 4KB.
+    const BATCH_SIZE = 50;
+    const results: Array<Record<string, unknown>> = [];
+    for (let i = 0; i < marketIds.length; i += BATCH_SIZE) {
+      const batch = marketIds.slice(i, i + BATCH_SIZE);
+      const idQuery = batch.map((id) => `id=${encodeURIComponent(id)}`).join("&");
+      const batchResults = await fetchPublicJson<Array<Record<string, unknown>>>(
+        `${this.baseUrl}/markets?closed=false&limit=500&${idQuery}`,
+        `Polymarket markets for event ${eventSlug} (batch ${Math.floor(i / BATCH_SIZE) + 1})`,
+        this.httpOptions
+      );
+      if (!Array.isArray(batchResults)) continue;
+      results.push(...batchResults);
+    }
+    return results;
   }
 
   async listOrderbooks(markets: VenueMarketSnapshot[]): Promise<MarketBook[]> {
@@ -466,6 +537,48 @@ function toKalshiSnapshotFromRaw(
     capturedAt,
     rawPayload: raw,
   };
+}
+
+/**
+ * Builds a Polymarket VenueMarketSnapshot from a raw gamma API market object.
+ * Polymarket WC match markets (e.g. "Netherlands vs Japan") often have titles
+ * and descriptions that don't mention "World Cup", so the WC normalizer rejects
+ * them. To fix this, inspect market.tags (array of tag objects with a `label`
+ * field) and prepend "FIFA World Cup 2026\n" to rawResolutionText when a
+ * WC-related tag is found (label containing "world cup" or "fifa"). Mirrors
+ * scripts/fetch-pmxt-markets.py:106-109.
+ */
+function toPolymarketSnapshotFromRaw(
+  raw: Record<string, unknown>,
+  capturedAt: string
+): VenueMarketSnapshot {
+  const baseResolutionText = String(raw.resolutionSource ?? raw.description ?? raw.question ?? "");
+  return {
+    venue: "polymarket" as const,
+    venueMarketId: String(raw.conditionId ?? raw.id),
+    title: String(raw.question ?? raw.title ?? ""),
+    rawResolutionText: injectWorldCupTag(raw.tags, baseResolutionText),
+    rawPayload: raw,
+    capturedAt
+  };
+}
+
+/**
+ * If any tag label contains "world cup" AND "2026" (case-insensitive),
+ * prepend "FIFA World Cup 2026\n" to the resolution text so the WC
+ * normalizer matches. Scoping to 2026 avoids matching other World Cup
+ * events (2022, Women's 2023, etc.).
+ */
+function injectWorldCupTag(tags: unknown, text: string): string {
+  if (!Array.isArray(tags)) return text;
+  const isWc2026 = tags.some((tag) => {
+    if (!tag || typeof tag !== "object") return false;
+    const label = (tag as Record<string, unknown>).label;
+    if (typeof label !== "string") return false;
+    const lower = label.toLowerCase();
+    return lower.includes("world cup") && lower.includes("2026");
+  });
+  return isWc2026 ? `FIFA World Cup 2026\n${text}` : text;
 }
 
 function extractKXWCTickers(market: Record<string, unknown>): string[] {

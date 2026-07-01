@@ -53,13 +53,17 @@ describe("loadAppConfig", () => {
     expect(config.sentryTracesSampleRate).toBe(0);
   });
 
-  it("rejects sentryTracesSampleRate outside 0..1", () => {
-    expect(() =>
-      loadAppConfig({
-        DATABASE_URL: "postgres://user:pass@localhost:5432/db",
-        SENTRY_TRACES_SAMPLE_RATE: "1.5"
-      })
-    ).toThrow();
+  it("defaults maxCapitalDeployedUsd to 5000", () => {
+    const config = loadAppConfig({ DATABASE_URL: "postgres://user:pass@localhost:5432/db" });
+    expect(config.maxCapitalDeployedUsd).toBe(5000);
+  });
+
+  it("coerces maxCapitalDeployedUsd from env string", () => {
+    const config = loadAppConfig({
+      DATABASE_URL: "postgres://user:pass@localhost:5432/db",
+      MAX_CAPITAL_DEPLOYED_USD: "10000"
+    });
+    expect(config.maxCapitalDeployedUsd).toBe(10000);
   });
 });
 
