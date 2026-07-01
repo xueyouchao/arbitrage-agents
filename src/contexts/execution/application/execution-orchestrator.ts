@@ -199,9 +199,21 @@ export interface ExecutionResult {
  * non-terminal position (`open`, `partial`, `exposed`), throwing
  * `AlreadyExecutedError`.
  *
+ * NOTE: The idempotency check is not atomic — there is a TOCTOU window
+ * between the `getStatusForOpportunity` read and the `positions.insert`
+ * write. For the single-user CLI runbook use case this is acceptable.
+ * If concurrent orchestrator instances are ever introduced, a unique
+ * constraint on `positions.opportunity_id` should be added at the DB
+ * level to enforce atomicity.
+ *
  * Risk: when `options.riskManager` is provided, `execute()` calls
  * `riskManager.checkExecution(totalOpenNotional, requestedNotional, maxCapitalDeployed)`
  * before placing orders and throws `RiskRejectedError` if rejected.
+ * The `totalOpenNotional` is fetched at execution time via
+ * `repos.positions.getTotalOpenNotional()` when available, falling back
+ * to the constructor value. Like the idempotency check, this read is
+ * not transactional with the position insert — concurrent executions
+ * could breach the limit. Acceptable for single-user CLI use.
  *
  * Unwinding: when `options.unwinder` is provided and the position ends up
  * `partial`, the unwinder is automatically invoked to reverse the filled leg.
@@ -280,15 +292,15 @@ export class ExecutionOrchestrator {
     const kalshiResult = this.toLegResult(kalshiSettled);
     const polyResult = this.toLegResult(polySettled);
 
-    // Persist both orders regardless of outcome; failed legs are recorded as
-    // `failed` so the audit trail shows what was attempted.
+    // Persist both orders regardless of outcome. The status distinguishes
+    // between venue rejections ("failed") and local timeouts ("timeout").
     const kalshiOrder = await this.repos.orders.insert({
       venue: "kalshi",
       market: kalshiLeg.market,
       side: kalshiLeg.side,
       price: String(kalshiLeg.price),
       size: String(kalshiLeg.size),
-      status: kalshiResult.filled ? "filled" : "failed"
+      status: this.toOrderStatus(kalshiResult)
     });
     const polyOrder = await this.repos.orders.insert({
       venue: "polymarket",
@@ -296,7 +308,7 @@ export class ExecutionOrchestrator {
       side: polyLeg.side,
       price: String(polyLeg.price),
       size: String(polyLeg.size),
-      status: polyResult.filled ? "filled" : "failed"
+      status: this.toOrderStatus(polyResult)
     });
 
     // Record fills for any leg that actually filled.
@@ -397,6 +409,16 @@ export class ExecutionOrchestrator {
     } finally {
       if (timer) clearTimeout(timer);
     }
+  }
+
+  /**
+   * Maps a leg result to an order status for the audit trail.
+   * Filled → "filled", timeout → "timeout", everything else → "failed".
+   */
+  private toOrderStatus(result: LegFillResult): string {
+    if (result.filled) return "filled";
+    if (result.error === "timeout") return "timeout";
+    return "failed";
   }
 
   /**

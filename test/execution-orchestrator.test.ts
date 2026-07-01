@@ -7,7 +7,8 @@ import {
   type RecordedOrder,
   type RecordedFill,
   type RecordedPosition,
-  type ExecutionRepositories
+  type ExecutionRepositories,
+  type LegFillResult
 } from "../src/contexts/execution/application/execution-orchestrator";
 import { RiskManager } from "../src/contexts/execution/application/risk-manager";
 import { PositionUnwinder, type UnwinderRepositories, type FilledLegDescriptor } from "../src/contexts/execution/application/position-unwinder";
@@ -485,5 +486,46 @@ describe("ExecutionOrchestrator", () => {
     await expect(
       orchestrator.execute(opp, { kalshi, polymarket: poly })
     ).rejects.toThrow(/size/);
+  });
+
+  // --- Fix: Timeout leg recorded as "timeout" not "failed" ---
+  it("records timed-out legs with status 'timeout' not 'failed'", async () => {
+    const repos = inMemoryRepositories();
+    const kalshi: TradingClient = {
+      placeOrder: vi.fn(async (_m, _s, _p, _sz, signal) => {
+        // Simulate a slow venue that doesn't respond before timeout
+        return new Promise<LegFillResult>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        });
+      }),
+      cancelOrder: vi.fn(async () => {})
+    };
+    const poly: TradingClient = {
+      placeOrder: vi.fn(async () => {
+        // Simulate a slow venue that doesn't respond before timeout
+        return new Promise<LegFillResult>((_resolve, reject) => {
+          reject(new Error("polymarket order rejected"));
+        });
+      }),
+      cancelOrder: vi.fn(async () => {})
+    };
+
+    // Use a very short timeout by mocking
+    const orchestrator = new ExecutionOrchestrator(repos);
+    // Temporarily reduce timeout for test
+    (ExecutionOrchestrator as any).TIMEOUT_MS = 50;
+    try {
+      await orchestrator.execute(fixtureOpportunity(), { kalshi, polymarket: poly });
+    } catch {
+      // might throw, that's fine
+    } finally {
+      (ExecutionOrchestrator as any).TIMEOUT_MS = 30_000;
+    }
+
+    // The kalshi leg should have status "timeout" not "failed"
+    const ordersRows = repos.orders.all();
+    const kalshiOrder = ordersRows.find((o) => o.venue === "kalshi")!;
+    expect(kalshiOrder).toBeDefined();
+    expect(kalshiOrder.status).toBe("timeout");
   });
 });
