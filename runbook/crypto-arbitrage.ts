@@ -64,22 +64,7 @@ interface CliOptions {
 }
 
 function parseArgs(argv: string[]): CliOptions {
-  const opts: CliOptions = {
-    json: false,
-    noFilter: false,
-    dryRun: false,
-    kalshiSeries: "KXBTCD",
-    polyEventSlug: undefined,
-    polyMarketIds: [],
-    minEdge: 0,
-    notionals: [5, 25, 100],
-    feeRate: 0.01,
-    kalshiFeeRate: 0.01,
-    polyFeeRate: 0.01,
-    baseToken: undefined,
-    tableId: undefined,
-    as: "user",
-  };
+  const opts = defaultOptions();
 
   function consumeValue(index: number, label: string): string {
     if (index >= argv.length) {
@@ -127,15 +112,16 @@ function parseArgs(argv: string[]): CliOptions {
       case "--notional": {
         const raw = consumeValue(++i, "notional");
         const tokens = raw.split(",").map((s) => s.trim());
-        const filtered = tokens.filter((s) => {
-          const n = parseFloat(s);
-          return Number.isFinite(n) && n > 0;
-        }).map((s) => parseFloat(s));
-        const skipped = tokens.length - filtered.length;
+        const notionals: number[] = [];
+        for (const token of tokens) {
+          const n = parsePositiveNumber(token);
+          if (n !== undefined) notionals.push(n);
+        }
+        const skipped = tokens.length - notionals.length;
         if (skipped > 0) {
           console.warn(`Warning: --notional ignored ${skipped} invalid value(s) (must be positive numbers).`);
         }
-        opts.notionals = filtered;
+        opts.notionals = notionals;
         break;
       }
       case "--fee-rate": {
@@ -186,16 +172,9 @@ function parseArgs(argv: string[]): CliOptions {
     console.error(`Error: --min-edge must be a number between 0 and 1 (got "${opts.minEdge}").`);
     process.exit(1);
   }
-  if (!Number.isFinite(opts.feeRate) || opts.feeRate <= 0 || opts.feeRate >= 1) {
-    console.error(`Error: --fee-rate must be a number between 0 and 1 (exclusive), got "${opts.feeRate}".`);
-    process.exit(1);
-  }
-  for (const [label, val] of [["--kalshi-fee-rate", opts.kalshiFeeRate] as const, ["--poly-fee-rate", opts.polyFeeRate] as const]) {
-    if (!Number.isFinite(val) || val <= 0 || val >= 1) {
-      console.error(`Error: ${label} must be a number between 0 and 1 (exclusive), got "${val}".`);
-      process.exit(1);
-    }
-  }
+  validateFeeRate("--fee-rate", opts.feeRate);
+  validateFeeRate("--kalshi-fee-rate", opts.kalshiFeeRate);
+  validateFeeRate("--poly-fee-rate", opts.polyFeeRate);
   if (opts.notionals.length === 0) {
     console.error("Error: --notional must specify at least one positive number (e.g. \"5,25,100\").");
     process.exit(1);
@@ -206,6 +185,48 @@ function parseArgs(argv: string[]): CliOptions {
   }
 
   return opts;
+}
+
+function defaultOptions(): CliOptions {
+  return {
+    json: false,
+    noFilter: false,
+    dryRun: false,
+    kalshiSeries: "KXBTCD",
+    polyEventSlug: undefined,
+    polyMarketIds: [],
+    minEdge: 0,
+    notionals: [5, 25, 100],
+    feeRate: 0.01,
+    kalshiFeeRate: 0.01,
+    polyFeeRate: 0.01,
+    baseToken: undefined,
+    tableId: undefined,
+    as: "user",
+  };
+}
+
+function parsePositiveNumber(raw: string): number | undefined {
+  const n = parseFloat(raw.trim());
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+function validateFeeRate(label: string, val: number): void {
+  if (!Number.isFinite(val) || val <= 0 || val >= 1) {
+    console.error(`Error: ${label} must be a number between 0 and 1 (exclusive), got "${val}".`);
+    process.exit(1);
+  }
+}
+
+function envInt(key: string, fallback: number): number {
+  const raw = process.env[key];
+  if (raw === undefined) return fallback;
+  const parsed = parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    console.warn(`Warning: ${key}="${raw}" is not a positive integer, using default ${fallback}`);
+    return fallback;
+  }
+  return parsed;
 }
 
 function printUsage(): void {
@@ -236,17 +257,6 @@ async function main(): Promise<void> {
 
   console.error("🪙 Crypto Cross-Venue Arbitrage Scanner");
   console.error("─".repeat(50));
-
-  function envInt(key: string, fallback: number): number {
-    const raw = process.env[key];
-    if (raw === undefined) return fallback;
-    const parsed = parseInt(raw, 10);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      console.warn(`Warning: ${key}="${raw}" is not a positive integer, using default ${fallback}`);
-      return fallback;
-    }
-    return parsed;
-  }
 
   const KALSHI_BASE_URL = "https://external-api.kalshi.com/trade-api/v2";
   const POLY_BASE_URL = "https://gamma-api.polymarket.com";
@@ -320,7 +330,7 @@ function resultToJson(
     opportunities: opportunities.map((opp) => ({
       id: opp.id,
       pairId: opp.pairId,
-      asset: assetForOpportunity(opp, pairById),
+      asset: assetFromPair(pairById.get(opp.pairId)),
       direction: directionLabel(opp),
       grossEdge: opp.grossEdge,
       netEdge: opp.netEdge,
@@ -362,7 +372,7 @@ function renderTable(
 
   const sorted = [...opportunities].sort((a, b) => b.netEdge - a.netEdge);
   for (const opp of sorted) {
-    const asset = assetForOpportunity(opp, pairById);
+    const asset = assetFromPair(pairById.get(opp.pairId));
     console.log(
       padRight(asset ?? "?", 8) +
       padRight(directionLabel(opp), 22) +
@@ -383,8 +393,7 @@ function directionLabel(opp: CrossVenueOpportunity): string {
     : "Poly YES / Kalshi NO";
 }
 
-function assetForOpportunity(opp: CrossVenueOpportunity, pairById: Map<string, CandidatePair>): string | undefined {
-  const pair = pairById.get(opp.pairId);
+function assetFromPair(pair: CandidatePair | undefined): string | undefined {
   return pair?.kalshiMarket.asset ?? pair?.polymarketMarket.asset;
 }
 
@@ -420,7 +429,7 @@ async function exportToBase(
 
   const rows = opportunities.map((opp) => {
     const pair = pairById.get(opp.pairId);
-    const asset = assetForOpportunity(opp, pairById) ?? "unknown";
+    const asset = assetFromPair(pair) ?? "unknown";
     const longTitle = pair?.kalshiMarket.title ?? opp.longLeg.marketId;
     const hedgeTitle = pair?.polymarketMarket.title ?? opp.hedgeLeg.marketId;
     return [
