@@ -135,8 +135,17 @@ export class WorldCupArbFinder {
     const polyBooks = settled(polyBooksResult) ?? [];
     const fetchOrderbooksMs = Date.now() - obStart;
 
+    // Use the latest book capturedAt as the scan timestamp so the freshness
+    // guard never sees a negative book age when books are captured after the
+    // scan started.
+    const allBooks = [...kalshiBooks, ...polyBooks];
+    const latestBookCapturedAt = allBooks.length > 0
+      ? allBooks.reduce((latest, book) => book.capturedAt > latest ? book.capturedAt : latest, allBooks[0].capturedAt)
+      : scanTimeUtc;
+    const effectiveScanTimeUtc = latestBookCapturedAt > scanTimeUtc ? latestBookCapturedAt : scanTimeUtc;
+
     const booksByVenueId = new Map<string, MarketBook>();
-    for (const book of [...kalshiBooks, ...polyBooks]) {
+    for (const book of allBooks) {
       booksByVenueId.set(`${book.venue}:${book.marketId}`, book);
     }
 
@@ -165,7 +174,7 @@ export class WorldCupArbFinder {
         kalshiBook,
         polyBook,
         {
-          now: scanTimeUtc,
+          now: effectiveScanTimeUtc,
           feeRate: opts.feeRate,
           slippageRate: 0.005,
           minNetEdge: opts.noFilter ? -Infinity : opts.minNetEdge,

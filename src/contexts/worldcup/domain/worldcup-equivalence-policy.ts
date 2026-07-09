@@ -53,13 +53,22 @@ export function classifyWorldCupPair(pair: WorldCupCandidatePair): EquivalenceDe
     };
   }
 
-  // Match markets must agree on opponent too.
+  // Match markets must agree on opponent and the specific outcome side.
   if ((left.opponentCode ?? "_") !== (right.opponentCode ?? "_")) {
     return {
       pairId: pair.id,
       equivalenceClass: "C",
       decision: "reject",
       reasons: ["wc_opponent_mismatch"],
+    };
+  }
+
+  if ((left.matchOutcome ?? "_") !== (right.matchOutcome ?? "_")) {
+    return {
+      pairId: pair.id,
+      equivalenceClass: "C",
+      decision: "reject",
+      reasons: ["wc_match_outcome_mismatch"],
     };
   }
 
@@ -81,6 +90,7 @@ export function classifyWorldCupPair(pair: WorldCupCandidatePair): EquivalenceDe
       "wc_team_match",
       `wc_${left.teamCode}`,
       `wc_type_${left.marketType}`,
+      `wc_outcome_${left.matchOutcome ?? "unknown"}`,
     ],
   };
 }

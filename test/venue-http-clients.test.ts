@@ -500,6 +500,20 @@ describe("public venue HTTP clients", () => {
     );
   });
 
+  it("includes series_ticker in the query URL when seriesTicker option is provided", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ markets: [] }), { status: 200 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await new KalshiPublicVenueClient("https://kalshi.test", { seriesTicker: "KXWCGAME", retryDelayMs: 0 }).listMarkets();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://kalshi.test/markets?series_ticker=KXWCGAME&status=open&limit=500",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("queries /events?slug=fifwc and fetches markets under that event when eventSlug is provided", async () => {
     const fetchMock = vi
       .fn()
