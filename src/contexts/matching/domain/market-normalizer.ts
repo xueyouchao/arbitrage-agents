@@ -400,7 +400,13 @@ function parsePayoffType(
   const lower = text.toLowerCase();
 
   if (topic === "crypto") {
-    if (/\b(any point|any time|touch|before)\b/i.test(lower)) return "any_time_before";
+    // At-time price markets explicitly say "price on/at <date>" (Kalshi daily
+    // series). Touch / range markets use hit/reach/dip/touch/any time before a
+    // deadline. Distinguishing them correctly is required for cross-venue class-A
+    // pairing.
+    if (/\bprice\s+(on|at)\b/i.test(lower)) return "at_time";
+    if (/\b(any point|any time|touch)\b/i.test(lower)) return "any_time_before";
+    if (/\b(hit|reach|dip)\b/i.test(lower) && /\b(before|by)\b/i.test(lower)) return "any_time_before";
     return "at_time";
   }
 
@@ -466,8 +472,19 @@ function parseResolutionSource(
     return "official government data release";
   }
 
-  // Current events and crypto fallbacks: leave undefined so the scanner can
-  // request LLM review when the source is not explicit.
+  // Crypto fallbacks: most price-level markets reference a well-known index
+  // or exchange. Only return a default when the source is clearly inferable
+  // from the text to avoid masking genuinely ambiguous markets.
+  if (topic === "crypto") {
+    if (/\bcf\s+benchmarks/i.test(lower)) return "CF Benchmarks Real-Time Index";
+    if (/\bcoinbase\b/i.test(lower)) return "Coinbase";
+    if (/\bbinance\b/i.test(lower)) return "Binance";
+    if (/\bkraken\b/i.test(lower)) return "Kraken";
+    if (/\bcoingecko\b/i.test(lower)) return "CoinGecko";
+  }
+
+  // Current events fallback: leave undefined so the scanner can request LLM
+  // review when the source is not explicit.
   return undefined;
 }
 
@@ -560,17 +577,29 @@ function parseDeadline(text: string): string | undefined {
 
 function monthNameToIndex(name: string): number | undefined {
   const map: Record<string, number> = {
+    jan: 0,
     january: 0,
+    feb: 1,
     february: 1,
+    mar: 2,
     march: 2,
+    apr: 3,
     april: 3,
     may: 4,
+    jun: 5,
     june: 5,
+    jul: 6,
     july: 6,
+    aug: 7,
     august: 7,
+    sep: 8,
+    sept: 8,
     september: 8,
+    oct: 9,
     october: 9,
+    nov: 10,
     november: 10,
+    dec: 11,
     december: 11,
   };
   return map[name.toLowerCase()];

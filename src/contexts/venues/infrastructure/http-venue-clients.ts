@@ -600,7 +600,11 @@ function toPolymarketSnapshotFromRaw(
   // Preserve the original fallback chain for non-eventSlug fetches. Only
   // prepend the parent event description when it was injected by the event-slug
   // path and adds context not already present.
-  const baseText = String(raw.resolutionSource ?? raw.description ?? "");
+  // Issue: Polymarket often returns an empty-string resolutionSource while the
+  // market description contains the detailed resolution rules/source. Fall back
+  // to description when resolutionSource is empty so the normalizer has the full
+  // text for source/deadline/payoff parsing.
+  const baseText = firstNonEmptyString(raw.resolutionSource, raw.description) ?? "";
   const baseResolutionText = eventDescription && !baseText.toLowerCase().includes(eventDescription.toLowerCase())
     ? `${eventDescription}\n${baseText}`
     : baseText;
