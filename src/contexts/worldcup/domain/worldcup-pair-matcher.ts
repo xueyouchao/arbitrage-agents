@@ -119,6 +119,7 @@ function pairBucketKey(market: WorldCupNormalizedMarket): string {
     market.marketType,
     market.teamCode ?? "_",
     market.opponentCode ?? "_",
+    market.matchOutcome ?? "_",
     market.threshold?.toString() ?? "_",
     market.groupName ?? "_",
   ].join("|");

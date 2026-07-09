@@ -20,7 +20,7 @@
  *   --kalshi-fee-rate <n>  Kalshi-specific fee rate (overrides --fee-rate)
  *   --poly-fee-rate <n>   Polymarket-specific fee rate (overrides --fee-rate)
  *   --no-filter       Include opportunities with zero or negative edge
- *   --pmxt            Use pmxt unified data source (fifwc + KXWC events)
+ *   --pmxt            Use pmxt unified data source (legacy fifwc + KXWC snapshot)
  *
  * Environment variables (venue client tuning):
  *   KALSHI_CONCURRENCY     Concurrency for Kalshi API calls (default: 5)
@@ -44,6 +44,8 @@ interface CliOptions {
   json: boolean;
   noFilter: boolean;
   pmxt: boolean;
+  kalshiSeries: string;
+  polyEventSlug: string;
   minEdge: number;
   notionals: number[];
   feeRate: number;
@@ -56,6 +58,8 @@ function parseArgs(argv: string[]): CliOptions {
     json: false,
     noFilter: false,
     pmxt: false,
+    kalshiSeries: "KXWCGAME",
+    polyEventSlug: "fifwc",
     minEdge: 0,
     notionals: [5, 25, 100],
     feeRate: 0.01,
@@ -88,6 +92,14 @@ function parseArgs(argv: string[]): CliOptions {
       case "--pmxt":
         opts.pmxt = true;
         break;
+      case "--kalshi-series": {
+        opts.kalshiSeries = consumeValue(++i, "kalshi-series");
+        break;
+      }
+      case "--poly-event-slug": {
+        opts.polyEventSlug = consumeValue(++i, "poly-event-slug");
+        break;
+      }
       case "--min-edge": {
         const raw = consumeValue(++i, "min-edge");
         opts.minEdge = parseFloat(raw);
@@ -170,7 +182,9 @@ function printUsage(): void {
   console.log("  --kalshi-fee-rate <n>  Kalshi-specific fee rate (overrides --fee-rate)");
   console.log("  --poly-fee-rate <n>   Polymarket-specific fee rate (overrides --fee-rate)");
   console.log("  --no-filter        Include opportunities with zero or negative edge");
-  console.log("  --pmxt             Use pmxt unified data source (fifwc + KXWC)");
+  console.log("  --pmxt             Use pmxt unified data source (legacy fifwc + KXWC snapshot)");
+  console.log("  --kalshi-series <ticker>  Kalshi series ticker (default: KXWCGAME)");
+  console.log("  --poly-event-slug <slug>  Polymarket event slug (default: fifwc)");
   console.log("  --help             Show this help");
 }
 
@@ -214,13 +228,13 @@ async function main(): Promise<void> {
       retries: envInt("KALSHI_RETRIES", 3),
       timeoutMs: envInt("KALSHI_TIMEOUT_MS", 15000),
       expandSubMarkets: true,
-      eventTicker: "KXWC",
+      seriesTicker: opts.kalshiSeries,
     });
     const polymarketClient = new PolymarketPublicVenueClient(POLY_BASE_URL, POLY_CLOB_BASE_URL, {
       concurrency: envInt("POLY_CONCURRENCY", 8),
       retries: envInt("POLY_RETRIES", 3),
       timeoutMs: envInt("POLY_TIMEOUT_MS", 15000),
-      eventSlug: "fifwc",
+      eventSlug: opts.polyEventSlug,
     });
 
     const finder = new WorldCupArbFinder({

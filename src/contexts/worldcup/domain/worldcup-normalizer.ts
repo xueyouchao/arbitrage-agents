@@ -29,6 +29,8 @@ export enum WorldCupMarketType {
 }
 
 /** A World Cup market normalised for cross-venue matching. */
+export type MatchOutcome = "team_a" | "team_b" | "draw" | "unknown";
+
 export interface WorldCupNormalizedMarket {
   /** Venue-prefixed stable id, e.g. "kalshi:WC2026-WINNER-BRA" */
   id: string;
@@ -41,6 +43,8 @@ export interface WorldCupNormalizedMarket {
   teamCode?: string;
   /** Canonical opponent team code for match markets. */
   opponentCode?: string;
+  /** Which side of a match market this contract represents. */
+  matchOutcome?: MatchOutcome;
   /** Human-readable subject, e.g. "BRA", "BRA vs ARG". */
   subject: string;
   /** Tournament year — always "2026" for this module. */
@@ -62,8 +66,9 @@ export function isWorldCup2026(text: string): boolean {
     || /world\s*cup\s*2026/.test(lower)
     || /fifa\s*world\s*cup\s*2026/.test(lower)
     || /\bwc2026\b/.test(lower)
-    // Kalshi uses "2026 Men's World Cup" instead of "FIFA World Cup"
-    || /\b2026\b.{0,40}\bworld\s*cup\b/.test(lower);
+    // Either ordering of "2026" and "World Cup" within a 40-char window.
+    || /\b2026\b.{0,40}\bworld\s*cup\b/.test(lower)
+    || /\bworld\s*cup\b.{0,40}\b2026\b/.test(lower);
 }
 
 /**
@@ -102,6 +107,9 @@ export function classifyWorldCupMarket(
   const marketType = classifyMarketType(text);
   const teamCode = extractTeamCode(text);
   const opponentCode = extractOpponent(text, teamCode);
+  const matchOutcome = marketType === WorldCupMarketType.Match
+    ? extractMatchOutcome(snapshot, teamCode, opponentCode)
+    : undefined;
   const threshold = extractThreshold(text);
   const groupName = extractGroupName(text);
   const subject = buildSubject(teamCode, opponentCode);
@@ -114,6 +122,7 @@ export function classifyWorldCupMarket(
     marketType,
     teamCode,
     opponentCode,
+    matchOutcome,
     subject,
     tournamentYear: "2026",
     teamResolved: teamCode !== undefined,
@@ -223,6 +232,41 @@ function extractThreshold(text: string): number | undefined {
 function extractGroupName(text: string): string | undefined {
   const match = text.match(/\bgroup\s+([A-Ha-h])\b/);
   return match?.[1]?.toUpperCase();
+}
+
+/**
+ * Determine which side of a match market a contract represents.
+ * Kalshi match tickers encode the outcome in the suffix (e.g. -FRA, -MAR, -TIE).
+ * Polymarket questions name the winning side or explicitly mention a draw.
+ */
+function extractMatchOutcome(
+  snapshot: VenueMarketSnapshot,
+  teamCode: string | undefined,
+  opponentCode: string | undefined,
+): MatchOutcome {
+  const lowerTitle = snapshot.title.toLowerCase();
+  const lowerQuestion = (snapshot.rawPayload?.question ?? "").toString().toLowerCase();
+  const lowerText = `${lowerTitle} ${lowerQuestion}`;
+  const tickerSuffix = snapshot.venueMarketId.split("-").pop()?.toLowerCase();
+
+  // Kalshi encodes the outcome directly in the ticker suffix.
+  if (tickerSuffix === "tie") return "draw";
+  if (teamCode && tickerSuffix === teamCode.toLowerCase()) return "team_a";
+  if (opponentCode && tickerSuffix === opponentCode.toLowerCase()) return "team_b";
+
+  // Polymarket questions name the winning side; "draw" is explicit.
+  if (/\bdraw\b/.test(lowerText)) return "draw";
+
+  // "Will {Team} win ..." — resolve the named team to its canonical code and
+  // map it to team_a / team_b based on the pair's team/opponent ordering.
+  const willWinMatch = lowerText.match(/\bwill\s+(\p{L}[\p{L}\s.'’-]{1,30}?)\s+win\b/u);
+  if (willWinMatch) {
+    const resolved = resolveFromCandidate(cleanTeamToken(willWinMatch[1]));
+    if (resolved === teamCode) return "team_a";
+    if (resolved === opponentCode) return "team_b";
+  }
+
+  return "unknown";
 }
 
 function buildSubject(teamCode: string | undefined, opponentCode: string | undefined): string {

@@ -17,6 +17,13 @@ interface PublicHttpOptions {
    */
   eventTicker?: string;
   /**
+   * Kalshi-only: when set, listMarkets queries `GET /markets?series_ticker={seriesTicker}`
+   * instead of the global top-100. Use this for Kalshi series such as `KXWCGAME`
+   * (World Cup 2026 match winner markets), which are grouped by series rather
+   * than event. When set, the default limit is raised to 500.
+   */
+  seriesTicker?: string;
+  /**
    * Kalshi-only: when true, after fetching the main market list, extract
    * KXWC* sub-market tickers from combo/parlay payloads and fetch them
    * individually via GET /markets/{ticker}. Required because Kalshi's public
@@ -41,8 +48,9 @@ interface PublicHttpOptions {
   eventSlug?: string;
 }
 
-type ResolvedHttpOptions = Omit<Required<PublicHttpOptions>, "eventTicker" | "eventSlug"> & {
+type ResolvedHttpOptions = Omit<Required<PublicHttpOptions>, "eventTicker" | "seriesTicker" | "eventSlug"> & {
   eventTicker: string | undefined;
+  seriesTicker: string | undefined;
   eventSlug: string | undefined;
 };
 
@@ -58,6 +66,7 @@ const DEFAULT_HTTP_OPTIONS: ResolvedHttpOptions = {
   marketLimit: 100,
   expandSubMarkets: false,
   eventTicker: undefined,
+  seriesTicker: undefined,
   eventSlug: undefined,
 };
 
@@ -69,12 +78,15 @@ export class KalshiPublicVenueClient implements VenueClient {
 
   async listMarkets(): Promise<VenueMarketSnapshot[]> {
     const limit = this.httpOptions.marketLimit
-      ?? (this.httpOptions.eventTicker ? 500 : DEFAULT_HTTP_OPTIONS.marketLimit);
+      ?? (this.httpOptions.eventTicker || this.httpOptions.seriesTicker ? 500 : DEFAULT_HTTP_OPTIONS.marketLimit);
     const eventParam = this.httpOptions.eventTicker
       ? `event_ticker=${encodeURIComponent(this.httpOptions.eventTicker)}&`
       : "";
+    const seriesParam = this.httpOptions.seriesTicker
+      ? `series_ticker=${encodeURIComponent(this.httpOptions.seriesTicker)}&`
+      : "";
     const body = await fetchPublicJson<{ markets?: Array<Record<string, unknown>> }>(
-      `${this.baseUrl}/markets?${eventParam}status=open&limit=${limit}`,
+      `${this.baseUrl}/markets?${eventParam}${seriesParam}status=open&limit=${limit}`,
       "Kalshi markets",
       this.httpOptions
     );
@@ -203,14 +215,25 @@ export class PolymarketPublicVenueClient implements VenueClient {
       this.httpOptions
     );
     if (!Array.isArray(events)) return [];
+
+    // Map event metadata by market id so we can merge the parent event title
+    // into each market snapshot. WC match markets (e.g. France vs Morocco) often
+    // have empty titles and questions that don't name the opponent, so the event
+    // context is required for the normalizer to resolve both teams.
+    const eventByMarketId = new Map<string, Record<string, unknown>>();
     const marketIds: string[] = [];
     for (const event of events) {
+      if (!event || typeof event !== "object") continue;
       const eventMarkets = event.markets;
       if (!Array.isArray(eventMarkets)) continue;
       for (const m of eventMarkets) {
         if (m && typeof m === "object" && "id" in m) {
           const id = (m as Record<string, unknown>).id;
-          if (id !== undefined && id !== null) marketIds.push(String(id));
+          if (id !== undefined && id !== null) {
+            const idStr = String(id);
+            marketIds.push(idStr);
+            eventByMarketId.set(idStr, event as Record<string, unknown>);
+          }
         }
       }
     }
@@ -229,7 +252,14 @@ export class PolymarketPublicVenueClient implements VenueClient {
         this.httpOptions
       );
       if (!Array.isArray(batchResults)) continue;
-      results.push(...batchResults);
+      for (const market of batchResults) {
+        const event = eventByMarketId.get(String(market.id));
+        if (event) {
+          market._eventTitle = event.title;
+          market._eventDescription = event.description;
+        }
+        results.push(market);
+      }
     }
     return results;
   }
@@ -552,11 +582,37 @@ function toPolymarketSnapshotFromRaw(
   raw: Record<string, unknown>,
   capturedAt: string
 ): VenueMarketSnapshot {
-  const baseResolutionText = String(raw.resolutionSource ?? raw.description ?? raw.question ?? "");
+  const eventTitle = typeof raw._eventTitle === "string" && raw._eventTitle.trim().length > 0
+    ? raw._eventTitle.trim()
+    : undefined;
+  const eventDescription = typeof raw._eventDescription === "string" && raw._eventDescription.trim().length > 0
+    ? raw._eventDescription.trim()
+    : undefined;
+  const marketTitle = String(raw.question ?? raw.title ?? "").trim();
+
+  // When we fetched this market via an event slug, the parent event title
+  // (e.g. "France vs. Morocco") gives essential context the market question
+  // may lack. Prepend it only when it adds information.
+  const title = eventTitle && !marketTitle.toLowerCase().includes(eventTitle.toLowerCase())
+    ? `${eventTitle}: ${marketTitle}`
+    : marketTitle;
+
+  // Preserve the original fallback chain for non-eventSlug fetches. Only
+  // prepend the parent event description when it was injected by the event-slug
+  // path and adds context not already present.
+  // Issue: Polymarket often returns an empty-string resolutionSource while the
+  // market description contains the detailed resolution rules/source. Fall back
+  // to description when resolutionSource is empty so the normalizer has the full
+  // text for source/deadline/payoff parsing.
+  const baseText = firstNonEmptyString(raw.resolutionSource, raw.description) ?? "";
+  const baseResolutionText = eventDescription && !baseText.toLowerCase().includes(eventDescription.toLowerCase())
+    ? `${eventDescription}\n${baseText}`
+    : baseText;
+
   return {
     venue: "polymarket" as const,
     venueMarketId: String(raw.conditionId ?? raw.id),
-    title: String(raw.question ?? raw.title ?? ""),
+    title,
     rawResolutionText: injectWorldCupTag(raw.tags, baseResolutionText),
     rawPayload: raw,
     capturedAt
