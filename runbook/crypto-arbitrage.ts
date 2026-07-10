@@ -62,6 +62,7 @@ interface CliOptions {
   feeRate: number;
   kalshiFeeRate: number;
   polyFeeRate: number;
+  polyFeeRateOverridden: boolean;
   baseToken: string | undefined;
   tableId: string | undefined;
   as: "user" | "bot";
@@ -138,6 +139,7 @@ function parseArgs(argv: string[]): CliOptions {
         opts.feeRate = v;
         opts.kalshiFeeRate = v;
         opts.polyFeeRate = v;
+        opts.polyFeeRateOverridden = true;
         break;
       }
       case "--kalshi-fee-rate": {
@@ -148,6 +150,7 @@ function parseArgs(argv: string[]): CliOptions {
       case "--poly-fee-rate": {
         const raw = consumeValue(++i, "poly-fee-rate");
         opts.polyFeeRate = parseFloat(raw);
+        opts.polyFeeRateOverridden = true;
         break;
       }
       case "--base-token": {
@@ -209,6 +212,7 @@ function defaultOptions(): CliOptions {
     feeRate: 0.01,
     kalshiFeeRate: 0.01,
     polyFeeRate: 0.01,
+    polyFeeRateOverridden: false,
     baseToken: undefined,
     tableId: undefined,
     as: "user",
@@ -428,7 +432,6 @@ function padRight(text: string, width: number): string {
  * --poly-fee-rate always take precedence and disable the auto detection.
  */
 function buildCryptoCalculatorOptions(opts: CliOptions): Partial<OpportunityCalculatorOptions> {
-  const polyRateOverridden = opts.polyFeeRate !== defaultOptions().polyFeeRate;
   return {
     venueFeeRates: {
       kalshi: { YES: opts.kalshiFeeRate, NO: opts.kalshiFeeRate },
@@ -436,7 +439,7 @@ function buildCryptoCalculatorOptions(opts: CliOptions): Partial<OpportunityCalc
     },
     targetNotionalsUsd: opts.notionals,
     minNetEdge: opts.minEdge,
-    feeSource: polyRateOverridden ? "config" : "market-payload",
+    feeSource: opts.polyFeeRateOverridden ? "config" : "market-payload",
   };
 }
 

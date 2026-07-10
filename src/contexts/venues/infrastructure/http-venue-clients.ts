@@ -237,6 +237,7 @@ export class PolymarketPublicVenueClient implements VenueClient {
         const market = m as Record<string, unknown>;
         market._eventTitle = event.title;
         market._eventDescription = event.description;
+        market._eventEndDate = event.endDate;
         markets.push(market);
       }
     }
@@ -654,9 +655,15 @@ function toPolymarketSnapshotFromRaw(
   // Polymarket series markets (crypto daily, etc.) expose an authoritative
   // endDate in the API but describe the deadline in prose ("July 12"). Append
   // the ISO timestamp to the resolution text so parseDeadline sees it.
-  const endDate = typeof raw.endDate === "string" && raw.endDate.trim().length > 0
+  // When fetched via series slug, endDate lives on the parent event and is
+  // injected as _eventEndDate by fetchMarketsBySeriesSlug.
+  const rawEndDate = typeof raw.endDate === "string" && raw.endDate.trim().length > 0
     ? raw.endDate.trim()
     : undefined;
+  const eventEndDate = typeof raw._eventEndDate === "string" && raw._eventEndDate.trim().length > 0
+    ? raw._eventEndDate.trim()
+    : undefined;
+  const endDate = rawEndDate ?? eventEndDate;
   const resolutionText = endDate && !baseResolutionText.includes(endDate)
     ? `${baseResolutionText}\nResolves at ${endDate}`
     : baseResolutionText;
