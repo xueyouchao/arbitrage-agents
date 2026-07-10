@@ -228,8 +228,29 @@ describe("public venue HTTP clients", () => {
       noAvailableUsd: 4.05,
       yesDepth: [{ price: 0.12, size: 10 }, { price: 0.14, size: 2 }],
       noDepth: [{ price: 0.81, size: 5 }, { price: 0.83, size: 3 }],
-      stale: false
+      stale: false,
+      rawPayload: {
+        market: markets[0].rawPayload,
+        yesBook: { asks: [{ price: "0.14", size: "2" }, { price: "0.12", size: "10" }] },
+        noBook: { asks: [{ price: "0.81", size: "5" }, { price: "0.83", size: "3" }] }
+      }
     })]);
+  });
+
+  it("appends the authoritative endDate to Polymarket rawResolutionText", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify([{ id: "poly-daily", question: "Will BTC be above $100k on July 12?", description: "Resolves per Binance.", endDate: "2026-07-12T16:00:00Z" }]), { status: 200 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const markets = await new PolymarketPublicVenueClient("https://gamma.test", "https://clob.test", { retryDelayMs: 0 }).listMarkets();
+
+    expect(markets).toEqual([
+      expect.objectContaining({
+        venueMarketId: "poly-daily",
+        rawResolutionText: "Resolves per Binance.\nResolves at 2026-07-12T16:00:00Z"
+      })
+    ]);
   });
 
   it("does not mark Polymarket books stale for production ask payload shape", async () => {

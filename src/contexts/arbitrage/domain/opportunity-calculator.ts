@@ -1,6 +1,9 @@
 import { CandidatePair, EquivalenceDecision } from "../../matching/domain/candidate-pair";
 import { Venue, VENUES } from "../../matching/domain/normalized-market";
+import { resolvePolymarketFeeRate } from "../../venues/domain/polymarket-fee-resolver";
 import { ContractLeg, ContractSide, CrossVenueOpportunity, FeeModel, FeeModels, MarketBook, NotionalEdge, PriceLevel, RiskLevel } from "./opportunity";
+
+export type FeeSource = "config" | "market-payload";
 
 export interface OpportunityCalculatorOptions {
   feeRate: number;
@@ -13,6 +16,14 @@ export interface OpportunityCalculatorOptions {
   venueFeeRates: VenueFeeRates;
   venueSlippageRates: VenueSlippageRates;
   feeModels: FeeModels;
+  /**
+   * Where fee rates come from.
+   * - "config" (default): use venueFeeRates / feeRate.
+   * - "market-payload": read per-market fee schedules from each book's
+   *   rawPayload (e.g. Polymarket crypto feeSchedule.rate) and apply them per
+   *   side. Explicit feeModels still take precedence when provided.
+   */
+  feeSource: FeeSource;
   calculationVersion: string;
   configVersion: string;
   previousDetectedAt?: string;
@@ -45,6 +56,7 @@ const DEFAULT_OPTIONS: OpportunityCalculatorOptions = {
     polymarket: { YES: 0.005, NO: 0.005 }
   },
   feeModels: {},
+  feeSource: "config",
   calculationVersion: "opportunity-calculator-v2",
   configVersion: "phase3-conservative-v1"
 };
@@ -98,13 +110,14 @@ export class OpportunityCalculator {
   }
 
   private toLeg(book: MarketBook, side: ContractSide, options: OpportunityCalculatorOptions): ContractLeg {
+    const askPrice = side === "YES" ? book.yesAsk : book.noAsk;
     return {
       venue: book.venue,
       marketId: book.marketId,
       side,
-      askPrice: side === "YES" ? book.yesAsk : book.noAsk,
+      askPrice,
       availableUsd: side === "YES" ? book.yesAvailableUsd : book.noAvailableUsd,
-      feeRate: rateFor(options.venueFeeRates, book.venue, side, options.feeRate),
+      feeRate: feeRateFor(book, side, options),
       slippageRate: rateFor(options.venueSlippageRates, book.venue, side, options.slippageRate),
       feeModelVersion: feeModelFor(options, book.venue)?.version,
       feeModel: feeModelFor(options, book.venue),
@@ -210,6 +223,14 @@ function mergeVenueRates(defaults: VenueFeeRates, overrides: VenueFeeRates | und
 function rateFor(rates: VenueFeeRates, venue: Venue, side: ContractSide, fallback: number): number {
   if (!VENUES.includes(venue)) throw new Error(`Unknown venue ${venue}; no rate configured`);
   return rates[venue]?.[side] ?? fallback;
+}
+
+function feeRateFor(book: MarketBook, side: ContractSide, options: OpportunityCalculatorOptions): number {
+  const configured = rateFor(options.venueFeeRates, book.venue, side, options.feeRate);
+  if (options.feeSource !== "market-payload") return configured;
+
+  const fromPayload = resolvePolymarketFeeRate(book, side);
+  return fromPayload ?? configured;
 }
 
 function feeModelFor(options: OpportunityCalculatorOptions, venue: Venue): FeeModel | undefined {

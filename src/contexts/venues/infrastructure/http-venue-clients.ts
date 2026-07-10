@@ -46,12 +46,20 @@ interface PublicHttpOptions {
    * returned by the default `/markets?closed=false&limit=100` query.
    */
   eventSlug?: string;
+  /**
+   * Polymarket-only: when set, listMarkets queries `GET /events?series_slug={seriesSlug}`
+   * to get all events in the series and their embedded market objects. This is
+   * required for recurring series such as crypto multi-strike weeklies, whose
+   * markets do not appear in the global top-100.
+   */
+  seriesSlug?: string;
 }
 
-type ResolvedHttpOptions = Omit<Required<PublicHttpOptions>, "eventTicker" | "seriesTicker" | "eventSlug"> & {
+type ResolvedHttpOptions = Omit<Required<PublicHttpOptions>, "eventTicker" | "seriesTicker" | "eventSlug" | "seriesSlug"> & {
   eventTicker: string | undefined;
   seriesTicker: string | undefined;
   eventSlug: string | undefined;
+  seriesSlug: string | undefined;
 };
 
 const DEFAULT_HTTP_OPTIONS: ResolvedHttpOptions = {
@@ -68,6 +76,7 @@ const DEFAULT_HTTP_OPTIONS: ResolvedHttpOptions = {
   eventTicker: undefined,
   seriesTicker: undefined,
   eventSlug: undefined,
+  seriesSlug: undefined,
 };
 
 export class KalshiPublicVenueClient implements VenueClient {
@@ -188,7 +197,9 @@ export class PolymarketPublicVenueClient implements VenueClient {
     const capturedAt = new Date().toISOString();
 
     let markets: Array<Record<string, unknown>>;
-    if (this.httpOptions.eventSlug) {
+    if (this.httpOptions.seriesSlug) {
+      markets = await this.fetchMarketsBySeriesSlug(this.httpOptions.seriesSlug);
+    } else if (this.httpOptions.eventSlug) {
       markets = await this.fetchMarketsByEventSlug(this.httpOptions.eventSlug);
     } else {
       markets = await fetchPublicJson<Array<Record<string, unknown>>>(
@@ -199,6 +210,38 @@ export class PolymarketPublicVenueClient implements VenueClient {
     }
 
     return markets.map((market) => toPolymarketSnapshotFromRaw(market, capturedAt));
+  }
+
+  /**
+   * Fetches all markets under a Polymarket series by slug. Queries
+   * `GET /events?series_slug={seriesSlug}`; the response contains events
+   * with their market objects embedded, so no extra /markets fetch is needed.
+   * Series slugs are used for recurring products (crypto multi-strike weeklies,
+   * sports dailies, etc.) that do not appear in the top-100 market list.
+   */
+  private async fetchMarketsBySeriesSlug(seriesSlug: string): Promise<Array<Record<string, unknown>>> {
+    const events = await fetchPublicJson<Array<Record<string, unknown>>>(
+      `${this.baseUrl}/events?series_slug=${encodeURIComponent(seriesSlug)}&active=true&closed=false&limit=100`,
+      `Polymarket series ${seriesSlug}`,
+      this.httpOptions
+    );
+    if (!Array.isArray(events)) return [];
+
+    const markets: Array<Record<string, unknown>> = [];
+    for (const event of events) {
+      if (!event || typeof event !== "object") continue;
+      const eventMarkets = event.markets;
+      if (!Array.isArray(eventMarkets)) continue;
+      for (const m of eventMarkets) {
+        if (!m || typeof m !== "object") continue;
+        const market = m as Record<string, unknown>;
+        market._eventTitle = event.title;
+        market._eventDescription = event.description;
+        market._eventEndDate = event.endDate;
+        markets.push(market);
+      }
+    }
+    return markets;
   }
 
   /**
@@ -336,7 +379,7 @@ export class PolymarketPublicVenueClient implements VenueClient {
       noDepth,
       capturedAt: new Date().toISOString(),
       stale: !yesAskLevel || !noAskLevel,
-      rawPayload: { yesBook, noBook }
+      rawPayload: { market: market.rawPayload, yesBook, noBook }
     };
   }
 }
@@ -609,11 +652,27 @@ function toPolymarketSnapshotFromRaw(
     ? `${eventDescription}\n${baseText}`
     : baseText;
 
+  // Polymarket series markets (crypto daily, etc.) expose an authoritative
+  // endDate in the API but describe the deadline in prose ("July 12"). Append
+  // the ISO timestamp to the resolution text so parseDeadline sees it.
+  // When fetched via series slug, endDate lives on the parent event and is
+  // injected as _eventEndDate by fetchMarketsBySeriesSlug.
+  const rawEndDate = typeof raw.endDate === "string" && raw.endDate.trim().length > 0
+    ? raw.endDate.trim()
+    : undefined;
+  const eventEndDate = typeof raw._eventEndDate === "string" && raw._eventEndDate.trim().length > 0
+    ? raw._eventEndDate.trim()
+    : undefined;
+  const endDate = rawEndDate ?? eventEndDate;
+  const resolutionText = endDate && !baseResolutionText.includes(endDate)
+    ? `${baseResolutionText}\nResolves at ${endDate}`
+    : baseResolutionText;
+
   return {
     venue: "polymarket" as const,
     venueMarketId: String(raw.conditionId ?? raw.id),
     title,
-    rawResolutionText: injectWorldCupTag(raw.tags, baseResolutionText),
+    rawResolutionText: injectWorldCupTag(raw.tags, resolutionText),
     rawPayload: raw,
     capturedAt
   };

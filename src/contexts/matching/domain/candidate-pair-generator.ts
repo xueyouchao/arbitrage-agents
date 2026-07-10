@@ -1,4 +1,5 @@
 import { CandidatePair } from "./candidate-pair";
+import { bothCryptoPriceLevels } from "./crypto-market";
 import { NormalizedMarket } from "./normalized-market";
 
 const DEFAULT_DEADLINE_TOLERANCE_MS = 60 * 1000;
@@ -46,7 +47,7 @@ export class CandidatePairGenerator {
   }
 
   private isCandidate(left: NormalizedMarket, right: NormalizedMarket): boolean {
-    return thresholdsMatch(left.threshold, right.threshold) && deadlinesMatch(left.deadline, right.deadline);
+    return thresholdsMatch(left.threshold, right.threshold, left, right) && deadlinesMatch(left.deadline, right.deadline, left, right);
   }
 }
 
@@ -54,7 +55,7 @@ function bucketKey(market: NormalizedMarket): string {
   return [market.topic, market.asset ?? "", market.eventType, market.payoffType].join("|");
 }
 
-function thresholdsMatch(left?: number, right?: number): boolean {
+function thresholdsMatch(left?: number, right?: number, leftMarket?: NormalizedMarket, rightMarket?: NormalizedMarket): boolean {
   // Non-numeric markets (sports winner, politics election, current-event
   // yes/no) have no threshold. Treat undefined-on-both as compatible so they
   // can still produce candidate pairs.
@@ -65,10 +66,22 @@ function thresholdsMatch(left?: number, right?: number): boolean {
     return false;
   }
 
-  return Math.abs(left - right) < 0.000001;
+  if (Math.abs(left - right) < 0.000001) {
+    return true;
+  }
+
+  // Crypto price-level markets use slightly different strike ladders across
+  // venues (e.g. Polymarket "$52,000" vs Kalshi "$51,999.99"). Treat strikes
+  // within $1 as compatible candidates; the equivalence policy records the
+  // residual difference as an advisory reason.
+  if (leftMarket && rightMarket && bothCryptoPriceLevels(leftMarket, rightMarket) && Math.abs(left - right) <= 1) {
+    return true;
+  }
+
+  return false;
 }
 
-function deadlinesMatch(left?: string, right?: string): boolean {
+function deadlinesMatch(left?: string, right?: string, leftMarket?: NormalizedMarket, rightMarket?: NormalizedMarket): boolean {
   if (!left || !right) {
     return false;
   }
@@ -79,5 +92,29 @@ function deadlinesMatch(left?: string, right?: string): boolean {
     return false;
   }
 
-  return Math.abs(leftTime - rightTime) <= DEFAULT_DEADLINE_TOLERANCE_MS;
+  if (Math.abs(leftTime - rightTime) <= DEFAULT_DEADLINE_TOLERANCE_MS) {
+    return true;
+  }
+
+  // Crypto price-level markets often settle at different times on the same
+  // calendar day across venues (e.g. Kalshi at 4pm EDT / 20:00 UTC, Polymarket
+  // at 16:00 UTC). Treat same-day expiries as compatible candidates while the
+  // equivalence policy still records the time-of-day difference as an advisory
+  // reason.
+  if (leftMarket && rightMarket && bothCryptoPriceLevels(leftMarket, rightMarket)) {
+    return sameUtcDay(leftTime, rightTime);
+  }
+
+  return false;
 }
+
+function sameUtcDay(leftMs: number, rightMs: number): boolean {
+  const left = new Date(leftMs);
+  const right = new Date(rightMs);
+  return (
+    left.getUTCFullYear() === right.getUTCFullYear() &&
+    left.getUTCMonth() === right.getUTCMonth() &&
+    left.getUTCDate() === right.getUTCDate()
+  );
+}
+

@@ -511,7 +511,7 @@ function parseDeadline(text: string): string | undefined {
   if (janMatch) {
     const day = Number(janMatch[1]);
     const year = Number(janMatch[2]);
-    const date = new Date(Date.UTC(year, 0, day, 0, 0, 0));
+    const date = applyTimeOfDay(text, Date.UTC(year, 0, day, 0, 0, 0));
     // Issue #49: reject out-of-range day values that roll over into the next
     // month (e.g. Jan 32 -> Feb 1) before toISOString can produce a wrong date.
     if (!Number.isFinite(date.getTime()) || date.getUTCDate() !== day) return undefined;
@@ -562,7 +562,7 @@ function parseDeadline(text: string): string | undefined {
   const candidates =
     resolutionDates.length > 0 ? resolutionDates : genericDates;
   if (candidates.length > 0) {
-    return new Date(Math.max(...candidates)).toISOString();
+    return applyTimeOfDay(text, Math.max(...candidates)).toISOString();
   }
   // Just a year with an event name: "2026 FIFA World Cup" -> final is July 19, 2026.
   if (/2026\s+fifa\s+world\s+cup(?:\s*$|\s*\?)/.test(lower)) {
@@ -573,6 +573,82 @@ function parseDeadline(text: string): string | undefined {
   }
 
   return undefined;
+}
+
+/**
+ * When the surrounding text contains a time-of-day with timezone (e.g.
+ * "at 4 PM EDT" or "at 4pm EDT"), shift the midnight UTC date to that exact
+ * instant. This matters for crypto daily series: Kalshi titles resolve at
+ * 4pm EDT (20:00 UTC) but the plain date "Jul 9, 2026" was being stored as
+ * midnight UTC, causing a same-day deadline mismatch with Polymarket crypto
+ * markets that expire at 16:00 UTC.
+ */
+function applyTimeOfDay(text: string, midnightUtcMs: number): Date {
+  const offsetMs = timeOfDayOffsetMs(text);
+  return new Date(midnightUtcMs + (offsetMs ?? 0));
+}
+
+function timeOfDayOffsetMs(text: string): number | undefined {
+  const match = text.match(/(\d{1,2})(?::(\d{2}))?(?:\s*([AaPp][Mm]))?\s*(EDT|EST|ET|UTC|GMT)/);
+  if (!match) return undefined;
+
+  let hour = Number(match[1]);
+  const minute = match[2] ? Number(match[2]) : 0;
+  const ampm = match[3]?.toLowerCase();
+  const zone = match[4].toUpperCase();
+
+  if (ampm) {
+    if (hour === 12) hour = ampm === "am" ? 0 : 12;
+    else if (ampm === "pm") hour += 12;
+  }
+
+  if (!Number.isFinite(hour) || hour < 0 || hour > 23 || !Number.isFinite(minute) || minute < 0 || minute > 59) {
+    return undefined;
+  }
+
+  const localMs = hour * 60 * 60 * 1000 + minute * 60 * 1000;
+  const referenceMs = midnightUtcFromText(text, localMs);
+  const offsetHours = timezoneOffsetHours(zone, referenceMs);
+  if (offsetHours === undefined) return undefined;
+  return localMs - offsetHours * 60 * 60 * 1000;
+}
+
+function midnightUtcFromText(text: string, localMs: number): number {
+  // Fallback: we don't have the date here, but for timezone selection we only
+  // need the month; using the current date is acceptable because the caller
+  // passes the already-resolved midnight timestamp. To keep this helper pure,
+  // scan the text for a year-month-day candidate and use it if found.
+  const yearMatch = text.match(/\b(20\d{2})\b/);
+  const year = yearMatch ? Number(yearMatch[1]) : new Date().getUTCFullYear();
+  return Date.UTC(year, 0, 1) + localMs;
+}
+
+function timezoneOffsetHours(zone: string, referenceDate: number): number | undefined {
+  if (zone === "UTC" || zone === "GMT") return 0;
+  if (zone === "EDT") return -4;
+  if (zone === "EST") return -5;
+  if (zone === "ET") {
+    // US Eastern: EDT second Sunday March -> first Sunday November.
+    const date = new Date(referenceDate);
+    const year = date.getUTCFullYear();
+    const dstStart = secondSundayOf(year, 2);
+    const dstEnd = firstSundayOf(year, 10);
+    const ts = date.getTime();
+    return ts >= dstStart && ts < dstEnd ? -4 : -5;
+  }
+  return undefined;
+}
+
+function secondSundayOf(year: number, month: number): number {
+  const firstDay = new Date(Date.UTC(year, month, 1)).getUTCDay();
+  const day = firstDay === 0 ? 8 : 15 - firstDay;
+  return Date.UTC(year, month, day);
+}
+
+function firstSundayOf(year: number, month: number): number {
+  const firstDay = new Date(Date.UTC(year, month, 1)).getUTCDay();
+  const day = firstDay === 0 ? 1 : 8 - firstDay;
+  return Date.UTC(year, month, day);
 }
 
 function monthNameToIndex(name: string): number | undefined {

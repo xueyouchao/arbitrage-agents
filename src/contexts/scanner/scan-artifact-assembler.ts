@@ -1,4 +1,4 @@
-import { OpportunityCalculator } from "../arbitrage/domain/opportunity-calculator";
+import { OpportunityCalculator, OpportunityCalculatorOptions } from "../arbitrage/domain/opportunity-calculator";
 import { MarketBook } from "../arbitrage/domain/opportunity";
 import { NormalizedMarket } from "../matching/domain/normalized-market";
 import {
@@ -49,7 +49,8 @@ export class ScanArtifactAssembler {
     books: readonly MarketBook[],
     orderbookSnapshots: readonly OrderbookSnapshotArtifact[],
     calculationAt: string,
-    calculator: OpportunityCalculator
+    calculator: OpportunityCalculator,
+    calculatorOptions?: Partial<OpportunityCalculatorOptions>
   ): OpportunityWithSourceSnapshots[] {
     const booksByKey = new Map(books.map((book) => [bookKey(book), book]));
     const orderbookSnapshotByBookKey = new Map(
@@ -64,7 +65,7 @@ export class ScanArtifactAssembler {
       const polymarketSnapshot = orderbookSnapshotByBookKey.get(polymarketKey);
       if (!kalshiBook || !polymarketBook || !kalshiSnapshot || !polymarketSnapshot) return [];
       return calculator
-        .calculate(pair, decision, kalshiBook, polymarketBook, { now: calculationAt })
+        .calculate(pair, decision, kalshiBook, polymarketBook, { now: calculationAt, ...calculatorOptions })
         .map((opportunity) => ({
           opportunity,
           kalshiOrderbookSnapshotId: kalshiSnapshot.id,
