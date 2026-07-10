@@ -1,7 +1,8 @@
 import { CandidatePair, EquivalenceDecision } from "../../matching/domain/candidate-pair";
-import { Venue, VENUES } from "../../matching/domain/normalized-market";
+import { NormalizedMarket, Venue, VENUES } from "../../matching/domain/normalized-market";
 import { resolvePolymarketFeeRate } from "../../venues/domain/polymarket-fee-resolver";
-import { ContractLeg, ContractSide, CrossVenueOpportunity, FeeModel, FeeModels, MarketBook, NotionalEdge, PriceLevel, RiskLevel } from "./opportunity";
+import { classifyRiskStructure } from "./risk-structure-classifier";
+import { ContractLeg, ContractSide, CrossVenueOpportunity, FeeModel, FeeModels, MarketBook, NotionalEdge, PriceLevel, RiskLevel, RiskStructure } from "./opportunity";
 
 export type FeeSource = "config" | "market-payload";
 
@@ -96,7 +97,7 @@ export class OpportunityCalculator {
 
     return directions
       .filter(({ longLeg, hedgeLeg }) => this.isValidLeg(longLeg) && this.isValidLeg(hedgeLeg))
-      .map(({ id, longLeg, hedgeLeg }) => this.toOpportunity(pair.id, id, "A", decision, longLeg, hedgeLeg, [kalshiBook, polymarketBook], mergedOptions))
+      .map(({ id, longLeg, hedgeLeg }) => this.toOpportunity(pair.id, pair, id, "A", decision, longLeg, hedgeLeg, [kalshiBook, polymarketBook], mergedOptions))
       .filter((opportunity) => opportunity.netEdge > mergedOptions.minNetEdge + mergedOptions.profitabilityBuffer);
   }
 
@@ -137,6 +138,7 @@ export class OpportunityCalculator {
 
   private toOpportunity(
     pairId: string,
+    pair: CandidatePair,
     directionId: string,
     equivalenceClass: "A",
     decision: EquivalenceDecision,
@@ -154,6 +156,9 @@ export class OpportunityCalculator {
     const executableSizeUsd = maxTradableUsd;
     const executableEdge = simulateNotionalEdge(executableSizeUsd, longLeg, hedgeLeg);
     const dataStalenessMs = Math.max(...books.map((book) => bookAgeMs(book, options.now) ?? options.maxBookAgeMs + 1));
+
+    // ADR-0002 §3.6: derive the risk structure for this pair from normalized market fields.
+    const riskStructure = buildRiskStructure(pair, longLeg, hedgeLeg);
 
     return {
       id: `${pairId}:${directionId}`,
@@ -186,9 +191,36 @@ export class OpportunityCalculator {
       firstDetectedAt: options.previousDetectedAt ?? options.now,
       lastVerifiedAt: options.now,
       calculationVersion: options.calculationVersion,
-      configVersion: options.configVersion
+      configVersion: options.configVersion,
+      riskStructure
     };
   }
+}
+
+// ADR-0002 §3.6: build the classifier input from the pair's normalized markets and the computed legs.
+// The venue→market lookup is exhaustive over Venue so the compiler forces an
+// update here if a new venue is added (mirrors AssertNoUnhandledDefaultVenue).
+function buildRiskStructure(pair: CandidatePair, longLeg: ContractLeg, hedgeLeg: ContractLeg): RiskStructure {
+  const legToInput = (leg: ContractLeg) => {
+    const market: NormalizedMarket =
+      leg.venue === "kalshi" ? pair.kalshiMarket
+      : leg.venue === "polymarket" ? pair.polymarketMarket
+      : assertNeverVenue(leg.venue);
+    return {
+      venue: leg.venue,
+      marketId: leg.marketId,
+      side: leg.side,
+      deadline: market.deadline,
+      resolutionSource: market.resolutionSource,
+      payoffType: market.payoffType
+    };
+  };
+
+  return classifyRiskStructure({ legA: legToInput(longLeg), legB: legToInput(hedgeLeg) });
+}
+
+function assertNeverVenue(venue: never): NormalizedMarket {
+  throw new Error(`Unhandled venue ${JSON.stringify(venue)} in buildRiskStructure; add it to the leg→market mapping.`);
 }
 
 function mergeOptions(options: Partial<OpportunityCalculatorOptions>): OpportunityCalculatorOptions {

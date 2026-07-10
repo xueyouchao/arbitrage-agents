@@ -65,6 +65,54 @@ describe("loadAppConfig", () => {
     });
     expect(config.maxCapitalDeployedUsd).toBe(10000);
   });
+
+  it("defaults ADR-0002 T1 exit-gate parameters", () => {
+    const config = loadAppConfig({
+      DATABASE_URL: "postgres://user:pass@localhost:5432/db"
+    });
+    expect(config.t1ExitMinMargin).toBe(0.005);
+    expect(config.t1ExitDepthHaircut).toBe(0.25);
+    expect(config.t1ExitPolicy).toBe("evaluate");
+    expect(config.t1ExitGapDecayPerHour).toBe(0.02);
+    expect(config.t1ExitGapDecayMax).toBe(0.5);
+    expect(config.t1ExitSellFeeRate).toBe(0.01);
+    expect(config.t1ExitEstimatedSpreadRate).toBe(0.01);
+    expect(config.t1ExitEstimatedSlippagePerShare).toBe(0.005);
+  });
+
+  it("coerces ADR-0002 T1 exit-gate overrides from env strings", () => {
+    const config = loadAppConfig({
+      DATABASE_URL: "postgres://user:pass@localhost:5432/db",
+      T1_EXIT_MIN_MARGIN: "0.02",
+      T1_EXIT_DEPTH_HAIRCUT: "0.4",
+      T1_EXIT_POLICY: "hold",
+      T1_EXIT_GAP_DECAY_PER_HOUR: "0.05"
+    });
+    expect(config.t1ExitMinMargin).toBe(0.02);
+    expect(config.t1ExitDepthHaircut).toBe(0.4);
+    expect(config.t1ExitPolicy).toBe("hold");
+    expect(config.t1ExitGapDecayPerHour).toBe(0.05);
+  });
+
+  it("rejects invalid T1 exit policy values", () => {
+    expect(() =>
+      loadAppConfig({
+        DATABASE_URL: "postgres://user:pass@localhost:5432/db",
+        T1_EXIT_POLICY: "bogus"
+      })
+    ).toThrow();
+  });
+
+  it("rejects the deferred 'always' unconditional-exit policy", () => {
+    // Assert the specific zod enum rejection, not just any throw, so a future
+    // change that throws for a different reason does not silently pass this test.
+    expect(() =>
+      loadAppConfig({
+        DATABASE_URL: "postgres://user:pass@localhost:5432/db",
+        T1_EXIT_POLICY: "always"
+      })
+    ).toThrow(/T1_EXIT_POLICY|always/);
+  });
 });
 
 describe("redactSensitiveData", () => {
