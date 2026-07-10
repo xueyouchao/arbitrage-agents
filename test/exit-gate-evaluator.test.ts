@@ -143,4 +143,16 @@ describe("evaluateExitGate", () => {
     expect(result.reasoning).toContain("minMargin=0.5");
     expect(result.reasoning).toContain("FAIL");
   });
+
+  it("clamps gapDecay to gapDecayMax for very long settlement gaps", () => {
+    // dtHours = 30, gapDecayPerHour = 0.02 → raw decay 0.6, clamped to 0.5.
+    const result = evaluateExitGate(
+      baseInput({ riskStructure: defaultRiskStructure(30) }),
+    );
+    // mid = (0.95 + 0.97) / 2 = 0.96; holdEV = 0.96 * (1 - 0.5) = 0.48
+    // (if the cap were NOT applied, holdEV would be 0.96 * (1 - 0.6) = 0.384)
+    expect(result.holdExpectedValue).toBeCloseTo(0.96 * (1 - 0.5), 6);
+    // With holdEV halved, lockPerShare (0.95) clearly beats holdEV → cost gate passes.
+    expect(result.gateResult).toBe("pass");
+  });
 });

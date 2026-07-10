@@ -77,7 +77,7 @@ describe("loadAppConfig", () => {
     expect(config.t1ExitGapDecayMax).toBe(0.5);
     expect(config.t1ExitSellFeeRate).toBe(0.01);
     expect(config.t1ExitEstimatedSpreadRate).toBe(0.01);
-    expect(config.t1ExitEstimatedSlippageRate).toBe(0.005);
+    expect(config.t1ExitEstimatedSlippagePerShare).toBe(0.005);
   });
 
   it("coerces ADR-0002 T1 exit-gate overrides from env strings", () => {

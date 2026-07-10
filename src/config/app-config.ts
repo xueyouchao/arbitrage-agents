@@ -80,10 +80,13 @@ const AppConfigSchema = z.object({
   // ADR §6 Open Question #1: simple gap-decay proxy for hold expected value.
   t1ExitGapDecayPerHour: z.coerce.number().min(0).max(1).default(0.02),
   t1ExitGapDecayMax: z.coerce.number().min(0).max(1).default(0.5),
-  // ADR §3.3 exit-cost components, expressed as fractions of price or size.
+  // ADR §3.3 exit-cost components. sellFee and estimatedSpread are fractions of
+  // price; estimatedSlippage is a per-share cost (dollars per share sold), NOT a
+  // price fraction — slippage scales with size, per ADR §3.3. Named "...PerShare"
+  // so the unit is explicit.
   t1ExitSellFeeRate: z.coerce.number().min(0).max(1).default(0.01),
   t1ExitEstimatedSpreadRate: z.coerce.number().min(0).max(1).default(0.01),
-  t1ExitEstimatedSlippageRate: z.coerce.number().min(0).max(1).default(0.005)
+  t1ExitEstimatedSlippagePerShare: z.coerce.number().min(0).max(1).default(0.005)
 });
 
 export type AppConfig = z.infer<typeof AppConfigSchema>;
@@ -121,7 +124,7 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     t1ExitGapDecayMax: env.T1_EXIT_GAP_DECAY_MAX,
     t1ExitSellFeeRate: env.T1_EXIT_SELL_FEE_RATE,
     t1ExitEstimatedSpreadRate: env.T1_EXIT_ESTIMATED_SPREAD_RATE,
-    t1ExitEstimatedSlippageRate: env.T1_EXIT_ESTIMATED_SLIPPAGE_RATE
+    t1ExitEstimatedSlippagePerShare: env.T1_EXIT_ESTIMATED_SLIPPAGE_PER_SHARE
   });
 }
 
@@ -139,7 +142,7 @@ export function exitGateConfigFromApp(config: AppConfig): Partial<ExitGateConfig
     gapDecayMax: config.t1ExitGapDecayMax,
     sellFeeRate: config.t1ExitSellFeeRate,
     estimatedSpreadRate: config.t1ExitEstimatedSpreadRate,
-    estimatedSlippageRate: config.t1ExitEstimatedSlippageRate
+    estimatedSlippagePerShare: config.t1ExitEstimatedSlippagePerShare
   };
 }
 

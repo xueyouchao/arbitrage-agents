@@ -16,9 +16,11 @@ export interface ExitGateConfig {
   sellFeeRate: number;
   // Estimated half-spread as a fraction of price (ADR §3.3 exitCost component).
   estimatedSpreadRate: number;
-  // Estimated slippage as a per-share cost proportional to size sold (ADR §3.3 exitCost
-  // component). Fee and spread scale with price; slippage scales with shares sold.
-  estimatedSlippageRate: number;
+  // Estimated slippage as a per-share cost (dollars per share sold), NOT a fraction of
+  // price. ADR §3.3 makes slippage scale with shares sold (size), while sellFee and
+  // estimatedSpread scale with price. Named "...PerShare" so the unit is explicit and
+  // not confused with the price-fraction rates above.
+  estimatedSlippagePerShare: number;
 }
 
 // Defaults chosen to match ADR-0002 §3.3 and the simple gap-length proxy from
@@ -30,7 +32,7 @@ export const DEFAULT_EXIT_GATE_CONFIG: ExitGateConfig = {
   gapDecayMax: 0.5,
   sellFeeRate: 0.01,
   estimatedSpreadRate: 0.01,
-  estimatedSlippageRate: 0.005,
+  estimatedSlippagePerShare: 0.005,
 };
 
 export interface ExitGateInput {
@@ -146,7 +148,7 @@ export function evaluateExitGate(input: ExitGateInput): ExitGateResult {
   const exitCost =
     recommendedSellPrice *
       (config.sellFeeRate + config.estimatedSpreadRate) +
-    config.estimatedSlippageRate;
+    config.estimatedSlippagePerShare;
 
   // ADR §6 Open Question #1 simple proxy: surviving-leg mid discounted by a
   // clamped gap-decay factor. Replace with a realized-vol model once calibrated.

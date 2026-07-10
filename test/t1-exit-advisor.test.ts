@@ -256,6 +256,39 @@ describe("evaluateT1ExitAlert", () => {
     expect(evaluated.gateResult).toBe("fail");
     expect(evaluated.reasoning).toContain("marketId mismatch");
   });
+
+  it("fails the exit-cost gate when fees blow out the edge", () => {
+    const alert: T1ExitAlert = {
+      opportunityId: "opp-1",
+      pairId: "pair-1",
+      triggerAt: "2026-07-15T14:00:00Z",
+      earlyLeg: { venue: "kalshi", marketId: "kalshi-m1", side: "YES", deadline: "2026-07-15T14:00:00Z" },
+      survivingLeg: { venue: "polymarket", marketId: "poly-m1", side: "YES" },
+      exitPolicy: "evaluate",
+      basisRiskClass: "same_ref",
+      dtHours: 2,
+      payoffType: "at_time",
+    };
+
+    // sellFeeRate 0.5 makes exitCost huge → lockPerShare − holdEV < exitCost + minMargin.
+    const evaluated = evaluateT1ExitAlert(
+      alert,
+      {
+        marketId: "poly-m1",
+        side: "YES",
+        bidPrice: 0.98,
+        askPrice: 0.99,
+        depth: [{ price: 0.98, size: 1000 }],
+      },
+      100,
+      { sellFeeRate: 0.5 },
+    );
+
+    expect(evaluated.gateResult).toBe("fail");
+    // The failure is the exit-cost gate (liquidity is fine: depth 1000 > 0).
+    expect(evaluated.reasoning).toContain("exit-cost gate");
+    expect(evaluated.reasoning).toContain("FAIL");
+  });
 });
 
 describe("T1TriggerRegistry", () => {
