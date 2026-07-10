@@ -43,6 +43,11 @@ function roundToDecimals(value: number, decimals: number): number {
 	return Math.round(value * factor) / factor;
 }
 
+// The classifier rounds dtHours to 3 decimals, so the smallest non-zero gap that
+// survives rounding is ~0.001h ≈ 3.6s. Any smaller deadline difference is treated
+// as simultaneous settlement (hold), which is the intended float-dust behavior.
+const MIN_SEQUENTIAL_GAP_HOURS = 0.001;
+
 export function classifyRiskStructure(input: RiskStructureInput): RiskStructure {
 	const timeA = parseDeadlineMs(input.legA.deadline);
 	const timeB = parseDeadlineMs(input.legB.deadline);
@@ -72,8 +77,10 @@ export function classifyRiskStructure(input: RiskStructureInput): RiskStructure 
 		basisRiskClass = "same_ref";
 	}
 
-	// ADR-0002 §3.4: Δt > 0 triggers evaluation; float dust is ignored.
-	const exitPolicy: ExitPolicy = dtHours > 1e-9 ? "evaluate" : "hold";
+	// ADR-0002 §3.4: sequential settlement (evaluate) starts once the rounded gap
+	// clears the minimum meaningful threshold; smaller deltas are treated as
+	// simultaneous settlement (hold) to ignore timestamp dust.
+	const exitPolicy: ExitPolicy = dtHours >= MIN_SEQUENTIAL_GAP_HOURS ? "evaluate" : "hold";
 
 	return {
 		earlyLeg: {

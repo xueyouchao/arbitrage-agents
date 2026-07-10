@@ -4,7 +4,11 @@ import { ContractSide, GateResult, PriceLevel, RiskStructure } from "./opportuni
 // All tunables are function parameters with documented defaults so T6 can later
 // wire AppConfig into them without changing the evaluator signature.
 export interface ExitGateConfig {
-  // Minimum margin required beyond estimated exit costs (ADR §3.1, §3.3).
+  // Minimum margin required beyond estimated exit costs, in DOLLARS PER SHARE
+  // (same unit as exitCost, since the §3.1 gate is `lockValue − holdExpectedValue
+  // > exitCost + minMargin`, all per-share). NOT a price fraction — for a $0.50
+  // contract the default 0.005 is a 1% margin, for a $0.01 contract it is 50%.
+  // Raise it to demand a fatter absolute buffer before selling at t1.
   minMargin: number;
   // Liquidity haircut applied to the surviving-leg book depth (ADR §3.3).
   depthHaircut: number;
@@ -147,15 +151,19 @@ export function evaluateExitGate(input: ExitGateInput): ExitGateResult {
       ? 0
       : Math.min(positionSize, config.depthHaircut * availableDepth);
 
-  // Total value unlocked if the recommended size is sold at the bid.
-  const lockValue = recommendedSellPrice * recommendedSellSize;
+  // Total value unlocked if the recommended size is sold at the bid. On invalid
+  // inputs recommendedSellPrice may be NaN/Infinity, so force 0 rather than
+  // propagate NaN (NaN * 0 = NaN) into the returned result.
+  const lockValue = inputsValid ? recommendedSellPrice * recommendedSellSize : 0;
 
   // ADR §3.3 exitCost = sellFee + estimatedSpread + estimatedSlippage, per share.
   // Fee and spread scale with price; slippage scales with shares sold (per share).
-  const exitCost =
-    recommendedSellPrice *
-      (config.sellFeeRate + config.estimatedSpreadRate) +
-    config.estimatedSlippagePerShare;
+  // Guarded for the same NaN reason as lockValue.
+  const exitCost = inputsValid
+    ? recommendedSellPrice *
+        (config.sellFeeRate + config.estimatedSpreadRate) +
+      config.estimatedSlippagePerShare
+    : 0;
 
   // ADR §6 Open Question #1 simple proxy: surviving-leg mid discounted by a
   // clamped gap-decay factor. Replace with a realized-vol model once calibrated.

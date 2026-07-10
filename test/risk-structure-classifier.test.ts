@@ -100,4 +100,22 @@ describe("classifyRiskStructure", () => {
 		expect(result.exitPolicy).toBe("evaluate");
 		expect(result.basisRiskClass).toBe("diff_ref");
 	});
+
+	it("treats sub-threshold deadline dust as simultaneous but evaluates once the rounded gap reaches 0.001h", () => {
+		const belowThreshold = classifyRiskStructure({
+			// 1 second = 0.000278h → rounds to 0.000 → hold.
+			legA: leg("kalshi", "KFX", "YES", "2026-07-15T14:00:00.000Z", "CME", "settlement_value"),
+			legB: leg("polymarket", "PFX", "NO", "2026-07-15T14:00:01.000Z", "CME", "settlement_value"),
+		});
+		expect(belowThreshold.dtHours).toBe(0);
+		expect(belowThreshold.exitPolicy).toBe("hold");
+
+		const atThreshold = classifyRiskStructure({
+			// 4 seconds = 0.001111h → rounds to 0.001 → evaluate.
+			legA: leg("kalshi", "KFY", "YES", "2026-07-15T14:00:00.000Z", "CME", "settlement_value"),
+			legB: leg("polymarket", "PFY", "NO", "2026-07-15T14:00:04.000Z", "CME", "settlement_value"),
+		});
+		expect(atThreshold.dtHours).toBe(0.001);
+		expect(atThreshold.exitPolicy).toBe("evaluate");
+	});
 });
