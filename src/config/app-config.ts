@@ -55,7 +55,16 @@ const AppConfigSchema = z.object({
   // Issue #81: max capital deployed across all open positions. If
   // total open position notional exceeds this, new executions are
   // rejected by the RiskManager pre-trade guard.
-  maxCapitalDeployedUsd: z.coerce.number().positive().default(5000)
+  maxCapitalDeployedUsd: z.coerce.number().positive().default(5000),
+  // Crypto price-level markets (BTC/ETH daily price series) only surface
+  // via series-scoped queries — they almost never appear in either venue's
+  // global top-100 list. Without these the production worker normalizes ~0
+  // crypto markets and emits 0 candidate pairs every scan. Defaults target
+  // the BTC daily price-level series on each venue; override per-env to scan
+  // ETH (KXETHD / eth-multi-strikes-weekly) or disable (empty string → the
+  // client falls back to the global top-100, matching the old behavior).
+  kalshiSeriesTicker: z.string().default("KXBTCD"),
+  polymarketSeriesSlug: z.string().default("btc-multi-strikes-weekly")
 });
 
 export type AppConfig = z.infer<typeof AppConfigSchema>;
@@ -83,7 +92,9 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     kalshiPrivateKey: resolveKalshiPrivateKey(env.KALSHI_PRIVATE_KEY),
     polyPrivateKey: env.POLY_PRIVATE_KEY,
     polyWalletAddress: env.POLY_WALLET_ADDRESS,
-    maxCapitalDeployedUsd: env.MAX_CAPITAL_DEPLOYED_USD
+    maxCapitalDeployedUsd: env.MAX_CAPITAL_DEPLOYED_USD,
+    kalshiSeriesTicker: env.KALSHI_SERIES_TICKER,
+    polymarketSeriesSlug: env.POLYMARKET_SERIES_SLUG
   });
 }
 

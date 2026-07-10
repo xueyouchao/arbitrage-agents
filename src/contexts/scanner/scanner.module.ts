@@ -133,11 +133,31 @@ async function pingAndLog(provider: OllamaChatLlmProvider, config: AppConfig): P
     // lifetime. See `src/contexts/shared/database/database.module.ts`.
     {
       provide: KALSHI_VENUE_CLIENT,
-      useFactory: () => new KalshiPublicVenueClient(undefined, { concurrency: 5, retries: 3, timeoutMs: 10_000 })
+      useFactory: (config: AppConfig) => new KalshiPublicVenueClient(undefined, {
+        concurrency: 5,
+        retries: 3,
+        timeoutMs: 10_000,
+        // Crypto price-level series (KXBTCD/KXETHD) only surface via a
+        // series-scoped query; without this the global top-100 returns ~no
+        // crypto markets and the scan emits 0 candidate pairs. Empty string
+        // falls back to the global top-100 (legacy behavior).
+        seriesTicker: config.kalshiSeriesTicker || undefined
+      }),
+      inject: [APP_CONFIG]
     },
     {
       provide: POLYMARKET_VENUE_CLIENT,
-      useFactory: () => new PolymarketPublicVenueClient(undefined, undefined, { concurrency: 8, retries: 3, timeoutMs: 10_000 })
+      useFactory: (config: AppConfig) => new PolymarketPublicVenueClient(undefined, undefined, {
+        concurrency: 8,
+        retries: 3,
+        timeoutMs: 10_000,
+        // Polymarket's crypto price-level markets live under a series
+        // (e.g. btc-multi-strikes-weekly) and never appear in the global
+        // top-100. Without this the scan normalizes ~0 crypto markets and
+        // pairs nothing. Empty string falls back to the global top-100.
+        seriesSlug: config.polymarketSeriesSlug || undefined
+      }),
+      inject: [APP_CONFIG]
     },
     PostgresScannerRepository,
     { provide: SCANNER_REPOSITORY, useExisting: PostgresScannerRepository },
