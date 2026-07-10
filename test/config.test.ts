@@ -104,12 +104,14 @@ describe("loadAppConfig", () => {
   });
 
   it("rejects the deferred 'always' unconditional-exit policy", () => {
+    // Assert the specific zod enum rejection, not just any throw, so a future
+    // change that throws for a different reason does not silently pass this test.
     expect(() =>
       loadAppConfig({
         DATABASE_URL: "postgres://user:pass@localhost:5432/db",
         T1_EXIT_POLICY: "always"
       })
-    ).toThrow();
+    ).toThrow(/T1_EXIT_POLICY|always/);
   });
 });
 

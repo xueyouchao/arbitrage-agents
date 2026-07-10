@@ -77,6 +77,22 @@ export function evaluateT1ExitAlert(
 	positionSize: number,
 	config?: Partial<ExitGateConfig>,
 ): T1ExitAlert {
+	// Defensive guard: the book snapshot must be for the alert's surviving leg.
+	// A mismatch is a caller wiring bug; fail the gate loudly rather than
+	// silently evaluating the wrong market's book.
+	if (survivingLegBook.marketId !== alert.survivingLeg.marketId) {
+		return {
+			...alert,
+			gateResult: "fail",
+			recommendedSellPrice: 0,
+			recommendedSellSize: 0,
+			lockValue: 0,
+			holdExpectedValue: 0,
+			exitCost: 0,
+			reasoning: `marketId mismatch: book=${survivingLegBook.marketId} survivingLeg=${alert.survivingLeg.marketId} → FAIL`,
+		};
+	}
+
 	const riskStructure: RiskStructure = {
 		earlyLeg: alert.earlyLeg,
 		survivingLeg: alert.survivingLeg,
@@ -110,15 +126,22 @@ export function evaluateT1ExitAlert(
 export class T1TriggerRegistry {
 	private readonly alerts = new Map<string, T1ExitAlert>();
 
-	register(entry: CrossVenueOpportunity | T1ExitAlert): void {
-		if ("opportunityId" in entry) {
-			this.alerts.set(entry.opportunityId, entry);
-		} else {
-			const built = buildT1ExitAlerts([entry]);
-			if (built.length === 0) return;
-			const alert = built[0];
-			this.alerts.set(alert.opportunityId, alert);
-		}
+	// Register a fresh (detection-time) opportunity: builds and stores its pending
+	// alert. Opportunities without a riskStructure or with exitPolicy "hold" are
+	// silently skipped (they have no t1 trigger).
+	registerOpportunity(opportunity: CrossVenueOpportunity): void {
+		const built = buildT1ExitAlerts([opportunity]);
+		if (built.length === 0) return;
+		this.alerts.set(built[0].opportunityId, built[0]);
+	}
+
+	// Register an alert directly (typically the result of evaluateT1ExitAlert,
+	// which carries the populated gate fields). Overwrites any prior alert for
+	// the same opportunityId. Separate from registerOpportunity so the compiler
+	// enforces which shape a caller is providing — no silent CrossVenueOpportunity/
+	// T1ExitAlert confusion at the call site.
+	registerAlert(alert: T1ExitAlert): void {
+		this.alerts.set(alert.opportunityId, alert);
 	}
 
 	pending(): ReadonlyArray<T1ExitAlert> {

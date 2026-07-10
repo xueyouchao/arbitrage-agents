@@ -164,6 +164,98 @@ describe("evaluateT1ExitAlert", () => {
     expect(evaluated.recommendedSellSize).toBe(0);
     expect(evaluated.reasoning).toContain("liquidity");
   });
+
+  it("fails when the book bid price is NaN (invalid-input guard)", () => {
+    const alert: T1ExitAlert = {
+      opportunityId: "opp-1",
+      pairId: "pair-1",
+      triggerAt: "2026-07-15T14:00:00Z",
+      earlyLeg: { venue: "kalshi", marketId: "kalshi-m1", side: "YES", deadline: "2026-07-15T14:00:00Z" },
+      survivingLeg: { venue: "polymarket", marketId: "poly-m1", side: "YES" },
+      exitPolicy: "evaluate",
+      basisRiskClass: "same_ref",
+      dtHours: 2,
+      payoffType: "at_time",
+    };
+
+    const evaluated = evaluateT1ExitAlert(
+      alert,
+      {
+        marketId: "poly-m1",
+        side: "YES",
+        bidPrice: NaN,
+        askPrice: 0.99,
+        depth: [{ price: 0.98, size: 1000 }],
+      },
+      100,
+    );
+
+    expect(evaluated.gateResult).toBe("fail");
+    expect(evaluated.recommendedSellSize).toBe(0);
+    expect(evaluated.reasoning).toContain("invalid");
+  });
+
+  it("fails when depth levels carry negative sizes (invalid-input guard)", () => {
+    const alert: T1ExitAlert = {
+      opportunityId: "opp-1",
+      pairId: "pair-1",
+      triggerAt: "2026-07-15T14:00:00Z",
+      earlyLeg: { venue: "kalshi", marketId: "kalshi-m1", side: "YES", deadline: "2026-07-15T14:00:00Z" },
+      survivingLeg: { venue: "polymarket", marketId: "poly-m1", side: "YES" },
+      exitPolicy: "evaluate",
+      basisRiskClass: "same_ref",
+      dtHours: 2,
+      payoffType: "at_time",
+    };
+
+    const evaluated = evaluateT1ExitAlert(
+      alert,
+      {
+        marketId: "poly-m1",
+        side: "YES",
+        bidPrice: 0.98,
+        askPrice: 0.99,
+        // cumulative depth ignores non-positive sizes → availableDepth 0 → fail
+        depth: [
+          { price: 0.98, size: -500 },
+          { price: 0.97, size: 0 },
+        ],
+      },
+      100,
+    );
+
+    expect(evaluated.gateResult).toBe("fail");
+    expect(evaluated.recommendedSellSize).toBe(0);
+  });
+
+  it("fails when the book marketId does not match the surviving leg", () => {
+    const alert: T1ExitAlert = {
+      opportunityId: "opp-1",
+      pairId: "pair-1",
+      triggerAt: "2026-07-15T14:00:00Z",
+      earlyLeg: { venue: "kalshi", marketId: "kalshi-m1", side: "YES", deadline: "2026-07-15T14:00:00Z" },
+      survivingLeg: { venue: "polymarket", marketId: "poly-m1", side: "YES" },
+      exitPolicy: "evaluate",
+      basisRiskClass: "same_ref",
+      dtHours: 2,
+      payoffType: "at_time",
+    };
+
+    const evaluated = evaluateT1ExitAlert(
+      alert,
+      {
+        marketId: "wrong-market",
+        side: "YES",
+        bidPrice: 0.98,
+        askPrice: 0.99,
+        depth: [{ price: 0.98, size: 1000 }],
+      },
+      100,
+    );
+
+    expect(evaluated.gateResult).toBe("fail");
+    expect(evaluated.reasoning).toContain("marketId mismatch");
+  });
 });
 
 describe("T1TriggerRegistry", () => {
@@ -194,8 +286,8 @@ describe("T1TriggerRegistry", () => {
     });
 
     const registry = new T1TriggerRegistry();
-    registry.register(evaluateOpp);
-    registry.register(holdOpp);
+    registry.registerOpportunity(evaluateOpp);
+    registry.registerOpportunity(holdOpp);
 
     expect(registry.pending()).toHaveLength(1);
     expect(registry.pending()[0].opportunityId).toBe("opp-eval");
@@ -214,7 +306,7 @@ describe("T1TriggerRegistry", () => {
       100,
     );
 
-    registry.register(evaluated);
+    registry.registerAlert(evaluated);
 
     expect(registry.pending()).toHaveLength(0);
     expect(registry.evaluated()).toHaveLength(1);
@@ -223,7 +315,7 @@ describe("T1TriggerRegistry", () => {
 
   it("clears all tracked alerts", () => {
     const registry = new T1TriggerRegistry();
-    registry.register(
+    registry.registerOpportunity(
       makeOpportunity({
         id: "opp-clear",
         riskStructure: {
