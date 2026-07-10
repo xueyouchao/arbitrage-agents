@@ -98,7 +98,9 @@ export interface RiskStructure {
   basisRiskClass: BasisRiskClass;
   // Payoff type of the surviving leg, surfaced for the exit model.
   payoffType: PayoffType;
-  // 'evaluate' = run t1 exit gate (dtHours > 0); 'hold' = hold to t2 (simultaneous); 'always' = unconditional exit (config-opt).
+  // 'evaluate' = run the t1 exit gate (sequential settlement, dtHours > 0);
+  // 'hold' = hold to t2 (simultaneous settlement). Unconditional exit ("always")
+  // is intentionally not in the type — it is deferred per ADR §3.1/§4.1.
   exitPolicy: ExitPolicy;
   // --- t1-evaluated fields (populated at t1, absent at detection time) ---
   // Value locked by selling the surviving leg at t1 bid.

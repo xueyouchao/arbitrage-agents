@@ -134,6 +134,22 @@ describe("evaluateExitGate", () => {
     expect(result.reasoning).toContain("invalid");
   });
 
+  it("returns a safe fail (no RangeError) when bidPrice is Infinity", () => {
+    // Number.prototype.toFixed throws RangeError on Infinity; the reasoning
+    // assembly must not crash the evaluator on a malformed book.
+    const result = evaluateExitGate(
+      baseInput({
+        survivingLegBook: {
+          ...baseBook,
+          bidPrice: Infinity,
+        },
+      }),
+    );
+    expect(result.gateResult).toBe("fail");
+    expect(result.recommendedSellSize).toBe(0);
+    expect(result.reasoning).toContain("invalid");
+  });
+
   it("fails when minMargin override requires a larger edge than available", () => {
     const result = evaluateExitGate(
       baseInput({ config: { minMargin: 0.5 } }),

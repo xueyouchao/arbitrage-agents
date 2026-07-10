@@ -78,6 +78,13 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+// toFixed wrapper that tolerates non-finite values: Number.prototype.toFixed
+// throws RangeError on Infinity, so route any NaN/Infinity through a plain
+// String() coercion instead of crashing the evaluator on a malformed book.
+function fmt(value: number): string {
+  return Number.isFinite(value) ? value.toFixed(4) : String(value);
+}
+
 // ADR §3.3: available depth is the cumulative size on the held-side bid ladder,
 // ignoring levels with non-finite/non-positive sizes. Best-level-only would
 // understate depth for multi-level books and fail the gate prematurely.
@@ -184,9 +191,15 @@ export function evaluateExitGate(input: ExitGateInput): ExitGateResult {
       `liquidity gate: no liquidity (availableDepth=${availableDepth}) → FAIL`,
     );
   }
-  reasoningParts.push(
-    `exit-cost gate: lockPerShare=${recommendedSellPrice.toFixed(4)} holdEV=${holdExpectedValue.toFixed(4)} exitCost=${exitCost.toFixed(4)} minMargin=${config.minMargin.toFixed(4)} → margin ${costGateMargin.toFixed(4)} ${costGatePass ? ">" : "<="} threshold ${costGateThreshold.toFixed(4)} ${costGatePass ? "PASS" : "FAIL"}`,
-  );
+  // Only emit the numeric exit-cost-gate line when inputs are finite:
+  // Number.prototype.toFixed throws RangeError on Infinity, so a malformed
+  // book (NaN/Infinity bid/ask from an upstream parse bug) would otherwise
+  // crash the evaluator instead of returning a safe fail.
+  if (inputsValid) {
+    reasoningParts.push(
+      `exit-cost gate: lockPerShare=${fmt(recommendedSellPrice)} holdEV=${fmt(holdExpectedValue)} exitCost=${fmt(exitCost)} minMargin=${fmt(config.minMargin)} → margin ${fmt(costGateMargin)} ${costGatePass ? ">" : "<="} threshold ${fmt(costGateThreshold)} ${costGatePass ? "PASS" : "FAIL"}`,
+    );
+  }
   if (recommendedSellSize > 0) {
     reasoningParts.push(
       `liquidity gate: depth=${availableDepth} haircut=${config.depthHaircut} size=${recommendedSellSize} > 0 ${liquidityGatePass ? "PASS" : "FAIL"}`,
