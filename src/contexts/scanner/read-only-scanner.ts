@@ -20,6 +20,8 @@ import {
 import { ScanFailureCategory, ScanMetrics, ScanResult } from "./scanner-result";
 import { ScanTelemetryReporter } from "./sentry-scan-telemetry-reporter";
 
+import type { OpportunityCalculatorOptions } from "../arbitrage/domain/opportunity-calculator";
+
 export interface ReadOnlyScannerDependencies {
   kalshiClient: VenueClient;
   polymarketClient: VenueClient;
@@ -37,6 +39,8 @@ export interface ReadOnlyScannerDependencies {
   // health, opportunity alerts, and staleness warnings. When absent,
   // no telemetry is emitted and the scanner behaves unchanged.
   telemetryReporter?: ScanTelemetryReporter;
+  // Optional opportunity-calculator overrides (fee rates, slippage, notionals).
+  calculatorOptions?: Partial<OpportunityCalculatorOptions>;
   now?: string;
   clock?: () => string;
 }
@@ -250,7 +254,8 @@ export class ReadOnlyScanner {
         books,
         orderbookSnapshots,
         calculationAt,
-        this.opportunityCalculator
+        this.opportunityCalculator,
+        this.dependencies.calculatorOptions
       );
       // Report stale data telemetry. The orderbook snapshots carry a
       // `stale` flag set by the venue client when data is older than
@@ -793,6 +798,9 @@ const SOFT_REVIEW_REASONS: ReadonlySet<string> = new Set([
   "ambiguity_flags_present",
   "resolution_source_missing",
   "resolution_source_differs",
+  "resolution_source_differs_crypto_index",
+  "deadline_same_day_time_differs",
+  "threshold_close_but_not_identical",
   "llm_inconclusive",
   "llm_supported_equivalence",
   "deterministic_fields_match"

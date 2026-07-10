@@ -34,6 +34,19 @@ describe("MarketNormalizer", () => {
     expect(market.ambiguityFlags).toEqual([]);
   });
 
+  it("parses Kalshi crypto daily time-of-day (4pm EDT) into the deadline", () => {
+    const market = new MarketNormalizer().normalize(
+      snapshot({
+        title: "Ethereum price at Jul 9, 2026 at 4pm EDT?",
+        rawResolutionText:
+          "If the simple average of the sixty seconds of CF Benchmarks' Ethereum Real-Time Index before 4 PM EDT is above 999.99 at 4 PM EDT on Jul 9, 2026, then the market resolves to Yes.",
+      })
+    );
+
+    expect(market.deadline).toBe("2026-07-09T20:00:00.000Z");
+    expect(market.ambiguityFlags).not.toContain("deadline_missing");
+  });
+
   it("flags ambiguous crypto markets instead of treating them as safe", () => {
     const market = new MarketNormalizer().normalize(
       snapshot({ title: "Will ETH touch $5,000 at any point next week?", rawResolutionText: "Source unclear" })

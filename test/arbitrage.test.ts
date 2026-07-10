@@ -117,6 +117,49 @@ describe("OpportunityCalculator", () => {
     });
   });
 
+  it("reads Polymarket crypto fee schedule from MarketBook.rawPayload when feeSource is market-payload", () => {
+    const kalshiBook = { marketId: "K1", venue: "kalshi" as const, yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 100, noAvailableUsd: 100, capturedAt: "2026-01-01T00:00:00.000Z" };
+    const polymarketBook = {
+      marketId: "P1",
+      venue: "polymarket" as const,
+      yesAsk: 0.5,
+      noAsk: 0.51,
+      yesAvailableUsd: 100,
+      noAvailableUsd: 100,
+      capturedAt: "2026-01-01T00:00:00.000Z",
+      rawPayload: {
+        market: {
+          feeSchedule: { exponent: 1, rate: 0.07, takerOnly: true, rebateRate: 0.2 }
+        }
+      }
+    };
+
+    // Without market-payload fees, the default 1% flat fee applies.
+    const withoutAuto = new OpportunityCalculator().calculate(pair, classA, kalshiBook, polymarketBook, {
+      now: "2026-01-01T00:00:00.000Z",
+      slippageRate: 0,
+      feeRate: 0.01
+    });
+    expect(withoutAuto[0]).toMatchObject({
+      estimatedFees: 0.0093,
+      netEdge: 0.0607
+    });
+
+    // With feeSource market-payload, the per-side effective rate is 0.07 * (1 - sidePrice).
+    // Poly NO price = 0.51 -> effectiveRate = 0.07 * 0.49 = 0.0343.
+    // Poly fee = 0.51 * 0.0343 = 0.017493; Kalshi fee = 0.42 * 0.01 = 0.0042.
+    const withAuto = new OpportunityCalculator().calculate(pair, classA, kalshiBook, polymarketBook, {
+      now: "2026-01-01T00:00:00.000Z",
+      slippageRate: 0,
+      feeRate: 0.01,
+      feeSource: "market-payload"
+    });
+    expect(withAuto[0]).toMatchObject({
+      estimatedFees: 0.0217,
+      netEdge: 0.0483
+    });
+  });
+
   it("applies a profitability buffer while preserving the default fee-rate fallback", () => {
     const calculator = new OpportunityCalculator();
     const kalshiBook = { marketId: "K1", venue: "kalshi" as const, yesAsk: 0.49, noAsk: 0.7, yesAvailableUsd: 100, noAvailableUsd: 100, capturedAt: "2026-01-01T00:00:00.000Z" };

@@ -6,6 +6,7 @@
  *   npx ts-node runbook/crypto-arbitrage.ts
  *   npx ts-node runbook/crypto-arbitrage.ts --json
  *   npx ts-node runbook/crypto-arbitrage.ts --kalshi-series KXETHD --min-edge 0.01
+ *   npx ts-node runbook/crypto-arbitrage.ts --poly-series-slug btc-multi-strikes-weekly
  *   npx ts-node runbook/crypto-arbitrage.ts --base-token FcT8... --table-id tbl...
  *
  * Scans Kalshi crypto price-level series (KXBTCD / KXETHD by default) and
@@ -25,7 +26,8 @@
  *   --poly-fee-rate <n>    Polymarket-specific fee rate (overrides --fee-rate)
  *   --no-filter       Include opportunities with zero or negative edge
  *   --kalshi-series <ticker>  Kalshi series ticker (default: KXBTCD)
- *   --poly-event-slug <slug>  Polymarket event slug (default: none, uses top-100)
+ *   --poly-event-slug <slug>  Polymarket event slug (default: none)
+ *   --poly-series-slug <slug> Polymarket series slug (default: none, uses top-100)
  *   --poly-market-ids <ids>   Comma-separated Polymarket market condition IDs to fetch directly
  *   --base-token <token>      Feishu Base token for exporting opportunities
  *   --table-id <id>           Feishu Base table ID for exporting opportunities
@@ -37,6 +39,7 @@
 import { config } from "dotenv";
 import { spawn } from "child_process";
 import { CrossVenueOpportunity } from "../src/contexts/arbitrage/domain/opportunity";
+import { OpportunityCalculatorOptions } from "../src/contexts/arbitrage/domain/opportunity-calculator";
 import { PaperTradeSimulator } from "../src/contexts/arbitrage/domain/paper-trade-simulator";
 import { CandidatePair } from "../src/contexts/matching/domain/candidate-pair";
 import { InMemoryScannerRepository } from "../src/contexts/scanner/in-memory-scanner-repository";
@@ -52,6 +55,7 @@ interface CliOptions {
   dryRun: boolean;
   kalshiSeries: string;
   polyEventSlug: string | undefined;
+  polySeriesSlug: string | undefined;
   polyMarketIds: string[];
   minEdge: number;
   notionals: number[];
@@ -97,6 +101,10 @@ function parseArgs(argv: string[]): CliOptions {
       }
       case "--poly-event-slug": {
         opts.polyEventSlug = consumeValue(++i, "poly-event-slug");
+        break;
+      }
+      case "--poly-series-slug": {
+        opts.polySeriesSlug = consumeValue(++i, "poly-series-slug");
         break;
       }
       case "--poly-market-ids": {
@@ -194,6 +202,7 @@ function defaultOptions(): CliOptions {
     dryRun: false,
     kalshiSeries: "KXBTCD",
     polyEventSlug: undefined,
+    polySeriesSlug: undefined,
     polyMarketIds: [],
     minEdge: 0,
     notionals: [5, 25, 100],
@@ -240,10 +249,11 @@ function printUsage(): void {
   console.log("  --notional <n>     Comma-separated paper-trade notionals (default: 5,25,100)");
   console.log("  --fee-rate <n>     Fee rate for both venues (default: 0.01)");
   console.log("  --kalshi-fee-rate <n>  Kalshi-specific fee rate (overrides --fee-rate)");
-  console.log("  --poly-fee-rate <n>    Polymarket-specific fee rate (overrides --fee-rate)");
+  console.log("  --poly-fee-rate <n>    Polymarket-specific fee rate (overrides the real fee schedule from the market)");
   console.log("  --no-filter        Include opportunities with zero or negative edge");
   console.log("  --kalshi-series <ticker>  Kalshi series ticker (default: KXBTCD)");
   console.log("  --poly-event-slug <slug>  Polymarket event slug (default: none)");
+  console.log("  --poly-series-slug <slug> Polymarket series slug (default: none)");
   console.log("  --poly-market-ids <ids>   Comma-separated Polymarket condition IDs");
   console.log("  --base-token <token>      Feishu Base token for export");
   console.log("  --table-id <id>           Feishu Base table ID for export");
@@ -274,6 +284,7 @@ async function main(): Promise<void> {
     retries: envInt("POLY_RETRIES", 3),
     timeoutMs: envInt("POLY_TIMEOUT_MS", 15000),
     eventSlug: opts.polyEventSlug,
+    seriesSlug: opts.polySeriesSlug,
   });
 
   const repository = new InMemoryScannerRepository();
@@ -284,6 +295,7 @@ async function main(): Promise<void> {
     polymarketClient,
     repository,
     paperTradeSimulator,
+    calculatorOptions: buildCryptoCalculatorOptions(opts),
   });
 
   const result = await scanner.runOnce();
@@ -404,6 +416,28 @@ function risksText(opp: CrossVenueOpportunity): string {
 function padRight(text: string, width: number): string {
   if (text.length >= width) return text.slice(0, width) + " ";
   return text.padEnd(width + 1);
+}
+
+/**
+ * Build opportunity-calculator options for the crypto runbook.
+ *
+ * Polymarket crypto markets carry a category-specific fee schedule in each
+ * market's rawPayload (`feeSchedule.rate`, typically 7% taker). When the
+ * user does not override --poly-fee-rate, we tell the calculator to read
+ * those real fees per market/per side. Explicit --kalshi-fee-rate and
+ * --poly-fee-rate always take precedence and disable the auto detection.
+ */
+function buildCryptoCalculatorOptions(opts: CliOptions): Partial<OpportunityCalculatorOptions> {
+  const polyRateOverridden = opts.polyFeeRate !== defaultOptions().polyFeeRate;
+  return {
+    venueFeeRates: {
+      kalshi: { YES: opts.kalshiFeeRate, NO: opts.kalshiFeeRate },
+      polymarket: { YES: opts.polyFeeRate, NO: opts.polyFeeRate },
+    },
+    targetNotionalsUsd: opts.notionals,
+    minNetEdge: opts.minEdge,
+    feeSource: polyRateOverridden ? "config" : "market-payload",
+  };
 }
 
 async function exportToBase(
