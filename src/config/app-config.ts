@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { readFileSync } from "node:fs";
+import type { ExitGateConfig } from "../contexts/arbitrage/domain/exit-gate-evaluator";
 
 const booleanFromString = z.preprocess((value) => {
   if (value === "true") {
@@ -64,7 +65,25 @@ const AppConfigSchema = z.object({
   // ETH (KXETHD / eth-multi-strikes-weekly) or disable (empty string → the
   // client falls back to the global top-100, matching the old behavior).
   kalshiSeriesTicker: z.string().default("KXBTCD"),
-  polymarketSeriesSlug: z.string().default("btc-multi-strikes-weekly")
+  polymarketSeriesSlug: z.string().default("btc-multi-strikes-weekly"),
+  // ADR-0002 §3.3 exit-gate tunables. These were previously hard-coded in the
+  // evaluator; surfacing them in AppConfig lets operations adjust the gate
+  // without a code change. §3.1/§4.1 selects the top-level policy:
+  //   evaluate = run the exit-cost + liquidity gate (phase-1 default, alert-first),
+  //   hold     = never evaluate t1 exit (disables the feature globally).
+  // "always" (unconditional exit) is intentionally NOT exposed in phase 1 — ADR
+  // §3.1 makes conditional exit the default and §4.1 defers unconditional exit
+  // until a future ADR approves it.
+  t1ExitMinMargin: z.coerce.number().min(0).max(1).default(0.005),
+  t1ExitDepthHaircut: z.coerce.number().min(0).max(1).default(0.25),
+  t1ExitPolicy: z.enum(["evaluate", "hold"]).default("evaluate"),
+  // ADR §6 Open Question #1: simple gap-decay proxy for hold expected value.
+  t1ExitGapDecayPerHour: z.coerce.number().min(0).max(1).default(0.02),
+  t1ExitGapDecayMax: z.coerce.number().min(0).max(1).default(0.5),
+  // ADR §3.3 exit-cost components, expressed as fractions of price or size.
+  t1ExitSellFeeRate: z.coerce.number().min(0).max(1).default(0.01),
+  t1ExitEstimatedSpreadRate: z.coerce.number().min(0).max(1).default(0.01),
+  t1ExitEstimatedSlippageRate: z.coerce.number().min(0).max(1).default(0.005)
 });
 
 export type AppConfig = z.infer<typeof AppConfigSchema>;
@@ -94,8 +113,34 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     polyWalletAddress: env.POLY_WALLET_ADDRESS,
     maxCapitalDeployedUsd: env.MAX_CAPITAL_DEPLOYED_USD,
     kalshiSeriesTicker: env.KALSHI_SERIES_TICKER,
-    polymarketSeriesSlug: env.POLYMARKET_SERIES_SLUG
+    polymarketSeriesSlug: env.POLYMARKET_SERIES_SLUG,
+    t1ExitMinMargin: env.T1_EXIT_MIN_MARGIN,
+    t1ExitDepthHaircut: env.T1_EXIT_DEPTH_HAIRCUT,
+    t1ExitPolicy: env.T1_EXIT_POLICY,
+    t1ExitGapDecayPerHour: env.T1_EXIT_GAP_DECAY_PER_HOUR,
+    t1ExitGapDecayMax: env.T1_EXIT_GAP_DECAY_MAX,
+    t1ExitSellFeeRate: env.T1_EXIT_SELL_FEE_RATE,
+    t1ExitEstimatedSpreadRate: env.T1_EXIT_ESTIMATED_SPREAD_RATE,
+    t1ExitEstimatedSlippageRate: env.T1_EXIT_ESTIMATED_SLIPPAGE_RATE
   });
+}
+
+/**
+ * Map AppConfig's ADR-0002 T1 exit-gate fields into the ExitGateConfig shape
+ * expected by evaluateExitGate. This is a convenience for the scanner wiring
+ * so the evaluator can keep its pure function signature while still receiving
+ * config-driven tunables.
+ */
+export function exitGateConfigFromApp(config: AppConfig): Partial<ExitGateConfig> {
+  return {
+    minMargin: config.t1ExitMinMargin,
+    depthHaircut: config.t1ExitDepthHaircut,
+    gapDecayPerHour: config.t1ExitGapDecayPerHour,
+    gapDecayMax: config.t1ExitGapDecayMax,
+    sellFeeRate: config.t1ExitSellFeeRate,
+    estimatedSpreadRate: config.t1ExitEstimatedSpreadRate,
+    estimatedSlippageRate: config.t1ExitEstimatedSlippageRate
+  };
 }
 
 function emptyToUndefined(value: string | undefined): string | undefined {
