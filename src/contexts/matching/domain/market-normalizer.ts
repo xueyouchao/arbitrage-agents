@@ -100,7 +100,7 @@ function classifyTopic(text: string): Topic {
 
   // Sports: leagues, tournaments, win/winner/goal language, team-vs-team.
   if (
-    /\b(world cup|fifa|nba|nfl|super bowl|olympics|championship|win the|win\b|winner|goal|goals|score|team|vs\.|versus|tournament)\b/.test(
+    /\b(nba|nfl|super bowl|olympics|championship|win the|win\b|winner|goal|goals|score|team|vs\.|versus|tournament)\b/.test(
       lower
     )
   ) {
@@ -209,13 +209,13 @@ function parseAsset(
       return `${left} vs ${right}`;
     }
 
-    // Winner: "Will Ghana win the 2026 FIFA World Cup?"
+    // Winner: "Will the Lakers win the championship?"
     const winner = lower.match(
       /will\s+([a-z][a-z\s\.'-]*?)\s+(?:win|be the winner|become the winner|be\s+champion)/
     );
     if (winner) return cleanSubject(winner[1]);
 
-    // "Who will win the 2026 FIFA World Cup?" -> use the event name as subject.
+    // "Who will win the 2026 Super Bowl?" -> use the event name as subject.
     const event = extractEventName(lower);
     if (event) return event;
 
@@ -277,7 +277,7 @@ function cleanSubject(raw: string): string {
 
 function extractEventName(lower: string): string | undefined {
   const eventMatch = lower.match(
-    /(?:the\s+)?([0-9]{4}\s+(?:fifa\s+world\s+cup|world\s+cup|olympics|nba\s+finals|super\s+bowl|nfl\s+season|nba\s+season|olympic\s+games))/
+    /(?:the\s+)?([0-9]{4}\s+(?:olympics|nba\s+finals|super\s+bowl|nfl\s+season|nba\s+season|olympic\s+games))/
   );
   if (eventMatch) return cleanSubject(eventMatch[1]);
   return undefined;
@@ -454,9 +454,6 @@ function parseResolutionSource(
 
   // Topic-specific sensible defaults.
   if (topic === "sports") {
-    if (/\bfifa\b/.test(lower) || /\bworld cup\b/.test(lower)) {
-      return "official FIFA result";
-    }
     if (/\bnba\b/.test(lower)) return "official NBA result";
     if (/\bnfl\b/.test(lower) || /\bsuper bowl\b/.test(lower)) {
       return "official NFL result";
@@ -564,10 +561,7 @@ function parseDeadline(text: string): string | undefined {
   if (candidates.length > 0) {
     return applyTimeOfDay(text, Math.max(...candidates)).toISOString();
   }
-  // Just a year with an event name: "2026 FIFA World Cup" -> final is July 19, 2026.
-  if (/2026\s+fifa\s+world\s+cup(?:\s*$|\s*\?)/.test(lower)) {
-    return new Date(Date.UTC(2026, 6, 19, 0, 0, 0)).toISOString();
-  }
+  // Just a year with an event name: "2024 US Presidential Election" -> Election Day.
   if (/2024\s+us\s+presidential\s+election(?:\s*$|\s*\?)/.test(lower)) {
     return new Date(Date.UTC(2024, 10, 5, 0, 0, 0)).toISOString();
   }

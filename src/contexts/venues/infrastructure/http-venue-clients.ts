@@ -11,39 +11,24 @@ interface PublicHttpOptions {
   marketLimit?: number;
   /**
    * Kalshi-only: when set, listMarkets queries `GET /markets?event_ticker={eventTicker}`
-   * instead of the global top-100. This is required to surface World Cup (KXWC)
-   * markets, which almost never appear in the global top-100. When set, the
-   * default limit is raised to 500 so all markets under the event are returned.
+   * instead of the global top-100. Use this for Kalshi events whose markets do not
+   * appear in the global top-100. When set, the default limit is raised to 500 so
+   * all markets under the event are returned.
    */
   eventTicker?: string;
   /**
    * Kalshi-only: when set, listMarkets queries `GET /markets?series_ticker={seriesTicker}`
-   * instead of the global top-100. Use this for Kalshi series such as `KXWCGAME`
-   * (World Cup 2026 match winner markets), which are grouped by series rather
-   * than event. When set, the default limit is raised to 500.
+   * instead of the global top-100. Use this for Kalshi series whose markets are
+   * grouped by series rather than event. When set, the default limit is raised
+   * to 500.
    */
   seriesTicker?: string;
   /**
-   * Kalshi-only: when true, after fetching the main market list, extract
-   * KXWC* sub-market tickers from combo/parlay payloads and fetch them
-   * individually via GET /markets/{ticker}. Required because Kalshi's public
-   * list endpoint returns combo markets but hides individual KXWC* markets
-   * (World Cup winner/advance/match markets) from the top-level results.
-   *
-   * **Important:** This defaults to `false`. World Cup (KXWC*) markets will
-   * NOT appear in `listMarkets()` results unless this is set to `true`.
-   * The runbook enables it explicitly; the production scanner module
-   * (`scanner.module.ts`) does not, so WC sub-markets are only available
-   * via the runbook/pmxt path. Enable this if you need WC markets through
-   * the standard scanner.
-   */
-  expandSubMarkets?: boolean;
-  /**
    * Polymarket-only: when set, listMarkets queries `GET /events?slug={eventSlug}`
    * to get the event and its market IDs, then fetches those markets via
-   * `GET /markets?closed=false&limit=500&id=...`. This is required to surface
-   * World Cup (fifwc) markets, which almost never appear in the global top-100
-   * returned by the default `/markets?closed=false&limit=100` query.
+   * `GET /markets?closed=false&limit=500&id=...`. Use this for Polymarket events
+   * whose markets do not appear in the global top-100 returned by the default
+   * `/markets?closed=false&limit=100` query.
    */
   eventSlug?: string;
   /**
@@ -72,7 +57,6 @@ const DEFAULT_HTTP_OPTIONS: ResolvedHttpOptions = {
   concurrency: 1,
   jitter: Math.random,
   marketLimit: 100,
-  expandSubMarkets: false,
   eventTicker: undefined,
   seriesTicker: undefined,
   eventSlug: undefined,
@@ -101,55 +85,7 @@ export class KalshiPublicVenueClient implements VenueClient {
     );
     const capturedAt = new Date().toISOString();
     const raw = body.markets ?? [];
-    const snapshots = raw.map((r) => toKalshiSnapshotFromRaw(r, capturedAt));
-
-    // When expandSubMarkets is enabled, parse combo/parlay payloads for
-    // KXWC* sub-market tickers and fetch them individually. This is required
-    // because Kalshi's public list endpoint surfaces combo markets (e.g.
-    // "Egypt vs Iran combo bet") but hides individual World Cup markets
-    // like KXWCGAME-26JUN26NZLBEL-BEL (New Zealand vs Belgium: Belgium wins).
-    if (this.httpOptions.expandSubMarkets) {
-      const primaryIds = new Set(snapshots.map((s) => s.venueMarketId));
-      const subTickers: string[] = [];
-      for (const market of raw) {
-        for (const ticker of extractKXWCTickers(market)) {
-          if (!primaryIds.has(ticker) && !subTickers.includes(ticker)) {
-            subTickers.push(ticker);
-          }
-        }
-      }
-
-      if (subTickers.length > 0) {
-        const expanded = await this.fetchSubMarkets(subTickers);
-        snapshots.push(...expanded);
-      }
-    }
-
-    return snapshots;
-  }
-
-  private async fetchSubMarkets(tickers: string[]): Promise<VenueMarketSnapshot[]> {
-    const capturedAt = new Date().toISOString();
-    const concurrency = this.httpOptions.concurrency ?? DEFAULT_HTTP_OPTIONS.concurrency;
-    return mapWithConcurrency(
-      tickers,
-      async (ticker) => {
-        try {
-          const response = await fetchPublicJson<{ market?: Record<string, unknown> }>(
-            `${this.baseUrl}/markets/${encodeURIComponent(ticker)}`,
-            `Kalshi sub-market ${ticker}`,
-            this.httpOptions
-          );
-          if (response?.market) {
-            return toKalshiSnapshotFromRaw(response.market, capturedAt);
-          }
-        } catch {
-          console.warn(`[kalshi] failed to fetch sub-market ${ticker}, skipping`);
-        }
-        return undefined;
-      },
-      concurrency
-    ).then((snapshots) => snapshots.filter((s): s is VenueMarketSnapshot => s !== undefined));
+    return raw.map((r) => toKalshiSnapshotFromRaw(r, capturedAt));
   }
 
   async listOrderbooks(markets: VenueMarketSnapshot[]): Promise<MarketBook[]> {
@@ -260,9 +196,9 @@ export class PolymarketPublicVenueClient implements VenueClient {
     if (!Array.isArray(events)) return [];
 
     // Map event metadata by market id so we can merge the parent event title
-    // into each market snapshot. WC match markets (e.g. France vs Morocco) often
-    // have empty titles and questions that don't name the opponent, so the event
-    // context is required for the normalizer to resolve both teams.
+    // into each market snapshot. Event-sourced match markets often have empty
+    // titles and questions that don't name the opponent, so the event context
+    // is required for the normalizer to resolve both sides.
     const eventByMarketId = new Map<string, Record<string, unknown>>();
     const marketIds: string[] = [];
     for (const event of events) {
@@ -596,7 +532,6 @@ function kalshiResolutionText(market: Record<string, unknown>): string {
   ) ?? "";
 }
 
-// Helper functions for listMarkets with expandSubMarkets
 function toKalshiSnapshotFromRaw(
   raw: Record<string, unknown>,
   capturedAt: string
@@ -614,12 +549,9 @@ function toKalshiSnapshotFromRaw(
 
 /**
  * Builds a Polymarket VenueMarketSnapshot from a raw gamma API market object.
- * Polymarket WC match markets (e.g. "Netherlands vs Japan") often have titles
- * and descriptions that don't mention "World Cup", so the WC normalizer rejects
- * them. To fix this, inspect market.tags (array of tag objects with a `label`
- * field) and prepend "FIFA World Cup 2026\n" to rawResolutionText when a
- * WC-related tag is found (label containing "world cup" or "fifa"). Mirrors
- * scripts/fetch-pmxt-markets.py:106-109.
+ * Event-sourced match markets often have empty titles and questions that don't
+ * name the opponent, so the event context is merged into the title when it adds
+ * information.
  */
 function toPolymarketSnapshotFromRaw(
   raw: Record<string, unknown>,
@@ -634,8 +566,8 @@ function toPolymarketSnapshotFromRaw(
   const marketTitle = String(raw.question ?? raw.title ?? "").trim();
 
   // When we fetched this market via an event slug, the parent event title
-  // (e.g. "France vs. Morocco") gives essential context the market question
-  // may lack. Prepend it only when it adds information.
+  // gives essential context the market question may lack. Prepend it only
+  // when it adds information.
   const title = eventTitle && !marketTitle.toLowerCase().includes(eventTitle.toLowerCase())
     ? `${eventTitle}: ${marketTitle}`
     : marketTitle;
@@ -672,59 +604,10 @@ function toPolymarketSnapshotFromRaw(
     venue: "polymarket" as const,
     venueMarketId: String(raw.conditionId ?? raw.id),
     title,
-    rawResolutionText: injectWorldCupTag(raw.tags, resolutionText),
+    rawResolutionText: resolutionText,
     rawPayload: raw,
     capturedAt
   };
-}
-
-/**
- * If any tag label contains "world cup" AND "2026" (case-insensitive),
- * prepend "FIFA World Cup 2026\n" to the resolution text so the WC
- * normalizer matches. Scoping to 2026 avoids matching other World Cup
- * events (2022, Women's 2023, etc.).
- */
-function injectWorldCupTag(tags: unknown, text: string): string {
-  if (!Array.isArray(tags)) return text;
-  const isWc2026 = tags.some((tag) => {
-    if (!tag || typeof tag !== "object") return false;
-    const label = (tag as Record<string, unknown>).label;
-    if (typeof label !== "string") return false;
-    const lower = label.toLowerCase();
-    return lower.includes("world cup") && lower.includes("2026");
-  });
-  return isWc2026 ? `FIFA World Cup 2026\n${text}` : text;
-}
-
-function extractKXWCTickers(market: Record<string, unknown>): string[] {
-  const tickers: string[] = [];
-
-  // Extract from mve_selected_legs array
-  const selectedLegs = market.mve_selected_legs;
-  if (Array.isArray(selectedLegs)) {
-    for (const leg of selectedLegs) {
-      if (typeof leg === "object" && leg !== null && "market_ticker" in leg) {
-        const ticker = (leg as { market_ticker: unknown }).market_ticker;
-        if (typeof ticker === "string" && ticker.startsWith("KXWC")) {
-          tickers.push(ticker);
-        }
-      }
-    }
-  }
-
-  // Extract from custom_strike.Associated Markets (comma-separated string)
-  const customStrike = market.custom_strike as Record<string, unknown> | undefined;
-  const associated = customStrike?.["Associated Markets"];
-  if (typeof associated === "string") {
-    const parts = associated.split(",").map((s) => s.trim());
-    for (const ticker of parts) {
-      if (ticker.startsWith("KXWC")) {
-        tickers.push(ticker);
-      }
-    }
-  }
-
-  return tickers;
 }
 
 /**
