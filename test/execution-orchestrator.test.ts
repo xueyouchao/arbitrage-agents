@@ -3,6 +3,7 @@ import {
   ExecutionOrchestrator,
   AlreadyExecutedError,
   RiskRejectedError,
+  StaleOpportunityRejectedError,
   type TradingClient,
   type RecordedOrder,
   type RecordedFill,
@@ -486,6 +487,180 @@ describe("ExecutionOrchestrator", () => {
     await expect(
       orchestrator.execute(opp, { kalshi, polymarket: poly })
     ).rejects.toThrow(/size/);
+  });
+
+  // --- Issue #82: freshness guards ---
+  it("does not reject when freshness limits are omitted", async () => {
+    const repos = inMemoryRepositories();
+    const kalshi = mockKalshiClient("kal-ord-1", true, 10, 0.55);
+    const poly = mockPolymarketClient("poly-ord-1", true, 10, 0.42);
+
+    const orchestrator = new ExecutionOrchestrator(repos);
+    const opp = fixtureOpportunity();
+    opp.dataStalenessMs = Number.POSITIVE_INFINITY;
+    opp.opportunityAgeMs = Number.POSITIVE_INFINITY;
+
+    // Omission should preserve prior behavior: no guard, execution proceeds.
+    const result = await orchestrator.execute(opp, { kalshi, polymarket: poly });
+    expect(result.position).toBeDefined();
+    expect(kalshi.placeOrder).toHaveBeenCalled();
+    expect(poly.placeOrder).toHaveBeenCalled();
+  });
+
+  it("does not reject when freshness limits are disabled (0)", async () => {
+    const repos = inMemoryRepositories();
+    const kalshi = mockKalshiClient("kal-ord-1", true, 10, 0.55);
+    const poly = mockPolymarketClient("poly-ord-1", true, 10, 0.42);
+
+    const orchestrator = new ExecutionOrchestrator(repos, {
+      maxQuoteStalenessMs: 0,
+      maxOpportunityAgeMs: 0
+    });
+    const opp = fixtureOpportunity();
+    opp.dataStalenessMs = 1_000_000;
+    opp.opportunityAgeMs = 1_000_000;
+
+    const result = await orchestrator.execute(opp, { kalshi, polymarket: poly });
+    expect(result.position).toBeDefined();
+    expect(kalshi.placeOrder).toHaveBeenCalled();
+    expect(poly.placeOrder).toHaveBeenCalled();
+  });
+
+  it("allows execution when metadata is exactly at the freshness limits", async () => {
+    const repos = inMemoryRepositories();
+    const kalshi = mockKalshiClient("kal-ord-1", true, 10, 0.55);
+    const poly = mockPolymarketClient("poly-ord-1", true, 10, 0.42);
+
+    const orchestrator = new ExecutionOrchestrator(repos, {
+      maxQuoteStalenessMs: 500,
+      maxOpportunityAgeMs: 5000
+    });
+    const opp = fixtureOpportunity();
+    opp.dataStalenessMs = 500;
+    opp.opportunityAgeMs = 5000;
+
+    const result = await orchestrator.execute(opp, { kalshi, polymarket: poly });
+    expect(result.position).toBeDefined();
+    expect(kalshi.placeOrder).toHaveBeenCalled();
+    expect(poly.placeOrder).toHaveBeenCalled();
+  });
+
+  it("rejects quote staleness over the configured limit with StaleOpportunityRejectedError", async () => {
+    const repos = inMemoryRepositories();
+    const kalshi = mockKalshiClient("kal-ord-1", true, 10, 0.55);
+    const poly = mockPolymarketClient("poly-ord-1", true, 10, 0.42);
+
+    const orchestrator = new ExecutionOrchestrator(repos, {
+      maxQuoteStalenessMs: 500,
+      maxOpportunityAgeMs: 5000
+    });
+    const opp = fixtureOpportunity();
+    opp.dataStalenessMs = 501;
+    opp.opportunityAgeMs = 100;
+
+    await expect(
+      orchestrator.execute(opp, { kalshi, polymarket: poly })
+    ).rejects.toMatchObject({
+      name: "StaleOpportunityRejectedError",
+      kind: "quote-staleness",
+      value: 501,
+      limit: 500
+    });
+
+    expect(kalshi.placeOrder).not.toHaveBeenCalled();
+    expect(poly.placeOrder).not.toHaveBeenCalled();
+  });
+
+  it("rejects opportunity age over the configured limit with StaleOpportunityRejectedError", async () => {
+    const repos = inMemoryRepositories();
+    const kalshi = mockKalshiClient("kal-ord-1", true, 10, 0.55);
+    const poly = mockPolymarketClient("poly-ord-1", true, 10, 0.42);
+
+    const orchestrator = new ExecutionOrchestrator(repos, {
+      maxQuoteStalenessMs: 500,
+      maxOpportunityAgeMs: 5000
+    });
+    const opp = fixtureOpportunity();
+    opp.dataStalenessMs = 100;
+    opp.opportunityAgeMs = 5001;
+
+    await expect(
+      orchestrator.execute(opp, { kalshi, polymarket: poly })
+    ).rejects.toMatchObject({
+      name: "StaleOpportunityRejectedError",
+      kind: "opportunity-age",
+      value: 5001,
+      limit: 5000
+    });
+
+    expect(kalshi.placeOrder).not.toHaveBeenCalled();
+    expect(poly.placeOrder).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-finite quote staleness when guard is enabled", async () => {
+    const repos = inMemoryRepositories();
+    const kalshi = mockKalshiClient("kal-ord-1", true, 10, 0.55);
+    const poly = mockPolymarketClient("poly-ord-1", true, 10, 0.42);
+
+    const orchestrator = new ExecutionOrchestrator(repos, {
+      maxQuoteStalenessMs: 500
+    });
+    const opp = fixtureOpportunity();
+    opp.dataStalenessMs = NaN;
+
+    await expect(
+      orchestrator.execute(opp, { kalshi, polymarket: poly })
+    ).rejects.toMatchObject({
+      name: "StaleOpportunityRejectedError",
+      kind: "quote-staleness"
+    });
+
+    expect(kalshi.placeOrder).not.toHaveBeenCalled();
+    expect(poly.placeOrder).not.toHaveBeenCalled();
+  });
+
+  it("rejects negative opportunity age when guard is enabled", async () => {
+    const repos = inMemoryRepositories();
+    const kalshi = mockKalshiClient("kal-ord-1", true, 10, 0.55);
+    const poly = mockPolymarketClient("poly-ord-1", true, 10, 0.42);
+
+    const orchestrator = new ExecutionOrchestrator(repos, {
+      maxOpportunityAgeMs: 5000
+    });
+    const opp = fixtureOpportunity();
+    opp.opportunityAgeMs = -1;
+
+    await expect(
+      orchestrator.execute(opp, { kalshi, polymarket: poly })
+    ).rejects.toMatchObject({
+      name: "StaleOpportunityRejectedError",
+      kind: "opportunity-age"
+    });
+
+    expect(kalshi.placeOrder).not.toHaveBeenCalled();
+    expect(poly.placeOrder).not.toHaveBeenCalled();
+  });
+
+  it("rejects infinite opportunity age when guard is enabled", async () => {
+    const repos = inMemoryRepositories();
+    const kalshi = mockKalshiClient("kal-ord-1", true, 10, 0.55);
+    const poly = mockPolymarketClient("poly-ord-1", true, 10, 0.42);
+
+    const orchestrator = new ExecutionOrchestrator(repos, {
+      maxOpportunityAgeMs: 5000
+    });
+    const opp = fixtureOpportunity();
+    opp.opportunityAgeMs = Number.POSITIVE_INFINITY;
+
+    await expect(
+      orchestrator.execute(opp, { kalshi, polymarket: poly })
+    ).rejects.toMatchObject({
+      name: "StaleOpportunityRejectedError",
+      kind: "opportunity-age"
+    });
+
+    expect(kalshi.placeOrder).not.toHaveBeenCalled();
+    expect(poly.placeOrder).not.toHaveBeenCalled();
   });
 
   // --- Fix: Timeout leg recorded as "timeout" not "failed" ---

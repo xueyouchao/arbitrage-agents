@@ -98,7 +98,7 @@ export class OpportunityCalculator {
     return directions
       .filter(({ longLeg, hedgeLeg }) => this.isValidLeg(longLeg) && this.isValidLeg(hedgeLeg))
       .map(({ id, longLeg, hedgeLeg }) => this.toOpportunity(pair.id, pair, id, "A", decision, longLeg, hedgeLeg, [kalshiBook, polymarketBook], mergedOptions))
-      .filter((opportunity) => opportunity.netEdge > mergedOptions.minNetEdge + mergedOptions.profitabilityBuffer);
+      .filter((opportunity): opportunity is CrossVenueOpportunity => opportunity !== undefined);
   }
 
   private isUsableBook(book: MarketBook, options: OpportunityCalculatorOptions): boolean {
@@ -146,15 +146,27 @@ export class OpportunityCalculator {
     hedgeLeg: ContractLeg,
     books: [MarketBook, MarketBook],
     options: OpportunityCalculatorOptions
-  ): CrossVenueOpportunity {
+  ): CrossVenueOpportunity | undefined {
     const combinedCost = round(longLeg.askPrice + hedgeLeg.askPrice);
     const grossEdge = round(1 - combinedCost);
     const estimatedFees = round(feeForLeg(longLeg) + feeForLeg(hedgeLeg));
     const estimatedSlippage = round(slippageForLeg(longLeg) + slippageForLeg(hedgeLeg));
     const maxTradableUsd = roundUsd(Math.min(longLeg.availableUsd, hedgeLeg.availableUsd));
     const notionalEdges = options.targetNotionalsUsd.map((target) => simulateNotionalEdge(target, longLeg, hedgeLeg));
-    const executableSizeUsd = maxTradableUsd;
-    const executableEdge = simulateNotionalEdge(executableSizeUsd, longLeg, hedgeLeg);
+    // Executable size = the largest fully fillable candidate (configured target
+    // notionals plus the top-of-book liquidity cap) whose depth-walked net edge
+    // clears minNetEdge + profitabilityBuffer. This replaces the former final
+    // top-of-book-only profitability filter: deeper configured targets may exceed
+    // maxTradableUsd yet still qualify when the full depth ladder can fill them.
+    // Drop the direction when no candidate is profitable at an executable size.
+    const executableCandidates = [...new Set([...options.targetNotionalsUsd, maxTradableUsd])]
+      .filter((target) => Number.isFinite(target) && target > 0)
+      .map((target) => simulateNotionalEdge(target, longLeg, hedgeLeg))
+      .filter((edge) => edge.fillable && edge.netEdge > options.minNetEdge + options.profitabilityBuffer)
+      .sort((left, right) => left.targetNotionalUsd - right.targetNotionalUsd);
+    const executableEdge = executableCandidates.at(-1);
+    if (!executableEdge) return undefined;
+    const executableSizeUsd = executableEdge.targetNotionalUsd;
     const dataStalenessMs = Math.max(...books.map((book) => bookAgeMs(book, options.now) ?? options.maxBookAgeMs + 1));
 
     // ADR-0002 §3.6: derive the risk structure for this pair from normalized market fields.

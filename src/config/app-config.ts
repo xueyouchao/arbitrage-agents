@@ -57,6 +57,12 @@ const AppConfigSchema = z.object({
   // total open position notional exceeds this, new executions are
   // rejected by the RiskManager pre-trade guard.
   maxCapitalDeployedUsd: z.coerce.number().positive().default(5000),
+  // Issue #82: pre-flight freshness guards for execution. Set a positive
+  // finite value (ms) to enable fail-closed rejection of stale quotes
+  // (dataStalenessMs) or aged opportunities (opportunityAgeMs). Omit,
+  // leave empty, or set 0 to disable the guard and preserve prior behavior.
+  maxQuoteStalenessMs: z.coerce.number().finite().min(0).max(24 * 60 * 60 * 1000).default(0),
+  maxOpportunityAgeMs: z.coerce.number().finite().min(0).max(24 * 60 * 60 * 1000).default(0),
   // Crypto price-level markets (BTC/ETH daily price series) only surface
   // via series-scoped queries — they almost never appear in either venue's
   // global top-100 list. Without these the production worker normalizes ~0
@@ -115,6 +121,8 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     polyPrivateKey: env.POLY_PRIVATE_KEY,
     polyWalletAddress: env.POLY_WALLET_ADDRESS,
     maxCapitalDeployedUsd: env.MAX_CAPITAL_DEPLOYED_USD,
+    maxQuoteStalenessMs: env.MAX_QUOTE_STALENESS_MS,
+    maxOpportunityAgeMs: env.MAX_OPPORTUNITY_AGE_MS,
     kalshiSeriesTicker: env.KALSHI_SERIES_TICKER,
     polymarketSeriesSlug: env.POLYMARKET_SERIES_SLUG,
     t1ExitMinMargin: env.T1_EXIT_MIN_MARGIN,

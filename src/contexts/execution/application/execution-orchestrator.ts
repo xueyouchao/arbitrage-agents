@@ -97,6 +97,24 @@ export class RiskRejectedError extends Error {
 }
 
 /**
+ * Thrown when the opportunity's quote is too stale or the opportunity itself
+ * is too old, based on configurable pre-flight guards. Carries the offending
+ * value and configured limit so callers can report a precise operator-safe
+ * message without leaking internal stack traces.
+ */
+export class StaleOpportunityRejectedError extends Error {
+  constructor(
+    message: string,
+    public readonly kind: "quote-staleness" | "opportunity-age",
+    public readonly value: number,
+    public readonly limit: number
+  ) {
+    super(message);
+    this.name = "StaleOpportunityRejectedError";
+  }
+}
+
+/**
  * Thrown when the order size is not a positive finite number, preventing
  * zero/NaN orders from being sent to venue APIs.
  */
@@ -170,6 +188,20 @@ export interface ExecutionOrchestratorOptions {
   totalOpenNotional?: number;
   /** Max capital deployable across all positions. Used for the risk check. */
   maxCapitalDeployed?: number;
+  /**
+   * Quote-staleness guard (ms). When set to a finite positive number, the
+   * orchestrator rejects opportunities whose `dataStalenessMs` is missing,
+   * non-finite, negative, or greater than this limit. Omit or leave `undefined`
+   * to preserve prior behaviour (no guard).
+   */
+  maxQuoteStalenessMs?: number;
+  /**
+   * Opportunity-age guard (ms). When set to a finite positive number, the
+   * orchestrator rejects opportunities whose `opportunityAgeMs` is missing,
+   * non-finite, negative, or greater than this limit. Omit or leave `undefined`
+   * to preserve prior behaviour (no guard).
+   */
+  maxOpportunityAgeMs?: number;
 }
 
 export interface ExecutionResult {
@@ -206,6 +238,13 @@ export interface ExecutionResult {
  * constraint on `positions.opportunity_id` should be added at the DB
  * level to enforce atomicity.
  *
+ * Freshness: when `options.maxQuoteStalenessMs` or `options.maxOpportunityAgeMs`
+ * are provided as finite positive numbers, `execute()` validates the
+ * opportunity metadata before placing orders and throws
+ * `StaleOpportunityRejectedError` if the quote is too stale or the opportunity
+ * is too old. Non-finite or negative metadata is rejected when the guard is
+ * enabled. Omitting these options preserves the prior behaviour (no guard).
+ *
  * Risk: when `options.riskManager` is provided, `execute()` calls
  * `riskManager.checkExecution(totalOpenNotional, requestedNotional, maxCapitalDeployed)`
  * before placing orders and throws `RiskRejectedError` if rejected.
@@ -226,6 +265,8 @@ export class ExecutionOrchestrator {
   private readonly unwinder?: PositionUnwinder;
   private readonly totalOpenNotional: number;
   private readonly maxCapitalDeployed: number;
+  private readonly maxQuoteStalenessMs?: number;
+  private readonly maxOpportunityAgeMs?: number;
 
   constructor(
     private readonly repos: ExecutionRepositories,
@@ -235,6 +276,8 @@ export class ExecutionOrchestrator {
     this.unwinder = options.unwinder;
     this.totalOpenNotional = options.totalOpenNotional ?? 0;
     this.maxCapitalDeployed = options.maxCapitalDeployed ?? 0;
+    this.maxQuoteStalenessMs = options.maxQuoteStalenessMs;
+    this.maxOpportunityAgeMs = options.maxOpportunityAgeMs;
   }
 
   async execute(opportunity: CrossVenueOpportunity, clients: TradingClients): Promise<ExecutionResult> {
@@ -257,6 +300,10 @@ export class ExecutionOrchestrator {
     if (!Number.isFinite(polyLeg.size) || polyLeg.size <= 0) {
       throw new InvalidOrderSizeError(polyLeg.size);
     }
+
+    // Freshness guard: fail-closed pre-flight check on quote staleness and
+    // opportunity age before any venue interaction.
+    this.checkFreshness(opportunity);
 
     // Pre-trade risk guard: reject if total open + requested exceeds max.
     if (this.riskManager) {
@@ -357,6 +404,54 @@ export class ExecutionOrchestrator {
     }
 
     return { position, legs: { kalshi: kalshiResult, polymarket: polyResult } };
+  }
+
+  /**
+   * Fail-closed freshness guard. When a limit is configured as a finite
+   * positive number, the corresponding metadata field must also be a finite
+   * non-negative number and must not exceed the limit. Violations are
+   * surfaced as `StaleOpportunityRejectedError` before any venue interaction.
+   */
+  private checkFreshness(opportunity: CrossVenueOpportunity): void {
+    if (this.maxQuoteStalenessMs !== undefined && Number.isFinite(this.maxQuoteStalenessMs) && this.maxQuoteStalenessMs > 0) {
+      const value = opportunity.dataStalenessMs;
+      if (!Number.isFinite(value) || value < 0) {
+        throw new StaleOpportunityRejectedError(
+          `Quote staleness metadata is invalid (got ${value}); rejecting execution under freshness guard (limit ${this.maxQuoteStalenessMs} ms)`,
+          "quote-staleness",
+          value,
+          this.maxQuoteStalenessMs
+        );
+      }
+      if (value > this.maxQuoteStalenessMs) {
+        throw new StaleOpportunityRejectedError(
+          `Quote is too stale: ${value} ms exceeds max ${this.maxQuoteStalenessMs} ms`,
+          "quote-staleness",
+          value,
+          this.maxQuoteStalenessMs
+        );
+      }
+    }
+
+    if (this.maxOpportunityAgeMs !== undefined && Number.isFinite(this.maxOpportunityAgeMs) && this.maxOpportunityAgeMs > 0) {
+      const value = opportunity.opportunityAgeMs;
+      if (!Number.isFinite(value) || value < 0) {
+        throw new StaleOpportunityRejectedError(
+          `Opportunity age metadata is invalid (got ${value}); rejecting execution under freshness guard (limit ${this.maxOpportunityAgeMs} ms)`,
+          "opportunity-age",
+          value,
+          this.maxOpportunityAgeMs
+        );
+      }
+      if (value > this.maxOpportunityAgeMs) {
+        throw new StaleOpportunityRejectedError(
+          `Opportunity is too old: ${value} ms exceeds max ${this.maxOpportunityAgeMs} ms`,
+          "opportunity-age",
+          value,
+          this.maxOpportunityAgeMs
+        );
+      }
+    }
   }
 
   private toLegSubmission(
