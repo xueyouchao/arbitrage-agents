@@ -452,8 +452,8 @@ describe("public venue HTTP clients", () => {
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({
         markets: [
-          { ticker: "KXWC-A", title: "Market A", rules_primary: "Rules A" },
-          { ticker: "KXWC-B", title: "Market B", rules_primary: "Rules B" }
+          { ticker: "KXBTCD-A", title: "Market A", rules_primary: "Rules A" },
+          { ticker: "KXBTCD-B", title: "Market B", rules_primary: "Rules B" }
         ]
       }), { status: 200 })
     );
@@ -485,10 +485,10 @@ describe("public venue HTTP clients", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await new KalshiPublicVenueClient("https://kalshi.test", { eventTicker: "KXWC", retryDelayMs: 0 }).listMarkets();
+    await new KalshiPublicVenueClient("https://kalshi.test", { eventTicker: "KXBTCD-EVENT", retryDelayMs: 0 }).listMarkets();
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://kalshi.test/markets?event_ticker=KXWC&status=open&limit=500",
+      "https://kalshi.test/markets?event_ticker=KXBTCD-EVENT&status=open&limit=500",
       expect.objectContaining({ method: "GET" })
     );
   });
@@ -513,7 +513,7 @@ describe("public venue HTTP clients", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await new KalshiPublicVenueClient("https://kalshi.test", { eventTicker: "KXWC", retryDelayMs: 0 }).listMarkets();
+    await new KalshiPublicVenueClient("https://kalshi.test", { eventTicker: "KXBTCD-EVENT", retryDelayMs: 0 }).listMarkets();
 
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("limit=500"),
@@ -527,97 +527,39 @@ describe("public venue HTTP clients", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await new KalshiPublicVenueClient("https://kalshi.test", { seriesTicker: "KXWCGAME", retryDelayMs: 0 }).listMarkets();
+    await new KalshiPublicVenueClient("https://kalshi.test", { seriesTicker: "KXBTCD-SERIES", retryDelayMs: 0 }).listMarkets();
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://kalshi.test/markets?series_ticker=KXWCGAME&status=open&limit=500",
+      "https://kalshi.test/markets?series_ticker=KXBTCD-SERIES&status=open&limit=500",
       expect.objectContaining({ method: "GET" })
     );
   });
 
-  it("queries /events?slug=fifwc and fetches markets under that event when eventSlug is provided", async () => {
+  it("queries /events?slug={eventSlug} and fetches markets under that event when eventSlug is provided", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(new Response(JSON.stringify([
         {
-          id: "evt-fifwc",
-          slug: "fifwc",
+          id: "evt-daily",
+          slug: "btc-daily",
           markets: [{ id: "mkt-1" }, { id: "mkt-2" }]
         }
       ]), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify([
-        { id: "mkt-1", conditionId: "cond-1", question: "Netherlands vs Japan", description: "Match desc 1" },
-        { id: "mkt-2", conditionId: "cond-2", question: "Brazil vs Argentina", description: "Match desc 2" }
+        { id: "mkt-1", conditionId: "cond-1", question: "BTC above $100k on Friday?", description: "Resolves per Coinbase" },
+        { id: "mkt-2", conditionId: "cond-2", question: "BTC above $105k on Saturday?", description: "Resolves per Coinbase" }
       ]), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const client = new PolymarketPublicVenueClient("https://gamma.test", "https://clob.test", { eventSlug: "fifwc", retryDelayMs: 0 });
+    const client = new PolymarketPublicVenueClient("https://gamma.test", "https://clob.test", { eventSlug: "btc-daily", retryDelayMs: 0 });
     const markets = await client.listMarkets();
 
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "https://gamma.test/events?slug=fifwc", expect.objectContaining({ method: "GET" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "https://gamma.test/events?slug=btc-daily", expect.objectContaining({ method: "GET" }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, "https://gamma.test/markets?closed=false&limit=500&id=mkt-1&id=mkt-2", expect.objectContaining({ method: "GET" }));
     expect(markets).toHaveLength(2);
     expect(markets).toEqual([
-      expect.objectContaining({ venueMarketId: "cond-1", title: "Netherlands vs Japan", rawResolutionText: "Match desc 1" }),
-      expect.objectContaining({ venueMarketId: "cond-2", title: "Brazil vs Argentina", rawResolutionText: "Match desc 2" })
-    ]);
-  });
-
-  it("injects 'FIFA World Cup 2026\\n' into rawResolutionText when a market tag contains 'world cup' and '2026'", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify([
-        {
-          id: "evt-fifwc",
-          slug: "fifwc",
-          markets: [{ id: "mkt-1" }]
-        }
-      ]), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify([
-        {
-          id: "mkt-1",
-          conditionId: "cond-1",
-          question: "Netherlands vs Japan",
-          description: "Match desc",
-          tags: [{ label: "FIFA World Cup 2026" }]
-        }
-      ]), { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const client = new PolymarketPublicVenueClient("https://gamma.test", "https://clob.test", { eventSlug: "fifwc", retryDelayMs: 0 });
-    const markets = await client.listMarkets();
-
-    expect(markets).toEqual([
-      expect.objectContaining({ rawResolutionText: "FIFA World Cup 2026\nMatch desc" })
-    ]);
-  });
-
-  it("does not inject WC tag when tag contains 'world cup' but not '2026'", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify([
-        {
-          id: "evt-fifwc",
-          slug: "fifwc",
-          markets: [{ id: "mkt-1" }]
-        }
-      ]), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify([
-        {
-          id: "mkt-1",
-          conditionId: "cond-1",
-          question: "Netherlands vs Japan",
-          description: "Match desc",
-          tags: [{ label: "FIFA World Cup 2022" }]
-        }
-      ]), { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const client = new PolymarketPublicVenueClient("https://gamma.test", "https://clob.test", { eventSlug: "fifwc", retryDelayMs: 0 });
-    const markets = await client.listMarkets();
-
-    expect(markets).toEqual([
-      expect.objectContaining({ rawResolutionText: "Match desc" })
+      expect.objectContaining({ venueMarketId: "cond-1", title: "BTC above $100k on Friday?", rawResolutionText: "Resolves per Coinbase" }),
+      expect.objectContaining({ venueMarketId: "cond-2", title: "BTC above $105k on Saturday?", rawResolutionText: "Resolves per Coinbase" })
     ]);
   });
 
@@ -642,7 +584,7 @@ describe("public venue HTTP clients", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ id: "single-event", title: "Single event" }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const client = new PolymarketPublicVenueClient("https://gamma.test", "https://clob.test", { eventSlug: "fifwc", retryDelayMs: 0 });
+    const client = new PolymarketPublicVenueClient("https://gamma.test", "https://clob.test", { eventSlug: "btc-daily", retryDelayMs: 0 });
     const markets = await client.listMarkets();
 
     expect(markets).toEqual([]);
@@ -653,12 +595,12 @@ describe("public venue HTTP clients", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(new Response(JSON.stringify([
-        { id: "evt-fifwc", slug: "fifwc", markets: [{ id: "mkt-1" }, { id: "mkt-2" }] }
+        { id: "evt-daily", slug: "btc-daily", markets: [{ id: "mkt-1" }, { id: "mkt-2" }] }
       ]), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: "not_found", message: "no markets" }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const client = new PolymarketPublicVenueClient("https://gamma.test", "https://clob.test", { eventSlug: "fifwc", retryDelayMs: 0 });
+    const client = new PolymarketPublicVenueClient("https://gamma.test", "https://clob.test", { eventSlug: "btc-daily", retryDelayMs: 0 });
     const markets = await client.listMarkets();
 
     expect(markets).toEqual([]);

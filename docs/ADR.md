@@ -404,7 +404,7 @@ Consequences:
 
 ### 3.4 Scope: Only Sequential-Settlement Opportunities
 
-Decision: Apply the conditional exit only to opportunities with `Δt > 0`. Simultaneous-settlement opportunities (macro Fed/CPI, World Cup match) hold to settlement — the t1 window does not exist.
+Decision: Apply the conditional exit only to opportunities with `Δt > 0`. Simultaneous-settlement opportunities (macro Fed/CPI, sports match) hold to settlement — the t1 window does not exist.
 
 Rationale:
 
@@ -414,7 +414,7 @@ Rationale:
 Consequences:
 
 - Crypto price-level (2h gap, different refs) → full active evaluation.
-- Macro (minutes, same official release) and World Cup (minutes, same match result) → passive hold. The distinction falls out of `Δt` and `resolutionSource` automatically.
+- Macro (minutes, same official release) and sports matches (minutes, same official result) → passive hold. The distinction falls out of `Δt` and `resolutionSource` automatically.
 
 ### 3.5 Rollout: Alert First, Execution Second
 

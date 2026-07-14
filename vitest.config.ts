@@ -27,8 +27,6 @@ export default defineConfig({
         "src/contexts/matching/domain/candidate-pair.ts",
         "src/contexts/llm/application/llm-evaluation.ts",
         "src/contexts/llm/application/llm-trace-reporter.ts",
-        // pmxt Python subprocess wrapper — not testable without pmxt installed
-        "src/contexts/venues/infrastructure/pmxt-fetcher.ts",
         // Sentry smoke check — standalone script
         "src/sentry-monitor-smoke.ts",
         // Noop LLM provider — zero-behavior stub

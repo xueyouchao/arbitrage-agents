@@ -70,45 +70,6 @@ describe("MarketNormalizer", () => {
   // Sports (Issue #1 production samples)
   // -------------------------------------------------------------------------
 
-  it("normalizes Polymarket-style World Cup winner markets", () => {
-    const market = new MarketNormalizer().normalize(
-      snapshot({
-        venue: "polymarket",
-        venueMarketId: "PM-GHANA-WC26",
-        title: "Will Ghana win the 2026 FIFA World Cup?",
-        rawResolutionText:
-          "This market will resolve to 'Yes' if Ghana wins the 2026 FIFA World Cup. It will resolve to 'No' if any other team wins. Resolution will be based on official FIFA result.",
-      })
-    );
-
-    expect(market.topic).toBe("sports");
-    expect(market.eventType).toBe("winner");
-    expect(market.asset).toContain("ghana");
-    expect(market.deadline).toBe("2026-07-19T00:00:00.000Z");
-    expect(market.resolutionSource).toBe("official FIFA result");
-    expect(market.ambiguityFlags).toEqual([]);
-  });
-
-  it("normalizes Kalshi-style World Cup winner markets from outcome labels", () => {
-    // Kalshi sometimes exposes comma-separated outcome labels in the title.
-    // The meaningful market text is still the first meaningful question part.
-    const market = new MarketNormalizer().normalize(
-      snapshot({
-        venue: "kalshi",
-        venueMarketId: "KX-MEXICO-WC26",
-        title: "yes Tie,yes Mexico,yes Morocco,Will Mexico win the 2026 FIFA World Cup?",
-        rawResolutionText: "Resolves according to official FIFA result.",
-      })
-    );
-
-    expect(market.topic).toBe("sports");
-    expect(market.eventType).toBe("winner");
-    expect(market.asset).toContain("mexico");
-    expect(market.deadline).toBe("2026-07-19T00:00:00.000Z");
-    expect(market.resolutionSource).toBe("official FIFA result");
-    expect(market.ambiguityFlags).toEqual([]);
-  });
-
   it("normalizes sports total markets", () => {
     const market = new MarketNormalizer().normalize(
       snapshot({
@@ -325,29 +286,29 @@ describe("MarketNormalizer", () => {
   // Cross-venue candidate generation
   // -------------------------------------------------------------------------
 
-  it("produces a candidate pair for equivalent Kalshi/Polymarket World Cup winner markets", () => {
+  it("produces a candidate pair for equivalent Kalshi/Polymarket sports winner markets", () => {
     const normalizer = new MarketNormalizer();
     const kalshi = normalizer.normalize(
       snapshot({
         venue: "kalshi",
-        venueMarketId: "KX-MEXICO-WC26",
-        title: "Will Mexico win the 2026 FIFA World Cup?",
-        rawResolutionText: "Resolves according to official FIFA result.",
+        venueMarketId: "KX-CHIEFS-SB",
+        title: "Will the Chiefs win Super Bowl LX?",
+        rawResolutionText: "Resolves according to official NFL result on February 8, 2026.",
       })
     );
     const polymarket = normalizer.normalize(
       snapshot({
         venue: "polymarket",
-        venueMarketId: "PM-MEXICO-WC26",
-        title: "Will Mexico win the 2026 FIFA World Cup?",
-        rawResolutionText: "Resolves according to official FIFA result.",
+        venueMarketId: "PM-CHIEFS-SB",
+        title: "Will the Chiefs win Super Bowl LX?",
+        rawResolutionText: "Resolves according to official NFL result on February 8, 2026.",
       })
     );
 
     const pairs = new CandidatePairGenerator().generate([kalshi, polymarket]);
 
     expect(pairs).toHaveLength(1);
-    expect(pairs[0].id).toBe("kalshi:KX-MEXICO-WC26:polymarket:PM-MEXICO-WC26");
+    expect(pairs[0].id).toBe("kalshi:KX-CHIEFS-SB:polymarket:PM-CHIEFS-SB");
     expect(pairs[0].kalshiMarket.topic).toBe("sports");
     expect(pairs[0].polymarketMarket.topic).toBe("sports");
     expect(pairs[0].reasons).toContain("same_asset");
@@ -430,15 +391,15 @@ describe("MarketNormalizer", () => {
   });
 
   it("extractEventName handles 'Who will win the 20XX' questions", () => {
-    // The "Who will win the 2026 FIFA World Cup?" -> extractEventName returns "2026 fifa world cup"
+    // The "Who will win the 2026 Super Bowl?" -> extractEventName returns "2026 super bowl"
     const market = new MarketNormalizer().normalize(
       snapshot({
         venue: "polymarket",
-        venueMarketId: "PM-2026-WORLD-CUP-WINNER",
-        title: "Who will win the 2026 FIFA World Cup?",
-        rawResolutionText: "Resolves based on official FIFA result",
+        venueMarketId: "PM-2026-SUPER-BOWL",
+        title: "Who will win the 2026 Super Bowl?",
+        rawResolutionText: "Resolves based on official NFL result",
       })
     );
-    expect(market.asset).toBe("2026 fifa world cup");
+    expect(market.asset).toBe("2026 super bowl");
   });
 });
