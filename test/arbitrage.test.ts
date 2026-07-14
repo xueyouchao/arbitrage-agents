@@ -263,16 +263,77 @@ describe("OpportunityCalculator", () => {
       theoreticalCombinedCost: 0.9,
       theoreticalGrossEdge: 0.1,
       theoreticalNetEdge: 0.1,
-      executableSizeUsd: 5,
-      executableCombinedCost: 0.9,
-      executableGrossEdge: 0.1,
-      executableNetEdge: 0.1,
+      executableSizeUsd: 10,
+      executableCombinedCost: 0.9683,
+      executableGrossEdge: 0.0317,
+      executableNetEdge: 0.0317,
       maxTradableUsd: 5,
       notionalEdges: [
         expect.objectContaining({ targetNotionalUsd: 10, fillable: true, netEdge: 0.0317 }),
         expect.objectContaining({ targetNotionalUsd: 20, fillable: true, netEdge: -0.0705 })
       ]
     });
+  });
+
+  it("selects the largest fillable candidate that clears the configured edge threshold", () => {
+    const [opportunity] = new OpportunityCalculator().calculate(
+      pair,
+      classA,
+      {
+        marketId: "K1", venue: "kalshi", yesAsk: 0.4, noAsk: 0.7,
+        yesAvailableUsd: 5, noAvailableUsd: 100,
+        yesDepth: [{ price: 0.4, size: 25 }, { price: 0.7, size: 50 }],
+        capturedAt: "2026-01-01T00:00:00.000Z"
+      },
+      {
+        marketId: "P1", venue: "polymarket", yesAsk: 0.8, noAsk: 0.5,
+        yesAvailableUsd: 100, noAvailableUsd: 5,
+        noDepth: [{ price: 0.5, size: 20 }, { price: 0.75, size: 50 }],
+        capturedAt: "2026-01-01T00:00:00.000Z"
+      },
+      {
+        now: "2026-01-01T00:00:00.000Z",
+        targetNotionalsUsd: [5, 10, 25],
+        minNetEdge: 0.05,
+        profitabilityBuffer: 0.01,
+        venueFeeRates: { kalshi: { YES: 0 }, polymarket: { NO: 0 } },
+        venueSlippageRates: { kalshi: { YES: 0 }, polymarket: { NO: 0 } }
+      }
+    );
+
+    expect(opportunity).toMatchObject({ maxTradableUsd: 5, executableSizeUsd: 10, executableNetEdge: 0.1 });
+    expect(opportunity.notionalEdges).toEqual([
+      expect.objectContaining({ targetNotionalUsd: 5, fillable: true, netEdge: 0.1 }),
+      expect.objectContaining({ targetNotionalUsd: 10, fillable: true, netEdge: 0.1 }),
+      expect.objectContaining({ targetNotionalUsd: 25, fillable: true, netEdge: -0.1635 })
+    ]);
+  });
+
+  it("drops candidates whose executable edge is equal to or below the required threshold", () => {
+    const opportunities = new OpportunityCalculator().calculate(
+      pair,
+      classA,
+      {
+        marketId: "K1", venue: "kalshi", yesAsk: 0.4, noAsk: 0.7,
+        yesAvailableUsd: 10, noAvailableUsd: 100,
+        yesDepth: [{ price: 0.4, size: 100 }], capturedAt: "2026-01-01T00:00:00.000Z"
+      },
+      {
+        marketId: "P1", venue: "polymarket", yesAsk: 0.8, noAsk: 0.5,
+        yesAvailableUsd: 100, noAvailableUsd: 10,
+        noDepth: [{ price: 0.5, size: 100 }], capturedAt: "2026-01-01T00:00:00.000Z"
+      },
+      {
+        now: "2026-01-01T00:00:00.000Z",
+        targetNotionalsUsd: [5],
+        minNetEdge: 0.08,
+        profitabilityBuffer: 0.02,
+        venueFeeRates: { kalshi: { YES: 0 }, polymarket: { NO: 0 } },
+        venueSlippageRates: { kalshi: { YES: 0 }, polymarket: { NO: 0 } }
+      }
+    );
+
+    expect(opportunities).toEqual([]);
   });
 
   it("derives firstDetectedAt and opportunityAgeMs from previousDetectedAt when provided", () => {

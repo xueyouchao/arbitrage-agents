@@ -66,6 +66,37 @@ describe("loadAppConfig", () => {
     expect(config.maxCapitalDeployedUsd).toBe(10000);
   });
 
+  it("defaults freshness guards to 0 (disabled)", () => {
+    const config = loadAppConfig({ DATABASE_URL: "postgres://user:pass@localhost:5432/db" });
+    expect(config.maxQuoteStalenessMs).toBe(0);
+    expect(config.maxOpportunityAgeMs).toBe(0);
+  });
+
+  it("coerces freshness guard values from env strings", () => {
+    const config = loadAppConfig({
+      DATABASE_URL: "postgres://user:pass@localhost:5432/db",
+      MAX_QUOTE_STALENESS_MS: "250",
+      MAX_OPPORTUNITY_AGE_MS: "5000"
+    });
+    expect(config.maxQuoteStalenessMs).toBe(250);
+    expect(config.maxOpportunityAgeMs).toBe(5000);
+  });
+
+  it("rejects negative freshness guard values", () => {
+    expect(() =>
+      loadAppConfig({
+        DATABASE_URL: "postgres://user:pass@localhost:5432/db",
+        MAX_QUOTE_STALENESS_MS: "-1"
+      })
+    ).toThrow();
+    expect(() =>
+      loadAppConfig({
+        DATABASE_URL: "postgres://user:pass@localhost:5432/db",
+        MAX_OPPORTUNITY_AGE_MS: "-10"
+      })
+    ).toThrow();
+  });
+
   it("defaults ADR-0002 T1 exit-gate parameters", () => {
     const config = loadAppConfig({
       DATABASE_URL: "postgres://user:pass@localhost:5432/db"

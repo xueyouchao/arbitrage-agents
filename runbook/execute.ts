@@ -8,6 +8,7 @@ import {
   ExecutionOrchestrator,
   AlreadyExecutedError,
   RiskRejectedError,
+  StaleOpportunityRejectedError,
   type TradingClients
 } from "../src/contexts/execution/application/execution-orchestrator";
 import { KalshiTradingClientAdapter } from "../src/contexts/execution/infrastructure/kalshi-trading-client-adapter";
@@ -99,7 +100,13 @@ async function main(): Promise<void> {
     const orchestrator = new ExecutionOrchestrator(repos, {
       riskManager: new RiskManager(),
       totalOpenNotional: 0,
-      maxCapitalDeployed: appConfig.maxCapitalDeployedUsd
+      maxCapitalDeployed: appConfig.maxCapitalDeployedUsd,
+      // Freshness guards: a positive value (ms) enables the fail-closed guard;
+      // 0 (the config default) disables it. The orchestrator ignores non-positive
+      // limits, so pass the numeric value through directly rather than coercing
+      // 0 to undefined (which would mask a future "zero tolerance" meaning).
+      maxQuoteStalenessMs: appConfig.maxQuoteStalenessMs,
+      maxOpportunityAgeMs: appConfig.maxOpportunityAgeMs
     });
 
     console.log(`Executing opportunity ${opportunity.id}`);
@@ -116,6 +123,10 @@ async function main(): Promise<void> {
       }
       if (error instanceof RiskRejectedError) {
         console.log(`Risk rejected: ${error.message}`);
+        process.exit(1);
+      }
+      if (error instanceof StaleOpportunityRejectedError) {
+        console.log(`Stale opportunity rejected (${error.kind}): ${error.message}`);
         process.exit(1);
       }
       throw error;
