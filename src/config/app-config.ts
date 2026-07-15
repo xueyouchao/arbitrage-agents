@@ -50,10 +50,22 @@ const optionalNumber = (schema: z.ZodNumber) => z.preprocess(
 
 const optionalPositiveInt = optionalNumber(z.coerce.number().int().positive());
 
-const hostedHttpUrl = z.string().url().refine(
-  (value) => ["http:", "https:"].includes(new URL(value).protocol),
-  "PMXT_HOSTED_BASE_URL must use HTTP or HTTPS"
-);
+const hostedHttpUrl = z.string().url().superRefine((value, context) => {
+  const url = new URL(value);
+  if (!["http:", "https:"].includes(url.protocol)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "PMXT_HOSTED_BASE_URL must use HTTP or HTTPS"
+    });
+  }
+
+  if (url.username || url.password) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "PMXT_HOSTED_BASE_URL must not contain credentials"
+    });
+  }
+});
 
 const PmxtShadowConfigSchema = z.object({
   pmxtApiKey: z.string().default(""),

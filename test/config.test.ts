@@ -178,6 +178,12 @@ describe("loadAppConfig", () => {
     expect(() =>
       loadAppConfig({
         ...base,
+        PMXT_HOSTED_BASE_URL: "https://user:password@api.pmxt.dev"
+      })
+    ).toThrow(/must not contain credentials/);
+    expect(() =>
+      loadAppConfig({
+        ...base,
         PMXT_SHADOW_MAX_MONTHLY_COST_USD: "Infinity"
       })
     ).toThrow(/pmxtShadowMaxMonthlyCostUsd/);
