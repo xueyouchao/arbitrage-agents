@@ -14,6 +14,121 @@ const booleanFromString = z.preprocess((value) => {
   return value;
 }, z.boolean());
 
+const sampleRateFromString = z.preprocess((value) => {
+  if (value === undefined || value === "") {
+    return { numerator: 0, denominator: 1 };
+  }
+
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const match = /^(\d+)\/(\d+)$/.exec(value.trim());
+  if (!match) {
+    return value;
+  }
+
+  const numerator = Number(match[1]);
+  const denominator = Number(match[2]);
+  if (!Number.isSafeInteger(numerator) || !Number.isSafeInteger(denominator)) {
+    return value;
+  }
+
+  return { numerator, denominator };
+}, z.object({
+  numerator: z.number().int().min(0),
+  denominator: z.number().int().positive()
+}).refine(
+  ({ numerator, denominator }) => numerator <= denominator,
+  "PMXT_SHADOW_SAMPLE_RATE numerator must not exceed denominator"
+));
+
+const optionalNumber = (schema: z.ZodNumber) => z.preprocess(
+  (value) => value === undefined || value === "" ? undefined : value,
+  schema.optional()
+);
+
+const optionalPositiveInt = optionalNumber(z.coerce.number().int().positive());
+
+const hostedHttpUrl = z.string().url().superRefine((value, context) => {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "PMXT_HOSTED_BASE_URL must be a valid URL"
+    });
+    return;
+  }
+
+  if (!["http:", "https:"].includes(url.protocol)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "PMXT_HOSTED_BASE_URL must use HTTP or HTTPS"
+    });
+  }
+
+  if (url.username || url.password) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "PMXT_HOSTED_BASE_URL must not contain credentials"
+    });
+  }
+});
+
+const PmxtShadowConfigSchema = z.object({
+  pmxtApiKey: z.string().default(""),
+  pmxtHostedBaseUrl: z.union([z.literal(""), hostedHttpUrl]).default(""),
+  pmxtShadowEnabled: booleanFromString.default(false),
+  pmxtShadowReadsEnabled: booleanFromString.default(false),
+  pmxtShadowRouterEnabled: booleanFromString.default(false),
+  pmxtShadowSampleRate: sampleRateFromString,
+  pmxtShadowTimeoutMs: z.coerce.number().int().positive().max(24 * 60 * 60 * 1000).default(60_000),
+  pmxtRequestTimeoutMs: z.coerce.number().int().positive().max(180_000).default(10_000),
+  pmxtShadowRequestsPerMinute: z.coerce.number().int().positive().max(60).default(60),
+  pmxtShadowMaxConcurrency: z.coerce.number().int().positive().max(1).default(1),
+  pmxtShadowMaxQueueDepth: optionalPositiveInt,
+  pmxtShadowMaxQueueWaitMs: optionalPositiveInt,
+  pmxtShadowMaxRequestsPerRun: optionalPositiveInt,
+  pmxtShadowMaxMarketsPerVenue: optionalPositiveInt,
+  pmxtShadowMaxBooksPerVenue: optionalPositiveInt,
+  pmxtShadowMaxMonthlyCredits: optionalPositiveInt,
+  pmxtShadowMaxMonthlyCostUsd: optionalNumber(z.coerce.number().finite().nonnegative()),
+  pmxtShadowRawRetentionDays: z.coerce.number().int().min(0).default(0)
+}).superRefine((config, context) => {
+  const childModeEnabled = config.pmxtShadowReadsEnabled || config.pmxtShadowRouterEnabled;
+
+  if (!config.pmxtShadowEnabled && childModeEnabled) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "PMXT_SHADOW_ENABLED must be true when a PMXT child mode is enabled"
+    });
+  }
+
+  if (!config.pmxtShadowEnabled) {
+    return;
+  }
+
+  const required: Array<[unknown, string]> = [
+    [config.pmxtApiKey, "PMXT_API_KEY is required when PMXT shadowing is enabled"],
+    [config.pmxtHostedBaseUrl, "PMXT_HOSTED_BASE_URL is required when PMXT shadowing is enabled"],
+    [childModeEnabled, "PMXT shadowing requires reads or Router mode"],
+    [config.pmxtShadowSampleRate.numerator > 0, "PMXT_SHADOW_SAMPLE_RATE must be positive when enabled"],
+    [config.pmxtShadowMaxQueueDepth, "PMXT_SHADOW_MAX_QUEUE_DEPTH is required when enabled"],
+    [config.pmxtShadowMaxQueueWaitMs, "PMXT_SHADOW_MAX_QUEUE_WAIT_MS is required when enabled"],
+    [config.pmxtShadowMaxRequestsPerRun, "PMXT_SHADOW_MAX_REQUESTS_PER_RUN is required when enabled"],
+    [config.pmxtShadowMaxMonthlyCredits, "PMXT_SHADOW_MAX_MONTHLY_CREDITS is required when enabled"],
+    [config.pmxtShadowMaxMonthlyCostUsd !== undefined, "PMXT_SHADOW_MAX_MONTHLY_COST_USD is required when enabled"]
+  ];
+
+  for (const [value, message] of required) {
+    if (!value) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message });
+    }
+  }
+});
+
 const AppConfigSchema = z.object({
   nodeEnv: z.enum(["development", "test", "production"]).default("development"),
   port: z.coerce.number().int().positive().max(65535).default(3000),
@@ -93,7 +208,7 @@ const AppConfigSchema = z.object({
   t1ExitSellFeeRate: z.coerce.number().min(0).max(1).default(0.01),
   t1ExitEstimatedSpreadRate: z.coerce.number().min(0).max(1).default(0.01),
   t1ExitEstimatedSlippagePerShare: z.coerce.number().min(0).max(1).default(0.005)
-});
+}).and(PmxtShadowConfigSchema);
 
 export type AppConfig = z.infer<typeof AppConfigSchema>;
 
@@ -132,8 +247,48 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     t1ExitGapDecayMax: env.T1_EXIT_GAP_DECAY_MAX,
     t1ExitSellFeeRate: env.T1_EXIT_SELL_FEE_RATE,
     t1ExitEstimatedSpreadRate: env.T1_EXIT_ESTIMATED_SPREAD_RATE,
-    t1ExitEstimatedSlippagePerShare: env.T1_EXIT_ESTIMATED_SLIPPAGE_PER_SHARE
+    t1ExitEstimatedSlippagePerShare: env.T1_EXIT_ESTIMATED_SLIPPAGE_PER_SHARE,
+    pmxtApiKey: env.PMXT_API_KEY,
+    pmxtHostedBaseUrl: env.PMXT_HOSTED_BASE_URL,
+    pmxtShadowEnabled: env.PMXT_SHADOW_ENABLED,
+    pmxtShadowReadsEnabled: env.PMXT_SHADOW_READS_ENABLED,
+    pmxtShadowRouterEnabled: env.PMXT_SHADOW_ROUTER_ENABLED,
+    pmxtShadowSampleRate: env.PMXT_SHADOW_SAMPLE_RATE,
+    pmxtShadowTimeoutMs: env.PMXT_SHADOW_TIMEOUT_MS,
+    pmxtRequestTimeoutMs: env.PMXT_REQUEST_TIMEOUT_MS,
+    pmxtShadowRequestsPerMinute: env.PMXT_SHADOW_REQUESTS_PER_MINUTE,
+    pmxtShadowMaxConcurrency: env.PMXT_SHADOW_MAX_CONCURRENCY,
+    pmxtShadowMaxQueueDepth: env.PMXT_SHADOW_MAX_QUEUE_DEPTH,
+    pmxtShadowMaxQueueWaitMs: env.PMXT_SHADOW_MAX_QUEUE_WAIT_MS,
+    pmxtShadowMaxRequestsPerRun: env.PMXT_SHADOW_MAX_REQUESTS_PER_RUN,
+    pmxtShadowMaxMarketsPerVenue: env.PMXT_SHADOW_MAX_MARKETS_PER_VENUE,
+    pmxtShadowMaxBooksPerVenue: env.PMXT_SHADOW_MAX_BOOKS_PER_VENUE,
+    pmxtShadowMaxMonthlyCredits: env.PMXT_SHADOW_MAX_MONTHLY_CREDITS,
+    pmxtShadowMaxMonthlyCostUsd: env.PMXT_SHADOW_MAX_MONTHLY_COST_USD,
+    pmxtShadowRawRetentionDays: env.PMXT_SHADOW_RAW_RETENTION_DAYS
   });
+}
+
+export function pmxtShadowConfigForFingerprint(config: AppConfig) {
+  return {
+    pmxtHostedBaseUrl: config.pmxtHostedBaseUrl,
+    pmxtShadowEnabled: config.pmxtShadowEnabled,
+    pmxtShadowReadsEnabled: config.pmxtShadowReadsEnabled,
+    pmxtShadowRouterEnabled: config.pmxtShadowRouterEnabled,
+    pmxtShadowSampleRate: config.pmxtShadowSampleRate,
+    pmxtShadowTimeoutMs: config.pmxtShadowTimeoutMs,
+    pmxtRequestTimeoutMs: config.pmxtRequestTimeoutMs,
+    pmxtShadowRequestsPerMinute: config.pmxtShadowRequestsPerMinute,
+    pmxtShadowMaxConcurrency: config.pmxtShadowMaxConcurrency,
+    pmxtShadowMaxQueueDepth: config.pmxtShadowMaxQueueDepth,
+    pmxtShadowMaxQueueWaitMs: config.pmxtShadowMaxQueueWaitMs,
+    pmxtShadowMaxRequestsPerRun: config.pmxtShadowMaxRequestsPerRun,
+    pmxtShadowMaxMarketsPerVenue: config.pmxtShadowMaxMarketsPerVenue,
+    pmxtShadowMaxBooksPerVenue: config.pmxtShadowMaxBooksPerVenue,
+    pmxtShadowMaxMonthlyCredits: config.pmxtShadowMaxMonthlyCredits,
+    pmxtShadowMaxMonthlyCostUsd: config.pmxtShadowMaxMonthlyCostUsd,
+    pmxtShadowRawRetentionDays: config.pmxtShadowRawRetentionDays
+  };
 }
 
 /**
