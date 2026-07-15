@@ -178,6 +178,12 @@ describe("loadAppConfig", () => {
     expect(() =>
       loadAppConfig({
         ...base,
+        PMXT_HOSTED_BASE_URL: "not-a-url"
+      })
+    ).toThrow(/PMXT_HOSTED_BASE_URL must be a valid URL|Invalid url/);
+    expect(() =>
+      loadAppConfig({
+        ...base,
         PMXT_HOSTED_BASE_URL: "https://user:password@api.pmxt.dev"
       })
     ).toThrow(/must not contain credentials/);

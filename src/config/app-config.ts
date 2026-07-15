@@ -51,7 +51,17 @@ const optionalNumber = (schema: z.ZodNumber) => z.preprocess(
 const optionalPositiveInt = optionalNumber(z.coerce.number().int().positive());
 
 const hostedHttpUrl = z.string().url().superRefine((value, context) => {
-  const url = new URL(value);
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "PMXT_HOSTED_BASE_URL must be a valid URL"
+    });
+    return;
+  }
+
   if (!["http:", "https:"].includes(url.protocol)) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
