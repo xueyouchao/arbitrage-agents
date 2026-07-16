@@ -81,7 +81,7 @@ export class PmxtShadowRateLimiter {
       return { allowed: false, reason: "global_cooldown" };
     }
 
-    if (runRequestCount >= this.options.maxRequestsPerRun) {
+    if (this.options.maxRequestsPerRun > 0 && runRequestCount >= this.options.maxRequestsPerRun) {
       return { allowed: false, reason: "run_request_budget_exhausted" };
     }
 
@@ -118,9 +118,10 @@ export class PmxtShadowRateLimiter {
   }
 
   /**
-   * Notify the limiter of a transient failure. 429 responses trigger a
-   * cooldown and adaptive slowdown; auth failures are recorded but do not
-   * open the circuit breaker. Monthly-quota exhaustion is treated as fatal.
+   * Notify the limiter of a failure response. 429 triggers cooldown and
+   * adaptive slowdown. 401/403 are recorded but do not open the circuit
+   * breaker (auth failures are not transient). 402 (payment required /
+   * monthly-quota exhaustion) opens the circuit immediately as fatal.
    */
   reportFailure(statusCode: number, retryAfterSeconds?: number): void {
     if (statusCode === 429) {
@@ -129,7 +130,12 @@ export class PmxtShadowRateLimiter {
       if (this.adaptiveRateMultiplier >= 4) {
         this.circuitOpenUntil = this.clock() + 60_000;
       }
+    } else if (statusCode === 402) {
+      // Monthly-quota exhaustion: open circuit immediately, no cooldown expiry.
+      this.circuitOpenUntil = Number.MAX_SAFE_INTEGER;
     }
+    // 401/403: auth failures are recorded by the caller via the status code;
+    // the limiter does not open the circuit for them.
   }
 
   reportRetryAfter(seconds?: number): void {
