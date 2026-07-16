@@ -13,7 +13,6 @@ export interface PmxtShadowRateLimitState {
   ratePerMs: number;
   globalCooldownUntil: number;
   circuitOpenUntil: number;
-  runRequestCount: number;
 }
 
 export interface PmxtShadowRateLimitResult {
@@ -60,10 +59,9 @@ export class PmxtShadowRateLimiter {
       tokens: this.tokens,
       capacity: this.capacity,
       inFlight: this.inFlight,
-      ratePerMs: this.ratePerMs * this.adaptiveRateMultiplier,
+      ratePerMs: this.ratePerMs / this.adaptiveRateMultiplier,
       globalCooldownUntil: this.globalCooldownUntil,
-      circuitOpenUntil: this.circuitOpenUntil,
-      runRequestCount: 0
+      circuitOpenUntil: this.circuitOpenUntil
     };
   }
 
@@ -147,7 +145,7 @@ export class PmxtShadowRateLimiter {
     if (elapsed > 0) {
       this.tokens = Math.min(
         this.capacity,
-        this.tokens + elapsed * this.ratePerMs * this.adaptiveRateMultiplier
+        this.tokens + elapsed * this.ratePerMs / this.adaptiveRateMultiplier
       );
       this.lastRefillAt = now;
     }

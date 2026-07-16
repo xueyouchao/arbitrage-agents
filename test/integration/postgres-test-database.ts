@@ -183,7 +183,7 @@ async function resolveDockerCommand(): Promise<DockerCommand> {
   const plain: DockerCommand = { command: "docker", args: [] };
   if (await canRun(plain)) return plain;
 
-  const sudo: DockerCommand = { command: "sudo", args: ["docker"] };
+  const sudo: DockerCommand = { command: "sudo", args: ["-n", "docker"] };
   if (await canRun(sudo)) return sudo;
 
   await execFileAsync("docker", ["version", "--format", "{{.Server.Version}}"], { timeout: 10_000 });
