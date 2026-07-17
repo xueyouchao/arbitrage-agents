@@ -22,8 +22,12 @@ export interface BinomialConfidenceInterval {
 
 export type PmxtRouterQualityInconclusiveReason =
   | "insufficient_labeled_sample"
+  | "insufficient_precision_sample"
+  | "insufficient_recall_sample"
+  | "insufficient_false_positive_sample"
   | "zero_precision_denominator"
-  | "zero_recall_denominator";
+  | "zero_recall_denominator"
+  | "zero_false_positive_denominator";
 
 export interface PmxtRouterStratumQuality {
   eligibleCount: number;
@@ -58,10 +62,20 @@ export function reportPmxtRouterMatchingQuality(
 ): PmxtRouterMatchingQualityReport {
   validateProtocol(protocol);
   const observationsByStratum = new Map<string, PmxtRouterQualityObservation[]>();
+  const observationIds = new Set<string>();
 
   for (const observation of observations) {
+    if (observationIds.has(observation.id)) {
+      throw new Error(`Duplicate observation ${observation.id}`);
+    }
+    observationIds.add(observation.id);
+    const observedKeys = new Set<string>();
     for (const key of observation.stratumKeys) {
-      if (!(key in protocol.eligibleCounts)) {
+      if (observedKeys.has(key)) {
+        throw new Error(`Observation ${observation.id} repeats stratum ${key}`);
+      }
+      observedKeys.add(key);
+      if (!Object.hasOwn(protocol.eligibleCounts, key)) {
         throw new Error(`Observation ${observation.id} stratum ${key} is not in the frozen cohort`);
       }
       const current = observationsByStratum.get(key) ?? [];
@@ -135,12 +149,27 @@ function reportStratum(
   if (labeled.length < protocol.minimumSampleSize) {
     inconclusiveReasons.push("insufficient_labeled_sample");
   }
-  if (precisionDenominator === 0) {
-    inconclusiveReasons.push("zero_precision_denominator");
-  }
-  if (recallDenominator === 0) {
-    inconclusiveReasons.push("zero_recall_denominator");
-  }
+  addMetricSampleReason(
+    inconclusiveReasons,
+    precisionDenominator,
+    protocol.minimumSampleSize,
+    "zero_precision_denominator",
+    "insufficient_precision_sample"
+  );
+  addMetricSampleReason(
+    inconclusiveReasons,
+    recallDenominator,
+    protocol.minimumSampleSize,
+    "zero_recall_denominator",
+    "insufficient_recall_sample"
+  );
+  addMetricSampleReason(
+    inconclusiveReasons,
+    negativeDenominator,
+    protocol.minimumSampleSize,
+    "zero_false_positive_denominator",
+    "insufficient_false_positive_sample"
+  );
 
   return {
     eligibleCount,
@@ -176,6 +205,20 @@ function reportStratum(
     status: inconclusiveReasons.length === 0 ? "conclusive" : "inconclusive",
     inconclusiveReasons,
   };
+}
+
+function addMetricSampleReason(
+  reasons: PmxtRouterQualityInconclusiveReason[],
+  denominator: number,
+  minimumSampleSize: number,
+  zeroReason: PmxtRouterQualityInconclusiveReason,
+  insufficientReason: PmxtRouterQualityInconclusiveReason
+): void {
+  if (denominator === 0) {
+    reasons.push(zeroReason);
+  } else if (denominator < minimumSampleSize) {
+    reasons.push(insufficientReason);
+  }
 }
 
 function ratio(numerator: number, denominator: number): number | undefined {

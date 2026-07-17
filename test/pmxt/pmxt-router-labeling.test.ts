@@ -162,6 +162,32 @@ describe("buildFrozenPmxtRouterLabelingCohort", () => {
     expect(cohort.items[0].eligibleCounts["source=shared"]).toBe(2);
   });
 
+  it("uses UTC calendar days for offset deadlines", () => {
+    const cohort = buildFrozenPmxtRouterLabelingCohort(
+      [
+        candidate("offset", {
+          routerCandidate: true,
+          routerRelation: "identity",
+          routerConfidence: 0.9,
+          kalshiMarket: market("kalshi", "k-offset", {
+            deadline: "2026-12-31T23:30:00-02:00",
+          }),
+          polymarketMarket: market("polymarket", "p-offset", {
+            deadline: "2027-01-01T12:00:00Z",
+          }),
+        }),
+      ],
+      {
+        protocolVersion: "router-quality-v1",
+        frozenAt: "2026-07-17T00:00:00.000Z",
+        confidenceBands: [0.5, 0.8],
+        minimumSampleSize: 2,
+      }
+    );
+
+    expect(cohort.items[0].strata.cryptoDeadline).toBe("same_utc_day");
+  });
+
   it("rejects candidates outside the declared labeling universe", () => {
     expect(() =>
       buildFrozenPmxtRouterLabelingCohort([candidate("orphan")], {
