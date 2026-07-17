@@ -28,6 +28,7 @@ describe("migration smoke tests", () => {
         "orderbook_snapshots",
         "orders",
         "paper_trade_simulations",
+        "pmxt_shadow_run_attempts",
         "positions",
         "scan_runs",
         "scan_steps",
