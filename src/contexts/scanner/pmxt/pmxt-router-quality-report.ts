@@ -13,6 +13,7 @@ export interface PmxtRouterQualityProtocol {
   minimumSampleSize: number;
   eligibleCounts: Record<string, number>;
   frozenMembership?: Record<string, string[]>;
+  frozenPredictions?: Record<string, boolean>;
 }
 
 export interface BinomialConfidenceInterval {
@@ -66,6 +67,7 @@ export function reportPmxtRouterMatchingQuality(
   const observationIds = new Set<string>();
 
   for (const observation of observations) {
+    validateObservation(observation);
     if (observationIds.has(observation.id)) {
       throw new Error(`Duplicate observation ${observation.id}`);
     }
@@ -119,6 +121,31 @@ function validateProtocol(protocol: PmxtRouterQualityProtocol): void {
   ) {
     throw new Error("Invalid PMXT Router quality protocol");
   }
+  if (protocol.frozenMembership) {
+    const counts: Record<string, number> = {};
+    for (const keys of Object.values(protocol.frozenMembership)) {
+      for (const key of new Set(keys)) counts[key] = (counts[key] ?? 0) + 1;
+    }
+    if (
+      Object.keys(counts).some((key) => !Object.hasOwn(protocol.eligibleCounts, key)) ||
+      Object.entries(protocol.eligibleCounts).some(([key, count]) => counts[key] !== count)
+    ) {
+      throw new Error("PMXT Router eligible counts do not match frozen membership");
+    }
+  }
+}
+
+function validateObservation(observation: PmxtRouterQualityObservation): void {
+  if (!observation.id.trim()) throw new Error("PMXT Router observation ID is required");
+  if (typeof observation.routerPredictedIdentity !== "boolean") {
+    throw new Error(`Observation ${observation.id} has invalid Router prediction`);
+  }
+  if (!["identity", "not_identity", "inconclusive"].includes(observation.label)) {
+    throw new Error(`Observation ${observation.id} has invalid human label`);
+  }
+  if (observation.stratumKeys.some((key) => typeof key !== "string" || !key.trim())) {
+    throw new Error(`Observation ${observation.id} has invalid stratum key`);
+  }
 }
 
 function validateFrozenMembership(
@@ -135,6 +162,13 @@ function validateFrozenMembership(
     frozenKeys.some((key) => !observation.stratumKeys.includes(key))
   ) {
     throw new Error(`Observation ${observation.id} does not match frozen strata`);
+  }
+  const frozenPrediction = protocol.frozenPredictions?.[observation.id];
+  if (
+    frozenPrediction !== undefined &&
+    frozenPrediction !== observation.routerPredictedIdentity
+  ) {
+    throw new Error(`Observation ${observation.id} does not match frozen Router prediction`);
   }
 }
 

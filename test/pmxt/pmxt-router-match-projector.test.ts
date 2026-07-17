@@ -250,6 +250,23 @@ describe("projectPmxtRouterMatches", () => {
     expect(result.edges[0].exclusionReason).toBe(reason);
   });
 
+  it("stores duplicate raw edges but emits one candidate ID", () => {
+    const rawEdge = {
+      marketAId: "pmxt-kalshi-1",
+      marketBId: "pmxt-polymarket-1",
+      relation: "identity" as const,
+      confidence: 0.9,
+    };
+
+    const result = projectPmxtRouterMatches(
+      [cluster({ rawMatches: [rawEdge, { ...rawEdge }] })],
+      nativeIdentities
+    );
+
+    expect(result.edges).toHaveLength(2);
+    expect(result.candidates).toHaveLength(1);
+  });
+
   it("uses an unambiguous candidate ID even when source IDs contain separators", () => {
     const first = cluster({
       clusterId: "a:b",
