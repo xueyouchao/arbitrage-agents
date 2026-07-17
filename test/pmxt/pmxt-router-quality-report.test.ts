@@ -223,7 +223,7 @@ describe("reportPmxtRouterMatchingQuality", () => {
     ).toThrow("eligible counts do not match frozen membership");
   });
 
-  it("rejects observations with empty stratumKeys", () => {
+  it("rejects observations with non-string id, non-array, or empty stratumKeys", () => {
     const protocol = {
       protocolVersion: "router-quality-v1",
       confidenceLevel: 0.95,
@@ -231,6 +231,16 @@ describe("reportPmxtRouterMatchingQuality", () => {
       eligibleCounts: { "source=shared": 1 },
     };
 
+    expect(() =>
+      reportPmxtRouterMatchingQuality(protocol, [
+        { id: 123 as unknown as string, stratumKeys: ["source=shared"], routerPredictedIdentity: true, label: "identity" },
+      ])
+    ).toThrow("PMXT Router observation ID must be a non-empty string");
+    expect(() =>
+      reportPmxtRouterMatchingQuality(protocol, [
+        { id: "obs", stratumKeys: "not-an-array" as unknown as string[], routerPredictedIdentity: true, label: "identity" },
+      ])
+    ).toThrow("invalid stratum key");
     expect(() =>
       reportPmxtRouterMatchingQuality(protocol, [
         observation("empty", [], true, "identity"),

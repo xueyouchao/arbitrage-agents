@@ -148,7 +148,9 @@ function validateProtocol(protocol: PmxtRouterQualityProtocol): void {
 }
 
 function validateObservation(observation: PmxtRouterQualityObservation): void {
-  if (!observation.id.trim()) throw new Error("PMXT Router observation ID is required");
+  if (typeof observation.id !== "string" || !observation.id.trim()) {
+    throw new Error("PMXT Router observation ID must be a non-empty string");
+  }
   if (typeof observation.routerPredictedIdentity !== "boolean") {
     throw new Error(`Observation ${observation.id} has invalid Router prediction`);
   }
@@ -156,6 +158,7 @@ function validateObservation(observation: PmxtRouterQualityObservation): void {
     throw new Error(`Observation ${observation.id} has invalid human label`);
   }
   if (
+!Array.isArray(observation.stratumKeys) ||
     observation.stratumKeys.length === 0 ||
     observation.stratumKeys.some((key) => typeof key !== "string" || !key.trim())
   ) {
