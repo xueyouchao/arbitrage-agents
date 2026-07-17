@@ -58,9 +58,7 @@ export function comparePmxtOrderbooks(
   tryCompareSide("YES", pmxt.yesAsk, venue.yesAsk);
   tryCompareSide("NO", pmxt.noAsk, venue.noAsk);
 
-  return results;
-
-  function tryCompareSide(side: "YES" | "NO", pmxtAsk: number | undefined, venueAsk: number): void {
+  function tryCompareSide(side: "YES" | "NO", pmxtAsk: number | undefined, venueAsk: number | undefined): void {
     if (isValidAsk(pmxtAsk) && isValidAsk(venueAsk)) {
       const edge = venueAsk - pmxtAsk;
       if (edge >= config.minTopOfBookEdge) {

@@ -31,11 +31,14 @@ import { PmxtOrderbookComparisonResult } from "./pmxt-orderbook-comparison";
 
 export type PmxtShadowRunReason =
   | "run_cap"
+  | "book_cap"
   | "credit_exhausted"
   | "cost_exhausted"
   | "rate_limit"
-  | "timeout"
-  | "queue_full";
+  | "concurrency_limit"
+  | "queue_full"
+  | "queue_timeout"
+  | "timeout";
 
 export interface PmxtShadowRunResult {
   status: "completed" | "partial" | "failed";
@@ -133,7 +136,7 @@ export class PmxtShadowRun {
     let bookCount = 0;
     for (const market of bounded) {
       if (bookCount >= this.config.maxBooksPerVenue) {
-        this.config.rateLimiter.markRunPartial("run_cap");
+        this.config.rateLimiter.markRunPartial("book_cap");
         break;
       }
 
@@ -214,9 +217,14 @@ export class PmxtShadowRun {
   private async fetchWithTimeout(outcomeIds: string[]): Promise<Record<string, unknown>> {
     const timeoutMs = this.config.requestTimeoutMs;
     const fetchPromise = this.config.fetchOrderBooks(outcomeIds);
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("PMXT orderbook fetch timed out")), timeoutMs)
-    );
-    return Promise.race([fetchPromise, timeoutPromise]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("PMXT orderbook fetch timed out")), timeoutMs);
+    });
+    try {
+      return await Promise.race([fetchPromise, timeoutPromise]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 }
