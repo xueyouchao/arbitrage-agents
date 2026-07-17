@@ -64,7 +64,11 @@ describe("reportPmxtRouterMatchingQuality", () => {
       labeledCount: 2,
       precision: 0.5,
       recall: 1,
-      status: "conclusive",
+      status: "inconclusive",
+      inconclusiveReasons: [
+        "insufficient_recall_sample",
+        "insufficient_false_positive_sample",
+      ],
     });
   });
 
@@ -93,7 +97,12 @@ describe("reportPmxtRouterMatchingQuality", () => {
       precision: 1,
       recall: 1,
       status: "inconclusive",
-      inconclusiveReasons: ["insufficient_labeled_sample"],
+      inconclusiveReasons: [
+        "insufficient_labeled_sample",
+        "insufficient_precision_sample",
+        "insufficient_recall_sample",
+        "zero_false_positive_denominator",
+      ],
     });
     expect(report.strata["relation=subset"]).toMatchObject({
       eligibleCount: 5,
@@ -107,8 +116,55 @@ describe("reportPmxtRouterMatchingQuality", () => {
         "insufficient_labeled_sample",
         "zero_precision_denominator",
         "zero_recall_denominator",
+        "insufficient_false_positive_sample",
       ],
     });
+  });
+
+  it("marks each metric inconclusive when its effective sample is insufficient", () => {
+    const report = reportPmxtRouterMatchingQuality(
+      {
+        protocolVersion: "router-quality-v1",
+        confidenceLevel: 0.95,
+        minimumSampleSize: 3,
+        eligibleCounts: { "source=shared": 4 },
+      },
+      [
+        observation("tp-1", ["source=shared"], true, "identity"),
+        observation("tp-2", ["source=shared"], true, "identity"),
+        observation("fn", ["source=shared"], false, "identity"),
+        observation("tn", ["source=shared"], false, "not_identity"),
+      ]
+    );
+
+    expect(report.strata["source=shared"]).toMatchObject({
+      status: "inconclusive",
+      inconclusiveReasons: [
+        "insufficient_precision_sample",
+        "insufficient_false_positive_sample",
+      ],
+    });
+  });
+
+  it("rejects duplicate observations and repeated stratum membership", () => {
+    const protocol = {
+      protocolVersion: "router-quality-v1",
+      confidenceLevel: 0.95,
+      minimumSampleSize: 1,
+      eligibleCounts: { "source=shared": 1 },
+    };
+
+    expect(() =>
+      reportPmxtRouterMatchingQuality(protocol, [
+        observation("same", ["source=shared"], true, "identity"),
+        observation("same", ["source=shared"], true, "identity"),
+      ])
+    ).toThrow("Duplicate observation same");
+    expect(() =>
+      reportPmxtRouterMatchingQuality(protocol, [
+        observation("same", ["source=shared", "source=shared"], true, "identity"),
+      ])
+    ).toThrow("repeats stratum source=shared");
   });
 
   it("rejects observations that are not assigned to frozen strata", () => {

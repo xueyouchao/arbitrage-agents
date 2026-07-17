@@ -171,9 +171,9 @@ function cryptoDeadlineBand(
   const polymarketTime = Date.parse(polymarket.deadline);
   if (!Number.isFinite(kalshiTime) || !Number.isFinite(polymarketTime)) return "missing";
   if (Math.abs(kalshiTime - polymarketTime) <= 60_000) return "within_one_minute";
-  return kalshi.deadline.slice(0, 10) === polymarket.deadline.slice(0, 10)
-    ? "same_utc_day"
-    : "different_utc_day";
+  const kalshiUtcDay = new Date(kalshiTime).toISOString().slice(0, 10);
+  const polymarketUtcDay = new Date(polymarketTime).toISOString().slice(0, 10);
+  return kalshiUtcDay === polymarketUtcDay ? "same_utc_day" : "different_utc_day";
 }
 
 function isCryptoPricePair(
