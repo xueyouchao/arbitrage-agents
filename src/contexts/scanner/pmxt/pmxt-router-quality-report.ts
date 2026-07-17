@@ -12,6 +12,7 @@ export interface PmxtRouterQualityProtocol {
   confidenceLevel: number;
   minimumSampleSize: number;
   eligibleCounts: Record<string, number>;
+  frozenMembership?: Record<string, string[]>;
 }
 
 export interface BinomialConfidenceInterval {
@@ -69,6 +70,7 @@ export function reportPmxtRouterMatchingQuality(
       throw new Error(`Duplicate observation ${observation.id}`);
     }
     observationIds.add(observation.id);
+    validateFrozenMembership(protocol, observation);
     const observedKeys = new Set<string>();
     for (const key of observation.stratumKeys) {
       if (observedKeys.has(key)) {
@@ -106,6 +108,7 @@ export function reportPmxtRouterMatchingQuality(
 function validateProtocol(protocol: PmxtRouterQualityProtocol): void {
   if (
     !protocol.protocolVersion.trim() ||
+    !Number.isFinite(protocol.confidenceLevel) ||
     protocol.confidenceLevel <= 0 ||
     protocol.confidenceLevel >= 1 ||
     !Number.isInteger(protocol.minimumSampleSize) ||
@@ -115,6 +118,23 @@ function validateProtocol(protocol: PmxtRouterQualityProtocol): void {
     )
   ) {
     throw new Error("Invalid PMXT Router quality protocol");
+  }
+}
+
+function validateFrozenMembership(
+  protocol: PmxtRouterQualityProtocol,
+  observation: PmxtRouterQualityObservation
+): void {
+  if (!protocol.frozenMembership) return;
+  const frozenKeys = protocol.frozenMembership[observation.id];
+  if (!frozenKeys) {
+    throw new Error(`Observation ${observation.id} is not in the frozen cohort`);
+  }
+  if (
+    frozenKeys.length !== observation.stratumKeys.length ||
+    frozenKeys.some((key) => !observation.stratumKeys.includes(key))
+  ) {
+    throw new Error(`Observation ${observation.id} does not match frozen strata`);
   }
 }
 

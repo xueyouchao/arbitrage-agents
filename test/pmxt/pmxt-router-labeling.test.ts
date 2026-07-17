@@ -188,6 +188,34 @@ describe("buildFrozenPmxtRouterLabelingCohort", () => {
     expect(cohort.items[0].strata.cryptoDeadline).toBe("same_utc_day");
   });
 
+  it("rejects duplicate candidate IDs and invalid confidence inputs", () => {
+    const protocol = {
+      protocolVersion: "router-quality-v1",
+      frozenAt: "2026-07-17T00:00:00.000Z",
+      confidenceBands: [0.5, 0.8] as const,
+      minimumSampleSize: 2,
+    };
+
+    expect(() =>
+      buildFrozenPmxtRouterLabelingCohort(
+        [candidate("same", { legacyCandidate: true }), candidate("same", { routerCandidate: true })],
+        protocol
+      )
+    ).toThrow("Duplicate labeling candidate same");
+    expect(() =>
+      buildFrozenPmxtRouterLabelingCohort(
+        [candidate("bad", { routerCandidate: true, routerConfidence: Number.NaN })],
+        protocol
+      )
+    ).toThrow("invalid Router confidence");
+    expect(() =>
+      buildFrozenPmxtRouterLabelingCohort([candidate("bad", { legacyCandidate: true })], {
+        ...protocol,
+        confidenceBands: [Number.NaN, 0.8],
+      })
+    ).toThrow("Invalid PMXT Router labeling protocol");
+  });
+
   it("rejects candidates outside the declared labeling universe", () => {
     expect(() =>
       buildFrozenPmxtRouterLabelingCohort([candidate("orphan")], {

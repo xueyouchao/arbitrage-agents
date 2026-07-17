@@ -56,6 +56,7 @@ export interface PmxtRouterLabelingProtocol {
 export interface PmxtRouterFrozenLabelingCohort extends PmxtRouterLabelingProtocol {
   items: PmxtRouterFrozenLabelingItem[];
   eligibleCounts: Record<string, number>;
+  frozenMembership: Record<string, string[]>;
 }
 
 export function buildFrozenPmxtRouterLabelingCohort(
@@ -63,7 +64,20 @@ export function buildFrozenPmxtRouterLabelingCohort(
   protocol: PmxtRouterLabelingProtocol
 ): PmxtRouterFrozenLabelingCohort {
   validateProtocol(protocol);
+  const candidateIds = new Set<string>();
   const prepared = candidates.map((candidate) => {
+    if (candidateIds.has(candidate.id)) {
+      throw new Error(`Duplicate labeling candidate ${candidate.id}`);
+    }
+    candidateIds.add(candidate.id);
+    if (
+      candidate.routerConfidence !== undefined &&
+      (!Number.isFinite(candidate.routerConfidence) ||
+        candidate.routerConfidence < 0 ||
+        candidate.routerConfidence > 1)
+    ) {
+      throw new Error(`Candidate ${candidate.id} has invalid Router confidence`);
+    }
     const strata = candidateStrata(candidate, protocol.confidenceBands);
     const stratumKeys = Object.entries(strata).map(([dimension, value]) =>
       `${dimension}=${value}`
@@ -82,6 +96,9 @@ export function buildFrozenPmxtRouterLabelingCohort(
     confidenceBands: [...protocol.confidenceBands] as [number, number],
     items: prepared.map((item) => ({ ...item, eligibleCounts: { ...eligibleCounts } })),
     eligibleCounts,
+    frozenMembership: Object.fromEntries(
+      prepared.map((item) => [item.id, [...item.stratumKeys]])
+    ),
   };
 }
 
@@ -92,6 +109,8 @@ function validateProtocol(protocol: PmxtRouterLabelingProtocol): void {
     !Number.isFinite(Date.parse(protocol.frozenAt)) ||
     !Number.isInteger(protocol.minimumSampleSize) ||
     protocol.minimumSampleSize < 1 ||
+    !Number.isFinite(mediumStart) ||
+    !Number.isFinite(highStart) ||
     mediumStart < 0 ||
     highStart > 1 ||
     mediumStart >= highStart
