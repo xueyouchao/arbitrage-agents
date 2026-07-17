@@ -289,30 +289,22 @@ export class PmxtRouterValueEvaluator {
     }
 
     // 6. Check book staleness
-    const staleness = checkStaleness(kalshiBook, polymarketBook, calculatorOptions);
-    if (staleness.stale) {
+    if (checkStaleness(kalshiBook, polymarketBook, calculatorOptions)) {
       const feeComparison = checkFeeResolution(kalshiBook, polymarketBook, calculatorOptions.feeSource);
       return {
         candidateId: candidate.id,
         status: "stale_book_artifact",
         opportunities: [],
-        provenance: {
+        provenance: buildProvenance(
           edge,
-          kalshiMarket: marketResult.kalshi
-            ? this.deps.normalizer.normalize(marketResult.kalshi)
-            : undefined,
-          polymarketMarket: marketResult.polymarket
-            ? this.deps.normalizer.normalize(marketResult.polymarket)
-            : undefined,
+          this.deps.normalizer.normalize(marketResult.kalshi!),
+          this.deps.normalizer.normalize(marketResult.polymarket!),
           kalshiBook,
           polymarketBook,
           feeComparison,
-          timestamp: {
-            edgeCapturedAt: provenance.timestamps.routerCapturedAt,
-            bookCapturedAt: kalshiBook.capturedAt,
-            evaluatedAt,
-          },
-        },
+          provenance.timestamps.routerCapturedAt,
+          evaluatedAt,
+        ),
         incrementalVsLegacy: false,
         incrementalVsPmxtRead: false,
       };
@@ -327,7 +319,7 @@ export class PmxtRouterValueEvaluator {
       id: candidate.id,
       kalshiMarket: kalshiNormalized,
       polymarketMarket: polymarketNormalized,
-      reasons: ["router_projected_identity", ...edge.rawEdge ? [`${edge.relation}:${edge.confidence}`] : []],
+      reasons: ["router_projected_identity", `${edge.relation}:${edge.confidence}`],
     };
 
     // 9. Equivalence classification
@@ -349,21 +341,12 @@ export class PmxtRouterValueEvaluator {
         candidateId: candidate.id,
         status: "fee_unit_discrepancy",
         opportunities: [],
-        provenance: {
-          edge,
-          kalshiMarket: kalshiNormalized,
-          polymarketMarket: polymarketNormalized,
-          kalshiBook,
-          polymarketBook,
-          feeComparison,
-          timestamp: {
-            edgeCapturedAt: provenance.timestamps.routerCapturedAt,
-            bookCapturedAt: kalshiBook.capturedAt,
-            evaluatedAt,
-          },
-          decision,
-          llmEvaluation,
-        },
+        provenance: buildProvenance(
+          edge, kalshiNormalized, polymarketNormalized,
+          kalshiBook, polymarketBook, feeComparison,
+          provenance.timestamps.routerCapturedAt, evaluatedAt,
+          decision, llmEvaluation,
+        ),
         incrementalVsLegacy: false,
         incrementalVsPmxtRead: false,
       };
@@ -386,21 +369,12 @@ export class PmxtRouterValueEvaluator {
         status: "excluded",
         exclusionReason: "equivalence_rejected",
         opportunities: [],
-        provenance: {
-          edge,
-          kalshiMarket: kalshiNormalized,
-          polymarketMarket: polymarketNormalized,
-          kalshiBook,
-          polymarketBook,
-          feeComparison,
-          timestamp: {
-            edgeCapturedAt: provenance.timestamps.routerCapturedAt,
-            bookCapturedAt: kalshiBook.capturedAt,
-            evaluatedAt,
-          },
-          decision,
-          llmEvaluation,
-        },
+        provenance: buildProvenance(
+          edge, kalshiNormalized, polymarketNormalized,
+          kalshiBook, polymarketBook, feeComparison,
+          provenance.timestamps.routerCapturedAt, evaluatedAt,
+          decision, llmEvaluation,
+        ),
         incrementalVsLegacy: false,
         incrementalVsPmxtRead: false,
       };
@@ -419,21 +393,12 @@ export class PmxtRouterValueEvaluator {
       candidateId: candidate.id,
       status,
       opportunities,
-      provenance: {
-        edge,
-        kalshiMarket: kalshiNormalized,
-        polymarketMarket: polymarketNormalized,
-        kalshiBook,
-        polymarketBook,
-        feeComparison,
-        timestamp: {
-          edgeCapturedAt: provenance.timestamps.routerCapturedAt,
-          bookCapturedAt: kalshiBook.capturedAt,
-          evaluatedAt,
-        },
-        decision,
-        llmEvaluation,
-      },
+      provenance: buildProvenance(
+        edge, kalshiNormalized, polymarketNormalized,
+        kalshiBook, polymarketBook, feeComparison,
+        provenance.timestamps.routerCapturedAt, evaluatedAt,
+        decision, llmEvaluation,
+      ),
       incrementalVsLegacy,
       incrementalVsPmxtRead,
     };
@@ -500,14 +465,14 @@ function checkStaleness(
   kalshiBook: MarketBook,
   polymarketBook: MarketBook,
   options: Readonly<OpportunityCalculatorOptions>,
-): { stale: boolean } {
-  if (kalshiBook.stale || polymarketBook.stale) return { stale: true };
+): boolean {
+  if (kalshiBook.stale || polymarketBook.stale) return true;
   const kalshiAge = bookAgeMs(kalshiBook, options.now);
   const polymarketAge = bookAgeMs(polymarketBook, options.now);
   const maxAge = options.maxBookAgeMs;
-  if (kalshiAge !== undefined && kalshiAge > maxAge) return { stale: true };
-  if (polymarketAge !== undefined && polymarketAge > maxAge) return { stale: true };
-  return { stale: false };
+  if (kalshiAge !== undefined && kalshiAge > maxAge) return true;
+  if (polymarketAge !== undefined && polymarketAge > maxAge) return true;
+  return false;
 }
 
 function checkFeeResolution(
@@ -614,6 +579,35 @@ const SOFT_REVIEW_REASONS: ReadonlySet<string> = new Set([
   "llm_supported_equivalence",
   "deterministic_fields_match",
 ]);
+
+function buildProvenance(
+  edge: PmxtRouterProjectedEdge,
+  kalshiMarket: NormalizedMarket,
+  polymarketMarket: NormalizedMarket,
+  kalshiBook: MarketBook,
+  polymarketBook: MarketBook,
+  feeComparison: { feeSource: string; resolved: boolean; discrepancy: string | null },
+  edgeCapturedAt: string,
+  evaluatedAt: string,
+  decision?: EquivalenceDecision,
+  llmEvaluation?: LlmEvaluationRecord,
+): RouterCandidateProvenance {
+  return {
+    edge,
+    kalshiMarket,
+    polymarketMarket,
+    kalshiBook,
+    polymarketBook,
+    feeComparison,
+    timestamp: {
+      edgeCapturedAt,
+      bookCapturedAt: kalshiBook.capturedAt,
+      evaluatedAt,
+    },
+    decision,
+    llmEvaluation,
+  };
+}
 
 function excludedAssessment(
   candidate: PmxtRouterCandidate,
