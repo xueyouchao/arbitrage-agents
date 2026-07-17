@@ -23,7 +23,7 @@ export interface PmxtMarketBook {
   rawPayload: Record<string, unknown>;
 }
 
-function roundUsd(value: number): number {
+export function roundUsd(value: number): number {
   return Math.round(value * 100) / 100;
 }
 

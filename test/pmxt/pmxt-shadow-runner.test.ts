@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { PmxtShadowRunner, isScanIncludedInSample } from "../../src/contexts/scanner/pmxt/pmxt-shadow-runner";
+import { describe, expect, it, vi } from "vitest";
+import { PmxtShadowRunner, PmxtShadowAdmissionResult, isScanIncludedInSample } from "../../src/contexts/scanner/pmxt/pmxt-shadow-runner";
 import { InMemoryPmxtShadowLeaseRepository } from "../../src/contexts/scanner/pmxt/in-memory-pmxt-shadow-lease-repository";
 import { PmxtShadowRateLimiter } from "../../src/contexts/scanner/pmxt/pmxt-shadow-rate-limiter";
+import { PmxtShadowRun } from "../../src/contexts/scanner/pmxt/pmxt-shadow-run";
 import { AppConfig, loadAppConfig } from "../../src/config/app-config";
 
 function baseConfig(overrides: Partial<AppConfig> = {}): AppConfig {
@@ -29,6 +30,21 @@ function makeLimiter(config: AppConfig): PmxtShadowRateLimiter {
   });
 }
 
+function makeShadowRun(config: AppConfig): PmxtShadowRun {
+  return new PmxtShadowRun({
+    rateLimiter: makeLimiter(config),
+    fetchOrderBooks: vi.fn().mockResolvedValue({}),
+    persistRawBook: vi.fn(),
+    persistMappedBook: vi.fn(),
+    compareBooks: vi.fn().mockReturnValue([]),
+    requestTimeoutMs: 10_000,
+    maxMarketsPerVenue: 50,
+    maxBooksPerVenue: 50,
+    maxRetries: 2,
+    clock: () => Date.now(),
+  });
+}
+
 describe("PmxtShadowRunner", () => {
   it("reports disabled when PMXT shadowing is off", async () => {
     const config = baseConfig({ pmxtShadowEnabled: false });
@@ -37,6 +53,8 @@ describe("PmxtShadowRunner", () => {
       config,
       leaseRepository: repo,
       rateLimiter: makeLimiter(config),
+      shadowRun: makeShadowRun(config),
+      fetchAuthoritativeMarkets: vi.fn().mockResolvedValue([]),
       workerId: "worker-1",
       clock: () => "2026-07-15T12:00:00.000Z"
     });
@@ -47,15 +65,18 @@ describe("PmxtShadowRunner", () => {
     expect(result.reason).toBe("PMXT_SHADOW_ENABLED is false");
   });
 
-  it("claims the oldest eligible scan when enabled", async () => {
+  it("claims the oldest eligible scan and executes the shadow run", async () => {
     const config = baseConfig();
     const repo = new InMemoryPmxtShadowLeaseRepository([
       { scanRunId: "00000000-0000-4000-8000-000000000010", completedAt: "2026-07-15T10:00:00Z" }
     ]);
+    const fetchAuthoritativeMarkets = vi.fn().mockResolvedValue([]);
     const runner = new PmxtShadowRunner({
       config,
       leaseRepository: repo,
       rateLimiter: makeLimiter(config),
+      shadowRun: makeShadowRun(config),
+      fetchAuthoritativeMarkets,
       workerId: "worker-1",
       nextShadowRunId: () => "00000000-0000-4000-8000-00000000aaaa",
       clock: () => "2026-07-15T12:00:00.000Z"
@@ -66,6 +87,7 @@ describe("PmxtShadowRunner", () => {
     expect(result.status).toBe("claimed");
     expect(result.authoritativeScanRunId).toBe("00000000-0000-4000-8000-000000000010");
     expect(result.shadowRunId).toBe("00000000-0000-4000-8000-00000000aaaa");
+    expect(fetchAuthoritativeMarkets).toHaveBeenCalled();
   });
 
   it("skips when no eligible scan is available", async () => {
@@ -75,6 +97,8 @@ describe("PmxtShadowRunner", () => {
       config,
       leaseRepository: repo,
       rateLimiter: makeLimiter(config),
+      shadowRun: makeShadowRun(config),
+      fetchAuthoritativeMarkets: vi.fn().mockResolvedValue([]),
       workerId: "worker-1",
       clock: () => "2026-07-15T12:00:00.000Z"
     });
@@ -94,6 +118,8 @@ describe("PmxtShadowRunner", () => {
       config,
       leaseRepository: repo,
       rateLimiter: makeLimiter(config),
+      shadowRun: makeShadowRun(config),
+      fetchAuthoritativeMarkets: vi.fn().mockResolvedValue([]),
       workerId: "worker-1",
       clock: () => "2026-07-15T12:00:00.000Z"
     });

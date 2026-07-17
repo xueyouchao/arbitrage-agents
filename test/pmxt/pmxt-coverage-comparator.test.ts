@@ -648,4 +648,39 @@ describe("PMXT coverage comparator", () => {
     expect(result.polymarket.overlapCount).toBe(1);
     expect(result.mappingFailures).toHaveLength(0);
   });
+
+  // -----------------------------------------------------------------------
+  // Listing/closure lag — market listed on PMXT but not yet on venue
+  // -----------------------------------------------------------------------
+  it("detects PMXT markets not yet listed on the venue (listing lag)", () => {
+    const input: PmxtCoverageComparisonInput = {
+      pmxtMarkets: [
+        pmxtSnapshot("pmxt-1", "Kalshi", "KXBTCD-25JUL26"),
+        pmxtSnapshot("pmxt-2", "Kalshi", "KXBTCD-25AUG26"),
+      ],
+      authoritativeKalshiMarkets: [kalshiSnapshot("KXBTCD-25JUL26")],
+      authoritativePolymarketMarkets: [],
+    };
+    const result = comparePmxtCoverage(input);
+    // pmxt-2 is in PMXT but not in authoritative Kalshi → PMXT-only
+    expect(result.kalshi.pmxtOnlyIds).toHaveLength(1);
+    expect(result.kalshi.overlapCount).toBe(1);
+  });
+
+  it("detects venue markets not yet listed on PMXT (closure lag)", () => {
+    const input: PmxtCoverageComparisonInput = {
+      pmxtMarkets: [
+        pmxtSnapshot("pmxt-1", "Kalshi", "KXBTCD-25JUL26"),
+      ],
+      authoritativeKalshiMarkets: [
+        kalshiSnapshot("KXBTCD-25JUL26"),
+        kalshiSnapshot("KXBTCD-25AUG26"),
+      ],
+      authoritativePolymarketMarkets: [],
+    };
+    const result = comparePmxtCoverage(input);
+    // KXBTCD-25AUG26 is in authoritative but not in PMXT → authoritative-only
+    expect(result.kalshi.authoritativeOnlyIds).toHaveLength(1);
+    expect(result.kalshi.overlapCount).toBe(1);
+  });
 });

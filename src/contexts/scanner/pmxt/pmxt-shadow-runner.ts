@@ -2,8 +2,11 @@ import { createHash } from "crypto";
 import { AppConfig, pmxtShadowConfigForFingerprint } from "../../../config/app-config";
 import { PmxtShadowLeaseRepository } from "./pmxt-shadow-lease-repository";
 import { PmxtShadowRateLimiter } from "./pmxt-shadow-rate-limiter";
+import { PmxtShadowRun, PmxtShadowRunResult } from "./pmxt-shadow-run";
+import { PmxtMarketSnapshot } from "../../venues/infrastructure/pmxt/pmxt-market-mapper";
+import { PMXT_SHADOW_RUNNER } from "../scanner-tokens";
 
-export interface PmxtShadowRunResult {
+export interface PmxtShadowAdmissionResult {
   status: "disabled" | "skipped" | "claimed";
   shadowRunId?: string;
   authoritativeScanRunId?: string;
@@ -17,13 +20,13 @@ export interface PmxtShadowRunnerDeps {
   config: AppConfig;
   leaseRepository: PmxtShadowLeaseRepository;
   rateLimiter: PmxtShadowRateLimiter;
+  shadowRun: PmxtShadowRun;
+  fetchAuthoritativeMarkets: () => Promise<PmxtMarketSnapshot[]>;
   workerId: string;
   leaseDurationMs?: number;
   nextShadowRunId?(): string;
   clock?: () => string;
 }
-
-export const PMXT_SHADOW_RUNNER = Symbol("PMXT_SHADOW_RUNNER");
 
 // Issue #93: isolated shadow runner for the PMXT Hosted evaluation.
 //
@@ -33,17 +36,20 @@ export const PMXT_SHADOW_RUNNER = Symbol("PMXT_SHADOW_RUNNER");
 // only to `pmxt_shadow_run_attempts`. When shadowing is disabled, the
 // runner exits cleanly with no external calls.
 export class PmxtShadowRunner {
-  constructor(private readonly deps: PmxtShadowRunnerDeps) {}
+  private readonly clock: () => string;
 
-  async runOnce(): Promise<PmxtShadowRunResult> {
-    const clock = this.deps.clock ?? (() => new Date().toISOString());
-    const startedAt = clock();
+  constructor(private readonly deps: PmxtShadowRunnerDeps) {
+    this.clock = deps.clock ?? (() => new Date().toISOString());
+  }
+
+  async runOnce(): Promise<PmxtShadowAdmissionResult> {
+    const startedAt = this.clock();
 
     if (!this.deps.config.pmxtShadowEnabled) {
       return {
         status: "disabled",
         startedAt,
-        completedAt: clock(),
+        completedAt: startedAt,
         reason: "PMXT_SHADOW_ENABLED is false"
       };
     }
@@ -53,7 +59,7 @@ export class PmxtShadowRunner {
       return {
         status: "skipped",
         startedAt,
-        completedAt: clock(),
+        completedAt: startedAt,
         reason: admission.reason
       };
     }
@@ -68,12 +74,11 @@ export class PmxtShadowRunner {
 
     this.deps.rateLimiter.release();
 
-
     if (!claim) {
       return {
         status: "skipped",
         startedAt,
-        completedAt: clock(),
+        completedAt: startedAt,
         reason: "no eligible unclaimed authoritative scan"
       };
     }
@@ -85,10 +90,14 @@ export class PmxtShadowRunner {
         authoritativeScanRunId: claim.authoritativeScanRunId,
         attemptNumber: claim.attemptNumber,
         startedAt,
-        completedAt: clock(),
+        completedAt: startedAt,
         reason: "sample_rate_excluded"
       };
     }
+
+    // Fetch authoritative markets and execute the shadow run
+    const markets = await this.deps.fetchAuthoritativeMarkets();
+    const runResult = await this.deps.shadowRun.execute(markets);
 
     return {
       status: "claimed",
@@ -96,7 +105,8 @@ export class PmxtShadowRunner {
       authoritativeScanRunId: claim.authoritativeScanRunId,
       attemptNumber: claim.attemptNumber,
       startedAt,
-      completedAt: clock()
+      completedAt: this.clock(),
+      reason: runResult.status === "partial" ? runResult.reason : undefined
     };
   }
 }

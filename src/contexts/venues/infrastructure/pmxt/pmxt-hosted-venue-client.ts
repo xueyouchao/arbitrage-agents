@@ -1,4 +1,4 @@
-import { PmxtMarketSnapshot, mapPmxtMarketToSnapshot, PmxtMarket } from "./pmxt-market-mapper";
+import { PmxtMarketSnapshot, mapPmxtMarketToSnapshot, PmxtMarket, outcomeIdsFor } from "./pmxt-market-mapper";
 import { PmxtMarketBook, mapPmxtOrderbookToMarketBook, PmxtSdkOrderBook } from "./pmxt-orderbook-mapper";
 
 export interface PmxtHostedVenueClientOptions {
@@ -26,7 +26,7 @@ export class PmxtHostedVenueClient {
     const rawBooks = await this.options.listOrderbooks(outcomeIds);
     const books: PmxtMarketBook[] = [];
     for (const market of markets) {
-      const ids = this.outcomeIdsFor(market);
+      const ids = outcomeIdsFor(market);
       const yesRaw = rawBooks[ids.yes];
       const noRaw = rawBooks[ids.no];
       if (!yesRaw || !noRaw || typeof yesRaw !== "object" || typeof noRaw !== "object") {
@@ -46,20 +46,10 @@ export class PmxtHostedVenueClient {
   private extractOutcomeIds(markets: PmxtMarketSnapshot[]): string[] {
     const ids: string[] = [];
     for (const market of markets) {
-      const { yes, no } = this.outcomeIdsFor(market);
+      const { yes, no } = outcomeIdsFor(market);
       ids.push(yes, no);
     }
     return ids;
-  }
-
-  private outcomeIdsFor(market: PmxtMarketSnapshot): { yes: string; no: string } {
-    const payload = market.rawPayload;
-    const yes = typeof payload.yesOutcomeId === "string" ? payload.yesOutcomeId : undefined;
-    const no = typeof payload.noOutcomeId === "string" ? payload.noOutcomeId : undefined;
-    if (!yes || !no) {
-      throw new Error(`PMXT market ${market.venueMarketId} lacks explicit YES/NO outcome ids`);
-    }
-    return { yes, no };
   }
 
   private now(): string {

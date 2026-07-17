@@ -6,15 +6,6 @@ export interface PmxtShadowRateLimiterOptions {
   clock?(): number;
 }
 
-export interface PmxtShadowRateLimitState {
-  tokens: number;
-  capacity: number;
-  inFlight: number;
-  ratePerMs: number;
-  globalCooldownUntil: number;
-  circuitOpenUntil: number;
-}
-
 export interface PmxtShadowRateLimitResult {
   allowed: boolean;
   reason?: string;
@@ -52,17 +43,6 @@ export class PmxtShadowRateLimiter {
     this.clock = options.clock ?? (() => Date.now());
     this.lastRefillAt = this.clock();
     this.defaultRetryAfterMs = options.defaultRetryAfterMs ?? 1_000;
-  }
-
-  state(): PmxtShadowRateLimitState {
-    return {
-      tokens: this.tokens,
-      capacity: this.capacity,
-      inFlight: this.inFlight,
-      ratePerMs: this.ratePerMs / this.adaptiveRateMultiplier,
-      globalCooldownUntil: this.globalCooldownUntil,
-      circuitOpenUntil: this.circuitOpenUntil
-    };
   }
 
   /**
