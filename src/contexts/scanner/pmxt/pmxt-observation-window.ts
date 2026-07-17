@@ -207,13 +207,6 @@ const TOP_OF_BOOK_WITHIN_TICK_THRESHOLD_PCT = 95;
 const SHADOW_COMPLETION_THRESHOLD_PCT = 99;
 const ROUTER_PRECISION_THRESHOLD_PCT = 98;
 const ROUTER_MIN_LABELED_PAIRS = 200;
-const SAFETY_INCIDENT_OUTCOMES: string[] = [
-  "yes_no_inversion_detected",
-  "unit_conversion_defect",
-  "authoritative_scan_corrupted",
-  "secret_in_persisted_payload",
-  "local_sidecar_started",
-];
 
 // ---------------------------------------------------------------------------
 // freezeObservationProtocol
@@ -425,7 +418,7 @@ function buildDecisionMemo(
   gates: WindowGates
 ): PmxtDecisionMemo {
   const limitations = collectLimitations(protocol, evidence, gates);
-  const outcome = selectOutcome(protocol, evidence, gates);
+  const outcome = selectOutcome(evidence, gates);
   const cutoverRequired = outcome !== "F" && outcome !== "inconclusive";
 
   return {
@@ -615,7 +608,6 @@ function buildGateReport(
 // ---------------------------------------------------------------------------
 
 function selectOutcome(
-  protocol: FrozenObservationProtocol,
   evidence: ObservationWindowEvidence,
   gates: WindowGates
 ): DecisionOutcome {
