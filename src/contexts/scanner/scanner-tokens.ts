@@ -7,3 +7,6 @@ export const SCANNER_LLM_GATEWAY = Symbol("SCANNER_LLM_GATEWAY");
 // and the dedicated observability surface for the resumable worker.
 export const SCAN_STEP_REPOSITORY = Symbol("SCAN_STEP_REPOSITORY");
 export const SENTRY_CHECK_IN_CLIENT = Symbol("SENTRY_CHECK_IN_CLIENT");
+// Issue #93: PMXT shadow runner lease repository and runner symbols.
+export const PMXT_SHADOW_LEASE_REPOSITORY = Symbol("PMXT_SHADOW_LEASE_REPOSITORY");
+export const PMXT_SHADOW_RUNNER = Symbol("PMXT_SHADOW_RUNNER");

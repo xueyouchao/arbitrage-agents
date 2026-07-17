@@ -3,8 +3,7 @@
 // Orchestrates a bounded, deterministic PMXT orderbook capture and comparison
 // run. Fetches orderbooks by explicit outcome ID, persists raw and mapped data,
 // and compares time-eligible top-of-book and executable depth against venue
-// books while enforcing request, concurrency, timeout, credit/cost, and
-// retention limits.
+// books while enforcing request, concurrency, timeout, and retention limits.
 //
 // Key behaviors:
 //   - Bounded fetch: only fetches up to `maxMarketsPerVenue` markets and
@@ -30,14 +29,12 @@ import { MarketBook } from "../../arbitrage/domain/opportunity";
 import { PmxtOrderbookComparisonResult } from "./pmxt-orderbook-comparison";
 
 export type PmxtShadowRunReason =
-  | "run_cap"
+  | "run_request_budget_exhausted"
   | "book_cap"
-  | "credit_exhausted"
-  | "cost_exhausted"
-  | "rate_limit"
-  | "concurrency_limit"
-  | "queue_full"
-  | "queue_timeout"
+  | "rate_limited"
+  | "max_concurrency"
+  | "global_cooldown"
+  | "circuit_open"
   | "timeout";
 
 export interface PmxtShadowRunResult {
@@ -47,7 +44,6 @@ export interface PmxtShadowRunResult {
   comparisons: PmxtOrderbookComparisonResult[];
   receiptTimestamp: string;
   requestCount: number;
-  creditCost: { credits: number; costUsd: number };
 }
 
 export interface PmxtShadowRunConfig {
@@ -63,6 +59,9 @@ export interface PmxtShadowRunConfig {
 }
 
 export class PmxtShadowRun {
+  private runPartial = false;
+  private runPartialReason?: PmxtShadowRunReason;
+
   constructor(private readonly config: PmxtShadowRunConfig) {}
 
   async execute(markets: PmxtMarketSnapshot[]): Promise<PmxtShadowRunResult> {
@@ -70,8 +69,6 @@ export class PmxtShadowRun {
     const books: PmxtMarketBook[] = [];
     const comparisons: PmxtOrderbookComparisonResult[] = [];
     let requestCount = 0;
-    let totalCredits = 0;
-    let totalCostUsd = 0;
 
     if (markets.length === 0) {
       return {
@@ -80,7 +77,6 @@ export class PmxtShadowRun {
         comparisons: [],
         receiptTimestamp,
         requestCount: 0,
-        creditCost: { credits: 0, costUsd: 0 },
       };
     }
 
@@ -94,10 +90,10 @@ export class PmxtShadowRun {
       outcomeIds.push(ids.yes, ids.no);
     }
 
-    // Acquire rate limiter slot
-    const slot = await this.config.rateLimiter.acquire();
-    if (!slot.accepted) {
-      this.config.rateLimiter.markRunPartial(slot.reason ?? "rate_limit");
+    // Acquire rate limiter slot (synchronous)
+    const slot = this.config.rateLimiter.allowRequest(requestCount);
+    if (!slot.allowed) {
+      this.markRunPartial(slot.reason as PmxtShadowRunReason);
       return {
         status: "partial",
         reason: slot.reason as PmxtShadowRunReason,
@@ -105,7 +101,6 @@ export class PmxtShadowRun {
         comparisons,
         receiptTimestamp,
         requestCount,
-        creditCost: { credits: totalCredits, costUsd: totalCostUsd },
       };
     }
 
@@ -113,12 +108,11 @@ export class PmxtShadowRun {
     try {
       rawBooks = await this.fetchWithTimeout(outcomeIds);
       requestCount = 1;
-      totalCredits = 1;
-      totalCostUsd = 0.001;
-      this.config.rateLimiter.recordCreditCost({ credits: totalCredits, costUsd: totalCostUsd });
+      this.config.rateLimiter.reportSuccess();
     } catch {
       // Timeout or fetch error → return partial
-      this.config.rateLimiter.markRunPartial("timeout");
+      this.config.rateLimiter.reportFailure(0);
+      this.markRunPartial("timeout");
       return {
         status: "partial",
         reason: "timeout",
@@ -126,7 +120,6 @@ export class PmxtShadowRun {
         comparisons,
         receiptTimestamp,
         requestCount,
-        creditCost: { credits: totalCredits, costUsd: totalCostUsd },
       };
     } finally {
       this.config.rateLimiter.release();
@@ -136,7 +129,7 @@ export class PmxtShadowRun {
     let bookCount = 0;
     for (const market of bounded) {
       if (bookCount >= this.config.maxBooksPerVenue) {
-        this.config.rateLimiter.markRunPartial("book_cap");
+        this.markRunPartial("book_cap");
         break;
       }
 
@@ -191,16 +184,15 @@ export class PmxtShadowRun {
       bookCount++;
     }
 
-    // Check if rate limiter marked the run partial
-    if (this.config.rateLimiter.isRunPartial()) {
+    // Check if run was marked partial
+    if (this.runPartial) {
       return {
         status: "partial",
-        reason: this.config.rateLimiter.partialReason() as PmxtShadowRunReason,
+        reason: this.runPartialReason,
         books,
         comparisons,
         receiptTimestamp,
         requestCount,
-        creditCost: { credits: totalCredits, costUsd: totalCostUsd },
       };
     }
 
@@ -210,8 +202,12 @@ export class PmxtShadowRun {
       comparisons,
       receiptTimestamp,
       requestCount,
-      creditCost: { credits: totalCredits, costUsd: totalCostUsd },
     };
+  }
+
+  private markRunPartial(reason: PmxtShadowRunReason): void {
+    this.runPartial = true;
+    this.runPartialReason = reason;
   }
 
   private async fetchWithTimeout(outcomeIds: string[]): Promise<Record<string, unknown>> {

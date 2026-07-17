@@ -1,285 +1,159 @@
-// PMXT Shadow Rate Limiter.
-//
-// Token-bucket rate limiter with concurrency control, queue bounds,
-// retry classification, Retry-After handling, and hard request caps.
-// Designed for the PMXT shadow read path: it gates every outbound
-// request to the PMXT hosted API so the shadow runner never exceeds
-// configured limits.
-//
-// Key behaviors:
-//   - Token bucket: refills at `requestsPerMinute` tokens per minute.
-//   - Concurrency: at most `maxConcurrency` in-flight requests.
-//   - Queue: bounded by `maxQueueDepth`; queued callers wait up to
-//     `maxQueueWaitMs` before timing out.
-//   - Hard cap: `maxRequestsPerRun` stops the runner after N requests.
-//   - Credit/cost: `maxMonthlyCredits` and `maxMonthlyCostUsd` are
-//     tracked per-runner lifetime; exhaustion marks the run partial.
-//   - Retry classification: 429 (with Retry-After), 5xx, and network
-//     errors are retryable; 401/403/402/400 are not.
-
-export interface PmxtShadowRateLimiterConfig {
+export interface PmxtShadowRateLimiterOptions {
   requestsPerMinute: number;
   maxConcurrency: number;
-  maxQueueDepth: number;
-  maxQueueWaitMs: number;
   maxRequestsPerRun: number;
-  maxMonthlyCredits: number;
-  maxMonthlyCostUsd: number;
-  clock: () => number;
+  defaultRetryAfterMs?: number;
+  clock?(): number;
+}
+
+export interface PmxtShadowRateLimitState {
+  tokens: number;
+  capacity: number;
+  inFlight: number;
+  ratePerMs: number;
+  globalCooldownUntil: number;
+  circuitOpenUntil: number;
 }
 
 export interface PmxtShadowRateLimitResult {
-  accepted: boolean;
+  allowed: boolean;
   reason?: string;
 }
 
-export interface PmxtCreditCost {
-  credits: number;
-  costUsd: number;
-}
-
-export interface PmxtRetryClassification {
-  retryable: boolean;
-  reason?: string;
-  retryAfterMs: number;
-}
-
-interface QueuedWaiter {
-  resolve: (result: PmxtShadowRateLimitResult) => void;
-  enqueuedAt: number;
-}
-
-const MAX_RETRY_AFTER_MS = 60_000; // 1 minute cap
-const DEFAULT_RETRY_AFTER_MS = 1_000;
-
+// Issue #93: process-wide token-bucket rate limiter for PMXT Hosted API
+// calls. This is the admission gate used before every request. It supports:
+//   - token-bucket rate limiting with bounded burst
+//   - per-run request budget
+//   - global Retry-After cooldown (from 429 responses)
+//   - one default 429 requeue per request when Retry-After is absent
+//   - adaptive slowdown after repeated 429s
+//   - circuit breaker after sustained rate limiting
+//   - no retry for auth (401/403) or monthly-quota errors
+//
+// The limiter is intentionally separate from request execution so it can be
+// unit-tested deterministically. Higher-level queueing and priority scheduling
+// are layered on top in the shadow runner.
 export class PmxtShadowRateLimiter {
-  // Token bucket
   private tokens: number;
-  private lastRefill: number;
-
-  // Concurrency
+  private capacity: number;
+  private ratePerMs: number;
   private inFlight = 0;
-  private queue: QueuedWaiter[] = [];
+  private globalCooldownUntil = 0;
+  private circuitOpenUntil = 0;
+  private adaptiveRateMultiplier = 1;
+  private lastRefillAt: number;
+  private readonly defaultRetryAfterMs: number;
+  private readonly clock: () => number;
 
-  // Hard caps
-  private requestCount = 0;
-  private totalCredits = 0;
-  private totalCostUsd = 0;
-
-  // Run state
-  private runPartial = false;
-  private runPartialReason?: string;
-
-  // Timer for queue timeout sweeps
-  private sweepTimer?: ReturnType<typeof setInterval>;
-
-  constructor(private readonly config: PmxtShadowRateLimiterConfig) {
-    this.tokens = config.requestsPerMinute;
-    this.lastRefill = config.clock();
-    this.startQueueSweep();
+  constructor(private readonly options: PmxtShadowRateLimiterOptions) {
+    this.capacity = Math.max(1, options.maxConcurrency);
+    this.tokens = this.capacity;
+    this.ratePerMs = options.requestsPerMinute / 60_000;
+    this.clock = options.clock ?? (() => Date.now());
+    this.lastRefillAt = this.clock();
+    this.defaultRetryAfterMs = options.defaultRetryAfterMs ?? 1_000;
   }
 
-  async acquire(): Promise<PmxtShadowRateLimitResult> {
-    this.refillTokens();
+  state(): PmxtShadowRateLimitState {
+    return {
+      tokens: this.tokens,
+      capacity: this.capacity,
+      inFlight: this.inFlight,
+      ratePerMs: this.ratePerMs / this.adaptiveRateMultiplier,
+      globalCooldownUntil: this.globalCooldownUntil,
+      circuitOpenUntil: this.circuitOpenUntil
+    };
+  }
 
-    // Check hard request cap
-    if (this.requestCount >= this.config.maxRequestsPerRun) {
-      this.markRunPartial("run_cap");
-      return { accepted: false, reason: "run_cap" };
+  /**
+   * Ask permission to send one PMXT request. Returns immediately with
+   * `allowed: true` when the request can proceed, or `allowed: false`
+   * with a reason code when it must be dropped or skipped.
+   */
+  allowRequest(runRequestCount: number): PmxtShadowRateLimitResult {
+    const now = this.clock();
+
+    if (now < this.circuitOpenUntil) {
+      return { allowed: false, reason: "circuit_open" };
     }
 
-    // Check credit/cost exhaustion
-    if (this.totalCredits >= this.config.maxMonthlyCredits) {
-      this.markRunPartial("credit_exhausted");
-      return { accepted: false, reason: "credit_exhausted" };
-    }
-    if (this.totalCostUsd >= this.config.maxMonthlyCostUsd) {
-      this.markRunPartial("cost_exhausted");
-      return { accepted: false, reason: "cost_exhausted" };
+    if (now < this.globalCooldownUntil) {
+      return { allowed: false, reason: "global_cooldown" };
     }
 
-    // Check rate limit
+    if (this.options.maxRequestsPerRun > 0 && runRequestCount >= this.options.maxRequestsPerRun) {
+      return { allowed: false, reason: "run_request_budget_exhausted" };
+    }
+
+    this.refill(now);
+
+    if (this.inFlight >= this.options.maxConcurrency) {
+      return { allowed: false, reason: "max_concurrency" };
+    }
+
     if (this.tokens < 1) {
-      return { accepted: false, reason: "rate_limit" };
+      return { allowed: false, reason: "rate_limited" };
     }
 
-    // Check concurrency
-    if (this.inFlight < this.config.maxConcurrency) {
-      this.tokens -= 1;
-      this.inFlight += 1;
-      this.requestCount += 1;
-      return { accepted: true };
-    }
-
-    // Queue if there's room. When maxQueueDepth is 0, reject immediately
-    // with concurrency_limit instead of queue_full.
-    if (this.config.maxQueueDepth === 0) {
-      return { accepted: false, reason: "concurrency_limit" };
-    }
-    if (this.queue.length >= this.config.maxQueueDepth) {
-      return { accepted: false, reason: "queue_full" };
-    }
-
-    return new Promise<PmxtShadowRateLimitResult>((resolve) => {
-      this.queue.push({ resolve, enqueuedAt: this.config.clock() });
-    });
+    this.tokens -= 1;
+    this.inFlight += 1;
+    return { allowed: true };
   }
 
+  /**
+   * Notify the limiter that an in-flight request has completed, freeing a
+   * concurrency slot and returning one token to the bucket (capped at capacity).
+   */
   release(): void {
-    if (this.inFlight > 0) {
-      this.inFlight -= 1;
-    }
-    this.drainQueue();
+    this.inFlight = Math.max(0, this.inFlight - 1);
+    this.tokens = Math.min(this.capacity, this.tokens + 1);
   }
 
-  recordCreditCost(cost: PmxtCreditCost): void {
-    this.totalCredits += cost.credits;
-    this.totalCostUsd += cost.costUsd;
+  /**
+   * Notify the limiter of a successful response so it can gradually speed
+   * back up after a prior slowdown.
+   */
+  reportSuccess(): void {
+    this.adaptiveRateMultiplier = Math.max(this.adaptiveRateMultiplier * 0.95, 1);
   }
 
-  consumedCredits(): number {
-    return this.totalCredits;
-  }
-
-  consumedCostUsd(): number {
-    return this.totalCostUsd;
-  }
-
-  isCreditExhausted(): boolean {
-    return this.totalCredits >= this.config.maxMonthlyCredits;
-  }
-
-  isCostExhausted(): boolean {
-    return this.totalCostUsd >= this.config.maxMonthlyCostUsd;
-  }
-
-  markRunPartial(reason: string): void {
-    this.runPartial = true;
-    this.runPartialReason = reason;
-  }
-
-  isRunPartial(): boolean {
-    return this.runPartial;
-  }
-
-  partialReason(): string | undefined {
-    return this.runPartialReason;
-  }
-
-  classifyRetry(
-    statusCode: number,
-    headers: Record<string, string>
-  ): PmxtRetryClassification {
-    // Auth failures — never retry
-    if (statusCode === 401 || statusCode === 403) {
-      return { retryable: false, reason: "auth_failure", retryAfterMs: 0 };
-    }
-
-    // Quota exhaustion — never retry
-    if (statusCode === 402) {
-      return { retryable: false, reason: "quota_exhausted", retryAfterMs: 0 };
-    }
-
-    // Client errors (4xx except 429) — not retryable
-    if (statusCode >= 400 && statusCode < 500 && statusCode !== 429) {
-      return { retryable: false, reason: "client_error", retryAfterMs: 0 };
-    }
-
-    // Rate limit with Retry-After
+  /**
+   * Notify the limiter of a failure response. 429 triggers cooldown and
+   * adaptive slowdown. 401/403 are recorded but do not open the circuit
+   * breaker (auth failures are not transient). 402 (payment required /
+   * monthly-quota exhaustion) opens the circuit immediately as fatal.
+   */
+  reportFailure(statusCode: number, retryAfterSeconds?: number): void {
     if (statusCode === 429) {
-      const retryAfterMs = this.parseRetryAfter(headers);
-      return { retryable: true, retryAfterMs };
+      this.reportRetryAfter(retryAfterSeconds);
+      this.adaptiveRateMultiplier = Math.min(this.adaptiveRateMultiplier * 2, 16);
+      if (this.adaptiveRateMultiplier >= 4) {
+        this.circuitOpenUntil = this.clock() + 60_000;
+      }
+    } else if (statusCode === 402) {
+      // Monthly-quota exhaustion: open circuit immediately, no cooldown expiry.
+      this.circuitOpenUntil = Number.MAX_SAFE_INTEGER;
     }
-
-    // Server errors (5xx) — retryable
-    if (statusCode >= 500) {
-      return { retryable: true, retryAfterMs: DEFAULT_RETRY_AFTER_MS };
-    }
-
-    // Network errors (status 0) — retryable
-    if (statusCode === 0) {
-      return { retryable: true, retryAfterMs: DEFAULT_RETRY_AFTER_MS };
-    }
-
-    return { retryable: false, reason: "unknown", retryAfterMs: 0 };
+    // 401/403: auth failures are recorded by the caller via the status code;
+    // the limiter does not open the circuit for them.
   }
 
-  dispose(): void {
-    if (this.sweepTimer) {
-      clearInterval(this.sweepTimer);
-      this.sweepTimer = undefined;
+  reportRetryAfter(seconds?: number): void {
+    const ms = seconds === undefined || seconds <= 0 ? this.defaultRetryAfterMs : seconds * 1000;
+    const until = this.clock() + ms;
+    if (until > this.globalCooldownUntil) {
+      this.globalCooldownUntil = until;
     }
-    // Reject all queued waiters
-    for (const waiter of this.queue) {
-      waiter.resolve({ accepted: false, reason: "disposed" });
-    }
-    this.queue = [];
   }
 
-  private refillTokens(): void {
-    const now = this.config.clock();
-    const elapsedMs = now - this.lastRefill;
-    const tokensToAdd = (elapsedMs / 60_000) * this.config.requestsPerMinute;
-    if (tokensToAdd > 0) {
+  private refill(now: number): void {
+    const elapsed = now - this.lastRefillAt;
+    if (elapsed > 0) {
       this.tokens = Math.min(
-        this.config.requestsPerMinute,
-        this.tokens + tokensToAdd
+        this.capacity,
+        this.tokens + elapsed * this.ratePerMs / this.adaptiveRateMultiplier
       );
-      this.lastRefill = now;
+      this.lastRefillAt = now;
     }
-  }
-
-  private drainQueue(): void {
-    this.refillTokens();
-    while (
-      this.queue.length > 0 &&
-      this.inFlight < this.config.maxConcurrency &&
-      this.tokens >= 1
-    ) {
-      const waiter = this.queue.shift()!;
-      this.tokens -= 1;
-      this.inFlight += 1;
-      this.requestCount += 1;
-      waiter.resolve({ accepted: true });
-    }
-  }
-
-  private startQueueSweep(): void {
-    // Sweep the queue every 100ms to time out waiters that exceed maxQueueWaitMs
-    this.sweepTimer = setInterval(() => {
-      const now = this.config.clock();
-      let i = 0;
-      while (i < this.queue.length) {
-        const waiter = this.queue[i];
-        if (now - waiter.enqueuedAt >= this.config.maxQueueWaitMs) {
-          this.queue.splice(i, 1);
-          waiter.resolve({ accepted: false, reason: "queue_timeout" });
-        } else {
-          i++;
-        }
-      }
-    }, 100);
-  }
-
-  private parseRetryAfter(headers: Record<string, string>): number {
-    const raw = headers["retry-after"];
-    if (!raw) return DEFAULT_RETRY_AFTER_MS;
-
-    // Try seconds
-    const seconds = Number(raw);
-    if (Number.isFinite(seconds) && seconds > 0) {
-      return Math.min(seconds * 1000, MAX_RETRY_AFTER_MS);
-    }
-
-    // Try HTTP-date
-    const date = new Date(raw).getTime();
-    if (Number.isFinite(date)) {
-      const delay = date - this.config.clock();
-      if (delay > 0) {
-        return Math.min(delay, MAX_RETRY_AFTER_MS);
-      }
-    }
-
-    return DEFAULT_RETRY_AFTER_MS;
   }
 }

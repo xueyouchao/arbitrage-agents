@@ -290,3 +290,31 @@ export const positions = pgTable(
   },
   (table) => [index("positions_status_idx").on(table.status)]
 );
+
+// Issue #93: PMXT shadow evaluation lease table. Each row represents one
+// claim of an authoritative scan run by a shadow worker. The logical-run
+// lease prevents duplicate shadow runs and preserves attempt history so
+// failed or partial shadow runs can be retried safely.
+export const pmxtShadowRunAttempts = pgTable(
+  "pmxt_shadow_run_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shadowRunId: uuid("shadow_run_id").notNull(),
+    authoritativeScanRunId: uuid("authoritative_scan_run_id")
+      .references(() => scanRuns.id, { onDelete: "cascade" })
+      .notNull(),
+    attemptNumber: integer("attempt_number").notNull(),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(),
+    leasedUntil: timestamp("leased_until", { withTimezone: true }).notNull(),
+    workerId: text("worker_id").notNull(),
+    status: text("status").notNull().default("claimed"),
+    retryReason: text("retry_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    index("pmxt_shadow_attempts_scan_idx").on(table.authoritativeScanRunId),
+    index("pmxt_shadow_attempts_worker_idx").on(table.workerId),
+    index("pmxt_shadow_attempts_leased_until_idx").on(table.leasedUntil),
+    uniqueIndex("pmxt_shadow_attempts_scan_attempt_unique").on(table.authoritativeScanRunId, table.attemptNumber)
+  ]
+);

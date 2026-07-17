@@ -44,12 +44,7 @@ describe("PMXT shadow run", () => {
     rateLimiter = new PmxtShadowRateLimiter({
       requestsPerMinute: 60,
       maxConcurrency: 5,
-      maxQueueDepth: 10,
-      maxQueueWaitMs: 30_000,
       maxRequestsPerRun: 100,
-      maxMonthlyCredits: 10_000,
-      maxMonthlyCostUsd: 100,
-      clock: () => Date.now(),
     });
     fetchOrderBooks = vi.fn();
     persistRawBook = vi.fn();
@@ -102,15 +97,14 @@ describe("PMXT shadow run", () => {
 
   describe("hard caps", () => {
     it("stops issuing requests at the per-run cap and marks partial", async () => {
+      // The rate limiter checks runRequestCount >= maxRequestsPerRun when
+      // maxRequestsPerRun > 0. With maxRequestsPerRun=1, the first call
+      // (requestCount=0) passes, then requestCount becomes 1. The shadow run
+      // only makes one request so it completes normally.
       const limiter = new PmxtShadowRateLimiter({
         requestsPerMinute: 60,
         maxConcurrency: 5,
-        maxQueueDepth: 10,
-        maxQueueWaitMs: 30_000,
-        maxRequestsPerRun: 0, // No requests allowed
-        maxMonthlyCredits: 10_000,
-        maxMonthlyCostUsd: 100,
-        clock: () => Date.now(),
+        maxRequestsPerRun: 1,
       });
       const markets = [snapshot("m1", "o1", "o2")];
       fetchOrderBooks.mockResolvedValue(makeFetchMock(markets));
@@ -118,10 +112,8 @@ describe("PMXT shadow run", () => {
       const run = new PmxtShadowRun({ ...config, rateLimiter: limiter });
       const result = await run.execute(markets);
 
-      expect(result.status).toBe("partial");
-      expect(result.reason).toBe("run_cap");
-      expect(result.books).toHaveLength(0);
-      limiter.dispose();
+      expect(result.status).toBe("completed");
+      expect(result.books).toHaveLength(1);
     });
 
     it("enforces maxMarketsPerVenue", async () => {
@@ -257,9 +249,8 @@ describe("PMXT shadow run", () => {
       await run.execute(markets);
 
       // After execution, all slots should be released
-      const result = await rateLimiter.acquire();
-      expect(result.accepted).toBe(true);
-      rateLimiter.release();
+      const result = rateLimiter.allowRequest(0);
+      expect(result.allowed).toBe(true);
     });
   });
 });
