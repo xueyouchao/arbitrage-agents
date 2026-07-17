@@ -189,6 +189,11 @@ describe("reportPmxtRouterMatchingQuality", () => {
     ).toThrow("does not match frozen strata");
     expect(() =>
       reportPmxtRouterMatchingQuality(protocol, [
+        observation("known", ["source=shared", "extra=stratum"], true, "identity"),
+      ])
+    ).toThrow("does not match frozen strata");
+    expect(() =>
+      reportPmxtRouterMatchingQuality(protocol, [
         observation("known", ["source=shared"], false, "identity"),
       ])
     ).toThrow("does not match frozen Router prediction");
