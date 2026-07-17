@@ -659,7 +659,7 @@ describe("Issue #98 PMXT Router opportunity value evaluation", () => {
         result.assessments.map((a) => [a.provenance.edge.clusterId, a]),
       );
 
-      // Valid candidate (not in legacy → incremental)
+      // Valid candidate (in legacy → not incremental)
       const valid = byCluster.get("cluster-valid")!;
       expect(valid.status).toBe("valid");
       expect(valid.opportunities.length).toBeGreaterThan(0);
