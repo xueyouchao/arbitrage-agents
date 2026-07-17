@@ -28,10 +28,7 @@ import { DeterministicEquivalencePolicy } from "../../matching/domain/equivalenc
 import { MarketNormalizer } from "../../matching/domain/market-normalizer";
 import { NormalizedMarket } from "../../matching/domain/normalized-market";
 import { VenueMarketSnapshot } from "../../venues/domain/venue-market";
-import {
-  buildPmxtShadowLlmRequest,
-  resolveOpportunityCalculatorOptions,
-} from "./pmxt-read-parity";
+import { buildPmxtShadowLlmRequest } from "./pmxt-read-parity";
 import {
   PmxtRouterCandidate,
   PmxtRouterProjectedEdge,
@@ -535,7 +532,7 @@ function checkFeeResolution(
   return { feeSource, resolved: true, discrepancy: null };
 }
 
-function extractFeeMetadata(book: MarketBook): unknown {
+function extractFeeSchedule(book: MarketBook): unknown {
   const raw = book.rawPayload;
   if (!raw) return null;
   const feeSchedule = raw.feeSchedule;
@@ -543,56 +540,80 @@ function extractFeeMetadata(book: MarketBook): unknown {
   return null;
 }
 
-function extractFeeSchedule(book: MarketBook): unknown {
-  const metadata = extractFeeMetadata(book);
-  if (metadata === null) return null;
-  return metadata;
-}
-
 function mergeLlmDecision(
   decision: EquivalenceDecision,
   llmRecord: LlmEvaluationRecord,
 ): EquivalenceDecision {
-  const parsed = llmRecord.parsedOutput;
-  if (!parsed) return decision;
-
-  const equivalent = parsed.equivalent;
-  const confidence = parsed.confidence;
-  if (typeof equivalent !== "boolean" || typeof confidence !== "number") {
-    return decision;
+  // Mirrors the production LLM merge in read-only-scanner.ts so the
+  // evaluator produces identical equivalence classes for identical inputs.
+  if (llmRecord.status !== "succeeded" || !llmRecord.parsedOutput) {
+    return { ...decision, reasons: [...decision.reasons, `llm_${llmRecord.status}`] };
   }
 
-  // LLM refutes with high confidence → demote to reject
-  if (!equivalent && confidence >= 0.7) {
+  const verdict = llmRecord.parsedOutput as unknown as {
+    equivalent: boolean;
+    confidence: number;
+  };
+
+  if (!verdict.equivalent && verdict.confidence >= 0.7) {
     return {
       ...decision,
       equivalenceClass: "C",
       decision: "reject",
-      reasons: [...decision.reasons, "llm_refuted"],
+      reasons: [...decision.reasons, "llm_refuted_equivalence"],
     };
   }
 
-  // LLM confirms with high confidence → promote B→A only if all reasons are soft
-  if (equivalent && confidence >= 0.9 && decision.equivalenceClass === "B") {
-    const SOFT_REASONS = new Set([
-      "ambiguity_flags_present",
-      "resolution_source_missing",
-      "resolution_source_differs_crypto_index",
-      "threshold_close_but_not_identical",
-      "deadline_same_day_time_differs",
-    ]);
-    if (decision.reasons.every((r) => SOFT_REASONS.has(r))) {
-      return {
-        ...decision,
-        equivalenceClass: "A",
-        decision: "tradable",
-        reasons: [...decision.reasons, "llm_confirmed"],
-      };
-    }
+  if (verdict.equivalent && verdict.confidence >= 0.7) {
+    const promotedClass = promoteEquivalenceClass(decision, verdict.confidence);
+    const promotedDecision = promoteEquivalenceDecision(decision, promotedClass);
+    return {
+      ...decision,
+      equivalenceClass: promotedClass,
+      decision: promotedDecision,
+      reasons: [...decision.reasons, "llm_supported_equivalence"],
+    };
   }
 
-  return decision;
+  return { ...decision, reasons: [...decision.reasons, "llm_inconclusive"] };
 }
+
+function promoteEquivalenceClass(
+  decision: EquivalenceDecision,
+  confidence: number,
+): EquivalenceDecision["equivalenceClass"] {
+  if (confidence < 0.7) return decision.equivalenceClass;
+  if (decision.equivalenceClass === "D") return "B";
+  if (decision.equivalenceClass !== "B") return decision.equivalenceClass;
+  if (confidence < 0.9) return "B";
+  const allReasonsSoft = decision.reasons.every((reason) =>
+    SOFT_REVIEW_REASONS.has(reason),
+  );
+  return allReasonsSoft ? "A" : "B";
+}
+
+function promoteEquivalenceDecision(
+  decision: EquivalenceDecision,
+  promotedClass: EquivalenceDecision["equivalenceClass"],
+): EquivalenceDecision["decision"] {
+  if (promotedClass === "A") return "tradable";
+  if (promotedClass === "B")
+    return decision.decision === "tradable" ? "tradable" : "alert_only";
+  if (promotedClass === "C") return "reject";
+  return decision.decision;
+}
+
+const SOFT_REVIEW_REASONS: ReadonlySet<string> = new Set([
+  "ambiguity_flags_present",
+  "resolution_source_missing",
+  "resolution_source_differs",
+  "resolution_source_differs_crypto_index",
+  "deadline_same_day_time_differs",
+  "threshold_close_but_not_identical",
+  "llm_inconclusive",
+  "llm_supported_equivalence",
+  "deterministic_fields_match",
+]);
 
 function excludedAssessment(
   candidate: PmxtRouterCandidate,
