@@ -113,7 +113,6 @@ function validateProtocol(protocol: PmxtRouterQualityProtocol): void {
     !Number.isFinite(protocol.confidenceLevel) ||
     protocol.confidenceLevel <= 0 ||
     protocol.confidenceLevel >= 1 ||
-    0.5 + protocol.confidenceLevel / 2 >= 1 ||
     !Number.isInteger(protocol.minimumSampleSize) ||
     protocol.minimumSampleSize < 1 ||
     Object.values(protocol.eligibleCounts).some(
