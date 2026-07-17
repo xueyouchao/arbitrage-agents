@@ -188,6 +188,28 @@ describe("reportPmxtRouterMatchingQuality", () => {
     ).toThrow("does not match frozen strata");
   });
 
+  it("rejects invalid observations and inconsistent eligible counts", () => {
+    const validProtocol = {
+      protocolVersion: "router-quality-v1",
+      confidenceLevel: 0.95,
+      minimumSampleSize: 1,
+      eligibleCounts: { "source=shared": 1 },
+      frozenMembership: { known: ["source=shared"] },
+    };
+
+    expect(() =>
+      reportPmxtRouterMatchingQuality(validProtocol, [
+        { ...observation("known", ["source=shared"], true, "identity"), label: "bad" as "identity" },
+      ])
+    ).toThrow("invalid human label");
+    expect(() =>
+      reportPmxtRouterMatchingQuality(
+        { ...validProtocol, eligibleCounts: { "source=shared": 2 } },
+        []
+      )
+    ).toThrow("eligible counts do not match frozen membership");
+  });
+
   it("rejects non-finite confidence levels", () => {
     expect(() =>
       reportPmxtRouterMatchingQuality(

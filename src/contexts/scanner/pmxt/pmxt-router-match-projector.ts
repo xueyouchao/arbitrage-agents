@@ -87,6 +87,7 @@ export function projectPmxtRouterMatches(
 ): PmxtRouterProjectionResult {
   const edges: PmxtRouterProjectedEdge[] = [];
   const candidates: PmxtRouterCandidate[] = [];
+  const candidateIds = new Set<string>();
 
   for (const cluster of clusters) {
     const membersById = new Map<string, PmxtRouterMember[]>();
@@ -107,20 +108,24 @@ export function projectPmxtRouterMatches(
         projectedEdge.kalshiNativeId &&
         projectedEdge.polymarketNativeId
       ) {
-        candidates.push({
-          id: routerCandidateId(
-            cluster.clusterId,
-            projectedEdge.kalshiMemberId,
-            projectedEdge.polymarketMemberId
-          ),
-          clusterId: cluster.clusterId,
-          relation: "identity",
-          confidence: projectedEdge.confidence,
-          kalshiMemberId: projectedEdge.kalshiMemberId,
-          polymarketMemberId: projectedEdge.polymarketMemberId,
-          kalshiNativeId: projectedEdge.kalshiNativeId,
-          polymarketNativeId: projectedEdge.polymarketNativeId,
-        });
+        const id = routerCandidateId(
+          cluster.clusterId,
+          projectedEdge.kalshiMemberId,
+          projectedEdge.polymarketMemberId
+        );
+        if (!candidateIds.has(id)) {
+          candidateIds.add(id);
+          candidates.push({
+            id,
+            clusterId: cluster.clusterId,
+            relation: "identity",
+            confidence: projectedEdge.confidence,
+            kalshiMemberId: projectedEdge.kalshiMemberId,
+            polymarketMemberId: projectedEdge.polymarketMemberId,
+            kalshiNativeId: projectedEdge.kalshiNativeId,
+            polymarketNativeId: projectedEdge.polymarketNativeId,
+          });
+        }
       }
     }
   }
