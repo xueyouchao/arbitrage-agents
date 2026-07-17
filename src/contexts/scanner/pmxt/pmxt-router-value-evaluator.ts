@@ -222,11 +222,14 @@ export class PmxtRouterValueEvaluator {
     const { calculatorOptions, provenance } = input;
     const evaluatedAt = provenance.timestamps.evaluatedAt;
 
-    // 1. Verify relation is identity (defense in depth — checked before
-    //    edge lookup so a non-identity candidate can never pass even if
-    //    a stale or malformed edge happens to exist)
+    // 1. Find the projected edge for this candidate (hoisted before the
+    //    relation check so we don't call findEdgeForCandidate twice)
+    const edge = findEdgeForCandidate(input.projection, candidate);
+
+    // 2. Verify relation is identity (defense in depth — checked before
+    //    edge eligibility so a non-identity candidate can never pass even
+    //    if a stale or malformed edge happens to exist)
     if (candidate.relation !== "identity") {
-      const edge = findEdgeForCandidate(input.projection, candidate);
       return excludedAssessment(
         candidate,
         edge,
@@ -235,8 +238,7 @@ export class PmxtRouterValueEvaluator {
       );
     }
 
-    // 2. Find the projected edge for this candidate (must exist and be eligible)
-    const edge = findEdgeForCandidate(input.projection, candidate);
+    // 3. Edge must exist and be eligible (direct rawMatch required)
     if (!edge || !edge.eligibleByDefault) {
       return excludedAssessment(
         candidate,
@@ -246,7 +248,7 @@ export class PmxtRouterValueEvaluator {
       );
     }
 
-    // 3. Find verified markets — check for ambiguity (duplicate native IDs)
+    // 4. Find verified markets — check for ambiguity (duplicate native IDs)
     const marketResult = findVerifiedMarkets(
       input.verifiedMarkets,
       candidate.kalshiNativeId,
@@ -269,7 +271,7 @@ export class PmxtRouterValueEvaluator {
       );
     }
 
-    // 4. Find verified books
+    // 5. Find verified books
     const kalshiBook = findBook(input.verifiedBooks, "kalshi", candidate.kalshiNativeId);
     const polymarketBook = findBook(input.verifiedBooks, "polymarket", candidate.polymarketNativeId);
     if (!kalshiBook || !polymarketBook) {
@@ -289,7 +291,7 @@ export class PmxtRouterValueEvaluator {
       );
     }
 
-    // 5. Check book staleness
+    // 6. Check book staleness
     const staleness = checkStaleness(kalshiBook, polymarketBook, calculatorOptions);
     if (staleness.stale) {
       const feeComparison = checkFeeResolution(kalshiBook, polymarketBook, calculatorOptions.feeSource);
@@ -319,11 +321,11 @@ export class PmxtRouterValueEvaluator {
       };
     }
 
-    // 6. Normalize markets
+    // 7. Normalize markets
     const kalshiNormalized = this.deps.normalizer.normalize(marketResult.kalshi);
     const polymarketNormalized = this.deps.normalizer.normalize(marketResult.polymarket);
 
-    // 7. Build candidate pair (namespaced Router ID)
+    // 8. Build candidate pair (namespaced Router ID)
     const pair: CandidatePair = {
       id: candidate.id,
       kalshiMarket: kalshiNormalized,
@@ -331,10 +333,10 @@ export class PmxtRouterValueEvaluator {
       reasons: ["router_projected_identity", ...edge.rawEdge ? [`${edge.relation}:${edge.confidence}`] : []],
     };
 
-    // 8. Equivalence classification
+    // 9. Equivalence classification
     let decision = this.deps.equivalencePolicy.classify(pair);
 
-    // 9. LLM shadow review for class B/D (same namespacing as PMXT-read parity)
+    // 10. LLM shadow review for class B/D (same namespacing as PMXT-read parity)
     let llmEvaluation: LlmEvaluationRecord | undefined;
     if (decision.equivalenceClass === "B" || decision.equivalenceClass === "D") {
       const request = this.deps.buildProductionLlmRequest(pair, decision);
@@ -343,7 +345,7 @@ export class PmxtRouterValueEvaluator {
       decision = mergeLlmDecision(decision, llmEvaluation);
     }
 
-    // 10. Fee resolution check
+    // 11. Fee resolution check
     const feeComparison = checkFeeResolution(kalshiBook, polymarketBook, calculatorOptions.feeSource);
     if (!feeComparison.resolved) {
       return {
@@ -370,7 +372,7 @@ export class PmxtRouterValueEvaluator {
       };
     }
 
-    // 11. Calculate opportunities (only for class A)
+    // 12. Calculate opportunities (only for class A)
     let opportunities: CrossVenueOpportunity[] = [];
     if (decision.equivalenceClass === "A") {
       opportunities = this.deps.opportunityCalculator.calculate(
@@ -407,11 +409,11 @@ export class PmxtRouterValueEvaluator {
       };
     }
 
-    // 12. Classify: valid vs false positive
+    // 13. Classify: valid vs false positive
     const status: RouterCandidateValueStatus =
       opportunities.length > 0 ? "valid" : "false_positive";
 
-    // 13. Determine incrementality
+    // 14. Determine incrementality
     const legacyPairId = `${kalshiNormalized.id}:${polymarketNormalized.id}`;
     const incrementalVsLegacy = !input.legacyCandidatePairIds.has(legacyPairId);
     const incrementalVsPmxtRead = !input.pmxtReadCandidatePairIds.has(legacyPairId);
