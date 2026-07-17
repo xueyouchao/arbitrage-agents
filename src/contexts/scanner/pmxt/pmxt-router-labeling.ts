@@ -57,6 +57,7 @@ export interface PmxtRouterFrozenLabelingCohort extends PmxtRouterLabelingProtoc
   items: PmxtRouterFrozenLabelingItem[];
   eligibleCounts: Record<string, number>;
   frozenMembership: Record<string, string[]>;
+  frozenPredictions: Record<string, boolean>;
 }
 
 export function buildFrozenPmxtRouterLabelingCohort(
@@ -98,6 +99,9 @@ export function buildFrozenPmxtRouterLabelingCohort(
     eligibleCounts,
     frozenMembership: Object.fromEntries(
       prepared.map((item) => [item.id, [...item.stratumKeys]])
+    ),
+    frozenPredictions: Object.fromEntries(
+      prepared.map((item) => [item.id, item.routerCandidate])
     ),
   };
 }

@@ -174,6 +174,7 @@ describe("reportPmxtRouterMatchingQuality", () => {
       minimumSampleSize: 1,
       eligibleCounts: { "source=shared": 1 },
       frozenMembership: { known: ["source=shared"] },
+      frozenPredictions: { known: true },
     };
 
     expect(() =>
@@ -186,6 +187,11 @@ describe("reportPmxtRouterMatchingQuality", () => {
         observation("known", ["source=router_only"], true, "identity"),
       ])
     ).toThrow("does not match frozen strata");
+    expect(() =>
+      reportPmxtRouterMatchingQuality(protocol, [
+        observation("known", ["source=shared"], false, "identity"),
+      ])
+    ).toThrow("does not match frozen Router prediction");
   });
 
   it("rejects invalid observations and inconsistent eligible counts", () => {
@@ -195,6 +201,7 @@ describe("reportPmxtRouterMatchingQuality", () => {
       minimumSampleSize: 1,
       eligibleCounts: { "source=shared": 1 },
       frozenMembership: { known: ["source=shared"] },
+      frozenPredictions: { known: true },
     };
 
     expect(() =>
@@ -219,6 +226,7 @@ describe("reportPmxtRouterMatchingQuality", () => {
           minimumSampleSize: 1,
           eligibleCounts: {},
           frozenMembership: {},
+          frozenPredictions: {},
         },
         []
       )

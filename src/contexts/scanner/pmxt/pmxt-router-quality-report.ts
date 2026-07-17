@@ -113,6 +113,7 @@ function validateProtocol(protocol: PmxtRouterQualityProtocol): void {
     !Number.isFinite(protocol.confidenceLevel) ||
     protocol.confidenceLevel <= 0 ||
     protocol.confidenceLevel >= 1 ||
+    0.5 + protocol.confidenceLevel / 2 >= 1 ||
     !Number.isInteger(protocol.minimumSampleSize) ||
     protocol.minimumSampleSize < 1 ||
     Object.values(protocol.eligibleCounts).some(
@@ -122,6 +123,18 @@ function validateProtocol(protocol: PmxtRouterQualityProtocol): void {
     throw new Error("Invalid PMXT Router quality protocol");
   }
   if (protocol.frozenMembership) {
+    if (!protocol.frozenPredictions) {
+      throw new Error("PMXT Router frozen predictions are required with membership");
+    }
+    const membershipIds = Object.keys(protocol.frozenMembership);
+    if (
+      membershipIds.some((id) => typeof protocol.frozenPredictions?.[id] !== "boolean") ||
+      Object.keys(protocol.frozenPredictions).some(
+        (id) => !Object.hasOwn(protocol.frozenMembership!, id)
+      )
+    ) {
+      throw new Error("PMXT Router frozen predictions do not match membership");
+    }
     const counts: Record<string, number> = {};
     for (const keys of Object.values(protocol.frozenMembership)) {
       for (const key of new Set(keys)) counts[key] = (counts[key] ?? 0) + 1;
@@ -164,10 +177,7 @@ function validateFrozenMembership(
     throw new Error(`Observation ${observation.id} does not match frozen strata`);
   }
   const frozenPrediction = protocol.frozenPredictions?.[observation.id];
-  if (
-    frozenPrediction !== undefined &&
-    frozenPrediction !== observation.routerPredictedIdentity
-  ) {
+  if (frozenPrediction !== observation.routerPredictedIdentity) {
     throw new Error(`Observation ${observation.id} does not match frozen Router prediction`);
   }
 }
