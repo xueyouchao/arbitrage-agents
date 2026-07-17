@@ -411,6 +411,12 @@ export const pmxtShadowComparisons = pgTable(
     index("pmxt_shadow_comparisons_shadow_run_idx").on(table.shadowRunId),
     index("pmxt_shadow_comparisons_attempt_idx").on(table.shadowRunAttemptId),
     index("pmxt_shadow_comparisons_stage_idx").on(table.stage),
-    index("pmxt_shadow_comparisons_outcome_idx").on(table.outcome)
+    index("pmxt_shadow_comparisons_outcome_idx").on(table.outcome),
+    uniqueIndex("pmxt_shadow_comparisons_scan_run_stage_unique").on(
+      table.authoritativeScanRunId,
+      table.shadowRunId,
+      table.shadowRunAttemptId,
+      table.stage
+    )
   ]
 );

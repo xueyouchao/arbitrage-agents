@@ -13,7 +13,12 @@ export class PostgresPmxtReadParityRepository implements PmxtReadParityRepositor
     try {
       await client.query("begin");
 
+      const decisionByPairId = new Map(
+        batch.candidateDecisions.map((d) => [d.pairId, d]),
+      );
+
       for (const candidate of batch.candidates) {
+        const decision = decisionByPairId.get(candidate.id);
         await client.query(
           `insert into pmxt_shadow_candidates (
             authoritative_scan_run_id, shadow_run_id, shadow_run_attempt_id,
@@ -28,13 +33,8 @@ export class PostgresPmxtReadParityRepository implements PmxtReadParityRepositor
             candidate.id,
             candidate.kalshiMarket.id,
             candidate.polymarketMarket.id,
-            // equivalence_class and decision are null here because the
-            // batch carries CandidatePair objects (which don't include the
-            // EquivalenceDecision). The full candidate payload is in the
-            // payload JSONB column for audit. A future enhancement can
-            // pass ReviewedCandidatePair[] to populate these columns.
-            null,
-            null,
+            decision?.equivalenceClass ?? null,
+            decision?.decision ?? null,
             JSON.stringify(candidate.reasons),
             JSON.stringify(candidate),
           ],
@@ -64,7 +64,8 @@ export class PostgresPmxtReadParityRepository implements PmxtReadParityRepositor
           `insert into pmxt_shadow_comparisons (
             authoritative_scan_run_id, shadow_run_id, shadow_run_attempt_id,
             stage, outcome, cause, authoritative, shadow, provenance
-          ) values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb)`,
+          ) values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb)
+          on conflict (authoritative_scan_run_id, shadow_run_id, shadow_run_attempt_id, stage) do nothing`,
           [
             batch.authoritativeScanRunId,
             batch.shadowRunId,

@@ -161,6 +161,7 @@ export interface PmxtReadParityBatch {
   shadowRunId: string;
   shadowRunAttemptId: string;
   candidates: CandidatePair[];
+  candidateDecisions: EquivalenceDecision[];
   opportunities: CrossVenueOpportunity[];
   comparisons: PmxtReadParityComparison[];
 }
@@ -820,6 +821,7 @@ export class PmxtReadParityPipeline {
       shadowRunId: provenance.input.shadowRunId,
       shadowRunAttemptId: provenance.input.shadowRunAttemptId,
       candidates: shadowPairs,
+      candidateDecisions: shadowDecisions,
       opportunities: shadowOpportunities,
       comparisons,
     };

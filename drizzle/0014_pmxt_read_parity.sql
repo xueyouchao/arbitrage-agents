@@ -59,4 +59,5 @@ CREATE INDEX "pmxt_shadow_comparisons_scan_idx" ON "pmxt_shadow_comparisons" USI
 CREATE INDEX "pmxt_shadow_comparisons_shadow_run_idx" ON "pmxt_shadow_comparisons" USING btree ("shadow_run_id");--> statement-breakpoint
 CREATE INDEX "pmxt_shadow_comparisons_attempt_idx" ON "pmxt_shadow_comparisons" USING btree ("shadow_run_attempt_id");--> statement-breakpoint
 CREATE INDEX "pmxt_shadow_comparisons_stage_idx" ON "pmxt_shadow_comparisons" USING btree ("stage");--> statement-breakpoint
-CREATE INDEX "pmxt_shadow_comparisons_outcome_idx" ON "pmxt_shadow_comparisons" USING btree ("outcome");
+CREATE INDEX "pmxt_shadow_comparisons_outcome_idx" ON "pmxt_shadow_comparisons" USING btree ("outcome");--> statement-breakpoint
+CREATE UNIQUE INDEX "pmxt_shadow_comparisons_scan_run_stage_unique" ON "pmxt_shadow_comparisons" USING btree ("authoritative_scan_run_id", "shadow_run_id", "shadow_run_attempt_id", "stage");

@@ -31,6 +31,7 @@ import {
 import type { PmxtMarketSnapshot } from "../../src/contexts/venues/infrastructure/pmxt/pmxt-market-mapper";
 import type { PmxtMarketBook } from "../../src/contexts/venues/infrastructure/pmxt/pmxt-orderbook-mapper";
 import type { VenueMarketSnapshot } from "../../src/contexts/venues/domain/venue-market";
+import type { EquivalenceDecision } from "../../src/contexts/matching/domain/candidate-pair";
 
 const CAPTURED_AT = "2026-12-31T23:59:30.000Z";
 const COMPARED_AT = "2027-01-01T00:00:00.000Z";
@@ -529,6 +530,7 @@ describe("Issue #96 PMXT read parity acceptance contract", () => {
       shadowRunId: provenance.input.shadowRunId,
       shadowRunAttemptId: provenance.input.shadowRunAttemptId,
       candidates: result.shadow.candidatePairs,
+      candidateDecisions: result.shadow.deterministicDecisions,
       opportunities: result.shadow.opportunities,
       comparisons: result.comparisons,
     });
@@ -564,6 +566,7 @@ describe("Issue #96 PMXT read parity acceptance contract", () => {
         shadowRunId: "00000000-0000-4000-8000-000000009600",
         shadowRunAttemptId: "00000000-0000-4000-8000-000000009601",
         candidates: [candidate],
+        candidateDecisions: [decision],
         opportunities,
         comparisons: [{
           stage: "fees",
@@ -648,6 +651,7 @@ describe("Issue #96 PMXT read parity acceptance contract", () => {
         shadowRunId: "00000000-0000-4000-8000-000000009600",
         shadowRunAttemptId: "00000000-0000-4000-8000-000000009601",
         candidates: [],
+        candidateDecisions: [],
         opportunities: [],
         comparisons: [{
           stage: "fees",
@@ -712,6 +716,243 @@ describe("Issue #96 PMXT read parity acceptance contract", () => {
           foreignColumns: ["shadow_run_id"],
         });
       }
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Adversarial review findings (deepseek-v4-flash:cloud)
+  // -------------------------------------------------------------------------
+
+  describe("discrepancy detection and provenance", () => {
+    it("flags a normalization discrepancy with an explicit cause and full provenance", async () => {
+      const repository = new InMemoryPmxtReadParityRepository();
+      const calculator = new OpportunityCalculator();
+      const llmRepository = new InMemoryLlmEvaluationRepository();
+      const llmProvider = vi.fn().mockResolvedValue({
+        output: { equivalent: true, confidence: 0.99, explanation: "same canonical market" },
+      });
+      const llmGateway = new PersistedLlmGateway(llmRepository, llmProvider);
+      const productionLlmRequest: LlmEvaluationRequest = {
+        taskType: "market_equivalence",
+        model: "scanner-model-v1",
+        promptVersion: "scanner-equivalence-v3",
+        input: { pairId: "canonical-pair", deterministicClass: "A" },
+      };
+      const calculatorOptions = resolveOpportunityCalculatorOptions({
+        now: COMPARED_AT,
+        feeSource: "config",
+        feeRate: 0.01,
+        slippageRate: 0,
+        targetNotionalsUsd: [5, 25],
+      });
+      const provenance: PmxtReadParityProvenance = {
+        input: {
+          authoritativeScanRunId: "00000000-0000-4000-8000-000000000096",
+          shadowRunId: "00000000-0000-4000-8000-000000009600",
+          shadowRunAttemptId: "00000000-0000-4000-8000-000000009601",
+          authoritativeMarketIds: [kalshiSnapshot.venueMarketId, polymarketSnapshot.venueMarketId],
+          pmxtCatalogMarketIds: [pmxtKalshiSnapshot.venueMarketId, pmxtPolymarketSnapshot.venueMarketId],
+          pmxtOutcomeIds: [
+            "pmxt-kalshi-yes",
+            "pmxt-kalshi-no",
+            "pmxt-polymarket-yes",
+            "pmxt-polymarket-no",
+          ],
+        },
+        provider: {
+          authoritative: "native-venue-clients",
+          shadow: "pmxt",
+          sourceExchanges: ["kalshi", "polymarket"],
+          llmModel: "scanner-model-v1",
+        },
+        timestamps: {
+          authoritativeCapturedAt: CAPTURED_AT,
+          shadowCapturedAt: CAPTURED_AT,
+          comparedAt: COMPARED_AT,
+        },
+        config: {
+          productionPromptVersion: "scanner-equivalence-v3",
+          shadowPromptVersion: "pmxt-shadow/scanner-equivalence-v3",
+          calculatorOptions,
+        },
+      };
+
+      // Shadow PMXT market has a DIFFERENT title from the authoritative one.
+      const divergentPmxtKalshiSnapshot: PmxtMarketSnapshot = {
+        ...pmxtKalshiSnapshot,
+        title: "DIFFERENT TITLE — will cause normalization mismatch",
+      };
+
+      const pipeline = new PmxtReadParityPipeline({
+        normalizer: new MarketNormalizer(),
+        pairGenerator: new CandidatePairGenerator(),
+        equivalencePolicy: new DeterministicEquivalencePolicy(),
+        opportunityCalculator: calculator,
+        llmGateway,
+        buildProductionLlmRequest: () => productionLlmRequest,
+        repository,
+      });
+
+      const result = await pipeline.run({
+        authoritative: {
+          markets: [kalshiSnapshot, polymarketSnapshot],
+          books: [kalshiBook, polymarketBook],
+        },
+        pmxt: {
+          markets: [divergentPmxtKalshiSnapshot, pmxtPolymarketSnapshot],
+          books: [pmxtKalshiBook, pmxtPolymarketBook],
+        },
+        calculatorOptions,
+        provenance,
+      });
+
+      const normalizationComparison = result.comparisons.find(
+        (c) => c.stage === "normalization",
+      );
+      expect(normalizationComparison).toBeDefined();
+      expect(normalizationComparison!.outcome).toBe("discrepancy");
+      expect(normalizationComparison!.cause).toBe("normalization_output_differs");
+      expect(normalizationComparison!.provenance).toEqual(provenance);
+      expect(normalizationComparison!.authoritative).toBeDefined();
+      expect(normalizationComparison!.shadow).toBeDefined();
+    });
+  });
+
+  describe("comparison insert idempotency", () => {
+    it("uses ON CONFLICT DO NOTHING for comparisons so retried batches do not duplicate rows", async () => {
+      const { pool, client } = fakePool();
+      const repository = new PostgresPmxtReadParityRepository(pool);
+      const batch: PmxtReadParityBatch = {
+        authoritativeScanRunId: "00000000-0000-4000-8000-000000000096",
+        shadowRunId: "00000000-0000-4000-8000-000000009600",
+        shadowRunAttemptId: "00000000-0000-4000-8000-000000009601",
+        candidates: [],
+        opportunities: [],
+        candidateDecisions: [],
+        comparisons: [{
+          stage: "normalization",
+          outcome: "match",
+          cause: "identical",
+          authoritative: {},
+          shadow: {},
+          provenance: {} as PmxtReadParityProvenance,
+        }],
+      };
+
+      await repository.saveBatch(batch);
+
+      const comparisonCalls = callsContaining(client, "insert into pmxt_shadow_comparisons");
+      expect(comparisonCalls).toHaveLength(1);
+      expect(comparisonCalls[0].sql.toLowerCase()).toContain("on conflict");
+      expect(comparisonCalls[0].sql.toLowerCase()).toContain("do nothing");
+    });
+  });
+
+  describe("candidate decision persistence", () => {
+    it("populates equivalence_class and decision columns from the batch's candidateDecisions", async () => {
+      const { pool, client } = fakePool();
+      const repository = new PostgresPmxtReadParityRepository(pool);
+      const normalizer = new MarketNormalizer();
+      const [candidate] = new CandidatePairGenerator().generate([
+        normalizer.normalize(kalshiSnapshot),
+        normalizer.normalize(polymarketSnapshot),
+      ]);
+      const decision: EquivalenceDecision = new DeterministicEquivalencePolicy().classify(candidate);
+      const batch: PmxtReadParityBatch = {
+        authoritativeScanRunId: "00000000-0000-4000-8000-000000000096",
+        shadowRunId: "00000000-0000-4000-8000-000000009600",
+        shadowRunAttemptId: "00000000-0000-4000-8000-000000009601",
+        candidates: [candidate],
+        candidateDecisions: [decision],
+        opportunities: [],
+        comparisons: [],
+      };
+
+      await repository.saveBatch(batch);
+
+      const candidateCalls = callsContaining(client, "insert into pmxt_shadow_candidates");
+      expect(candidateCalls).toHaveLength(1);
+      // equivalence_class (param $7) and decision (param $8) must be populated
+      expect(candidateCalls[0].params[6]).toBe(decision.equivalenceClass);
+      expect(candidateCalls[0].params[7]).toBe(decision.decision);
+    });
+
+    it("includes candidateDecisions in the batch saved by the pipeline", async () => {
+      const repository = new InMemoryPmxtReadParityRepository();
+      const calculator = new OpportunityCalculator();
+      const llmRepository = new InMemoryLlmEvaluationRepository();
+      const llmProvider = vi.fn().mockResolvedValue({
+        output: { equivalent: true, confidence: 0.99, explanation: "same canonical market" },
+      });
+      const llmGateway = new PersistedLlmGateway(llmRepository, llmProvider);
+      const productionLlmRequest: LlmEvaluationRequest = {
+        taskType: "market_equivalence",
+        model: "scanner-model-v1",
+        promptVersion: "scanner-equivalence-v3",
+        input: { pairId: "canonical-pair", deterministicClass: "A" },
+      };
+      const calculatorOptions = resolveOpportunityCalculatorOptions({
+        now: COMPARED_AT,
+        feeSource: "config",
+        feeRate: 0.01,
+        slippageRate: 0,
+        targetNotionalsUsd: [5, 25],
+      });
+      const provenance: PmxtReadParityProvenance = {
+        input: {
+          authoritativeScanRunId: "00000000-0000-4000-8000-000000000096",
+          shadowRunId: "00000000-0000-4000-8000-000000009600",
+          shadowRunAttemptId: "00000000-0000-4000-8000-000000009601",
+          authoritativeMarketIds: [kalshiSnapshot.venueMarketId, polymarketSnapshot.venueMarketId],
+          pmxtCatalogMarketIds: [pmxtKalshiSnapshot.venueMarketId, pmxtPolymarketSnapshot.venueMarketId],
+          pmxtOutcomeIds: [
+            "pmxt-kalshi-yes", "pmxt-kalshi-no", "pmxt-polymarket-yes", "pmxt-polymarket-no",
+          ],
+        },
+        provider: {
+          authoritative: "native-venue-clients",
+          shadow: "pmxt",
+          sourceExchanges: ["kalshi", "polymarket"],
+          llmModel: "scanner-model-v1",
+        },
+        timestamps: {
+          authoritativeCapturedAt: CAPTURED_AT,
+          shadowCapturedAt: CAPTURED_AT,
+          comparedAt: COMPARED_AT,
+        },
+        config: {
+          productionPromptVersion: "scanner-equivalence-v3",
+          shadowPromptVersion: "pmxt-shadow/scanner-equivalence-v3",
+          calculatorOptions,
+        },
+      };
+
+      const pipeline = new PmxtReadParityPipeline({
+        normalizer: new MarketNormalizer(),
+        pairGenerator: new CandidatePairGenerator(),
+        equivalencePolicy: new DeterministicEquivalencePolicy(),
+        opportunityCalculator: calculator,
+        llmGateway,
+        buildProductionLlmRequest: () => productionLlmRequest,
+        repository,
+      });
+
+      await pipeline.run({
+        authoritative: {
+          markets: [kalshiSnapshot, polymarketSnapshot],
+          books: [kalshiBook, polymarketBook],
+        },
+        pmxt: {
+          markets: [pmxtKalshiSnapshot, pmxtPolymarketSnapshot],
+          books: [pmxtKalshiBook, pmxtPolymarketBook],
+        },
+        calculatorOptions,
+        provenance,
+      });
+
+      const persisted = repository.batches[0];
+      expect(persisted.candidateDecisions).toHaveLength(1);
+      expect(persisted.candidateDecisions[0].pairId).toBe(persisted.candidates[0].id);
     });
   });
 
