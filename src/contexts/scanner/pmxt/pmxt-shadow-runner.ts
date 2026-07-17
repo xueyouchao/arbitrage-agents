@@ -2,8 +2,11 @@ import { createHash } from "crypto";
 import { AppConfig, pmxtShadowConfigForFingerprint } from "../../../config/app-config";
 import { PmxtShadowLeaseRepository } from "./pmxt-shadow-lease-repository";
 import { PmxtShadowRateLimiter } from "./pmxt-shadow-rate-limiter";
+import { PmxtShadowRun, PmxtShadowRunResult } from "./pmxt-shadow-run";
+import { PmxtMarketSnapshot } from "../../venues/infrastructure/pmxt/pmxt-market-mapper";
+import { PMXT_SHADOW_RUNNER } from "../scanner-tokens";
 
-export interface PmxtShadowRunResult {
+export interface PmxtShadowAdmissionResult {
   status: "disabled" | "skipped" | "claimed";
   shadowRunId?: string;
   authoritativeScanRunId?: string;
@@ -17,13 +20,13 @@ export interface PmxtShadowRunnerDeps {
   config: AppConfig;
   leaseRepository: PmxtShadowLeaseRepository;
   rateLimiter: PmxtShadowRateLimiter;
+  shadowRun: PmxtShadowRun;
+  fetchAuthoritativeMarkets: () => Promise<PmxtMarketSnapshot[]>;
   workerId: string;
   leaseDurationMs?: number;
   nextShadowRunId?(): string;
   clock?: () => string;
 }
-
-export const PMXT_SHADOW_RUNNER = Symbol("PMXT_SHADOW_RUNNER");
 
 // Issue #93: isolated shadow runner for the PMXT Hosted evaluation.
 //
@@ -35,7 +38,7 @@ export const PMXT_SHADOW_RUNNER = Symbol("PMXT_SHADOW_RUNNER");
 export class PmxtShadowRunner {
   constructor(private readonly deps: PmxtShadowRunnerDeps) {}
 
-  async runOnce(): Promise<PmxtShadowRunResult> {
+  async runOnce(): Promise<PmxtShadowAdmissionResult> {
     const clock = this.deps.clock ?? (() => new Date().toISOString());
     const startedAt = clock();
 
@@ -68,7 +71,6 @@ export class PmxtShadowRunner {
 
     this.deps.rateLimiter.release();
 
-
     if (!claim) {
       return {
         status: "skipped",
@@ -90,13 +92,18 @@ export class PmxtShadowRunner {
       };
     }
 
+    // Fetch authoritative markets and execute the shadow run
+    const markets = await this.deps.fetchAuthoritativeMarkets();
+    const runResult = await this.deps.shadowRun.execute(markets);
+
     return {
       status: "claimed",
       shadowRunId: claim.shadowRunId,
       authoritativeScanRunId: claim.authoritativeScanRunId,
       attemptNumber: claim.attemptNumber,
       startedAt,
-      completedAt: clock()
+      completedAt: clock(),
+      reason: runResult.status === "partial" ? runResult.reason : undefined
     };
   }
 }

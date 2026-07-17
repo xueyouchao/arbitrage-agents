@@ -1,7 +1,8 @@
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { WorkerAppModule } from "./worker-app.module";
-import { PmxtShadowRunner, PMXT_SHADOW_RUNNER } from "./contexts/scanner/pmxt/pmxt-shadow-runner";
+import { PmxtShadowRunner } from "./contexts/scanner/pmxt/pmxt-shadow-runner";
+import { PMXT_SHADOW_RUNNER } from "./contexts/scanner/scanner-tokens";
 
 // Issue #93: separate PMXT shadow evaluation entry point.
 //
@@ -27,7 +28,7 @@ async function bootstrap() {
   console.log(`[pmxt-shadow] Run completed: ${JSON.stringify(result)}`);
 
   await app.close();
-  process.exit(result.status === "disabled" || result.status === "skipped" ? 0 : 0);
+  process.exit(0);
 }
 
 if (require.main === module) {

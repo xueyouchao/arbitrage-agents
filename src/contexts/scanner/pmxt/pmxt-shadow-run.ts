@@ -35,10 +35,11 @@ export type PmxtShadowRunReason =
   | "max_concurrency"
   | "global_cooldown"
   | "circuit_open"
-  | "timeout";
+  | "timeout"
+  | "retries_exhausted";
 
 export interface PmxtShadowRunResult {
-  status: "completed" | "partial" | "failed";
+  status: "completed" | "partial" | "skipped" | "failed";
   reason?: PmxtShadowRunReason;
   books: PmxtMarketBook[];
   comparisons: PmxtOrderbookComparisonResult[];
@@ -55,6 +56,7 @@ export interface PmxtShadowRunConfig {
   requestTimeoutMs: number;
   maxMarketsPerVenue: number;
   maxBooksPerVenue: number;
+  maxRetries: number;
   clock: () => number;
 }
 
@@ -95,7 +97,7 @@ export class PmxtShadowRun {
     if (!slot.allowed) {
       this.markRunPartial(slot.reason as PmxtShadowRunReason);
       return {
-        status: "partial",
+        status: "skipped",
         reason: slot.reason as PmxtShadowRunReason,
         books,
         comparisons,
@@ -104,25 +106,41 @@ export class PmxtShadowRun {
       };
     }
 
-    let rawBooks: Record<string, unknown>;
-    try {
-      rawBooks = await this.fetchWithTimeout(outcomeIds);
-      requestCount = 1;
-      this.config.rateLimiter.reportSuccess();
-    } catch {
-      // Timeout or fetch error → return partial
+    // Fetch with retry for transient failures
+    const maxRetries = this.config.maxRetries;
+    let lastError: unknown;
+    let rawBooks: Record<string, unknown> | undefined;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        rawBooks = await this.fetchWithTimeout(outcomeIds);
+        requestCount = 1;
+        this.config.rateLimiter.reportSuccess();
+        break;
+      } catch (err) {
+        lastError = err;
+        if (attempt < maxRetries) {
+          // Report failure to rate limiter for cooldown tracking
+          this.config.rateLimiter.reportFailure(0);
+          // Wait before retry (exponential backoff: 200ms, 400ms, 800ms...)
+          const backoffMs = Math.min(200 * Math.pow(2, attempt), 5000);
+          await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        }
+      }
+    }
+
+    if (!rawBooks) {
+      // All retries exhausted
       this.config.rateLimiter.reportFailure(0);
-      this.markRunPartial("timeout");
+      this.markRunPartial("retries_exhausted");
       return {
         status: "partial",
-        reason: "timeout",
+        reason: "retries_exhausted",
         books,
         comparisons,
         receiptTimestamp,
         requestCount,
       };
-    } finally {
-      this.config.rateLimiter.release();
     }
 
     // Map raw books to PmxtMarketBook
@@ -158,26 +176,6 @@ export class PmxtShadowRun {
         await this.config.persistMappedBook(book);
       } catch {
         // Persistence failure should not abort the run
-      }
-
-      // Compare against venue books (if comparison callback is provided)
-      try {
-        // The comparison callback receives the PMXT book and a venue book.
-        // In the shadow run, we pass a placeholder venue book — the actual
-        // venue book matching is done by the caller.
-        const venuePlaceholder: MarketBook = {
-          marketId: market.venueMarketId,
-          venue: "kalshi",
-          yesAsk: 0,
-          noAsk: 0,
-          yesAvailableUsd: 0,
-          noAvailableUsd: 0,
-          capturedAt: receiptTimestamp,
-        };
-        const bookComparisons = this.config.compareBooks(book, venuePlaceholder);
-        comparisons.push(...bookComparisons);
-      } catch {
-        // Comparison failure should not abort the run
       }
 
       books.push(book);

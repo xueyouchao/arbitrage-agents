@@ -115,9 +115,9 @@ function isValidAsk(value: number | undefined): value is number {
 }
 
 function isTimeEligible(capturedAt: string, now: number, maxAgeMs: number): boolean {
-  if (!capturedAt) return true; // missing timestamp → assume eligible
+  if (!capturedAt) return false; // missing timestamp → exclude
   const age = now - new Date(capturedAt).getTime();
-  if (!Number.isFinite(age)) return true; // unparseable timestamp → assume eligible
+  if (!Number.isFinite(age)) return false; // unparseable timestamp → exclude
   return age <= maxAgeMs;
 }
 

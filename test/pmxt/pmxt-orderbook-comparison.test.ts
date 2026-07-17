@@ -301,7 +301,7 @@ describe("PMXT orderbook comparison", () => {
   });
 
   describe("optional/missing source timestamps", () => {
-    it("handles missing PMXT source timestamp gracefully", () => {
+    it("excludes books with missing PMXT source timestamp", () => {
       const pmxt = pmxtBook({
         yesAsk: 0.50,
         noAsk: 0.48,
@@ -309,19 +309,16 @@ describe("PMXT orderbook comparison", () => {
       });
       const venue = venueBook({ yesAsk: 0.55, noAsk: 0.50 });
       const results = comparePmxtOrderbooks(pmxt, venue, config());
-      // Should still produce results with empty source timestamp
-      for (const result of results) {
-        expect(result.pmxtCapturedAt).toBe("");
-      }
+      // Missing timestamp → excluded
+      expect(results).toHaveLength(0);
     });
 
-    it("handles missing venue source timestamp gracefully", () => {
+    it("excludes books with missing venue source timestamp", () => {
       const pmxt = pmxtBook({ yesAsk: 0.50, noAsk: 0.48 });
       const venue = venueBook({ yesAsk: 0.55, noAsk: 0.50, capturedAt: "" });
       const results = comparePmxtOrderbooks(pmxt, venue, config());
-      for (const result of results) {
-        expect(result.venueCapturedAt).toBe("");
-      }
+      // Missing timestamp → excluded
+      expect(results).toHaveLength(0);
     });
   });
 });

@@ -78,4 +78,14 @@ describe("PmxtShadowRateLimiter", () => {
     limiter.release();
     expect(limiter.allowRequest(0).allowed).toBe(true);
   });
+
+  it("opens the circuit permanently on 402 (quota exhaustion)", () => {
+    const { limiter, tick } = makeLimiter({ maxConcurrency: 1, requestsPerMinute: 60_000 });
+    limiter.reportFailure(402);
+    // Circuit is open permanently — even after advancing time
+    expect(limiter.allowRequest(0).allowed).toBe(false);
+    expect(limiter.allowRequest(0).reason).toBe("circuit_open");
+    tick(1_000_000_000);
+    expect(limiter.allowRequest(0).allowed).toBe(false);
+  });
 });

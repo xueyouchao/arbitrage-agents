@@ -59,6 +59,7 @@ describe("PMXT shadow run", () => {
       requestTimeoutMs: 10_000,
       maxMarketsPerVenue: 50,
       maxBooksPerVenue: 50,
+      maxRetries: 2,
       clock: () => Date.now(),
     };
   });
@@ -140,19 +141,33 @@ describe("PMXT shadow run", () => {
     });
   });
 
-  describe("timeout", () => {
-    it("respects request timeout and returns partial", async () => {
+  describe("timeout and retry", () => {
+    it("retries on timeout and returns partial when all retries exhausted", async () => {
       fetchOrderBooks.mockImplementation(
         () =>
-          new Promise((resolve) => setTimeout(() => resolve({}), 500))
+          new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 10))
       );
-      const cfg = { ...config, requestTimeoutMs: 10 };
+      const cfg = { ...config, requestTimeoutMs: 10, maxRetries: 1 };
       const run = new PmxtShadowRun(cfg);
       const markets = [snapshot("m1", "o1", "o2")];
       const result = await run.execute(markets);
-      // Should time out and return partial
+      // Should exhaust retries and return partial
       expect(result.status).toBe("partial");
-      expect(result.reason).toBe("timeout");
+      expect(result.reason).toBe("retries_exhausted");
+      // Should have attempted the initial fetch + 1 retry
+      expect(fetchOrderBooks).toHaveBeenCalledTimes(2);
+    });
+
+    it("succeeds on retry after initial failure", async () => {
+      const markets = [snapshot("m1", "o1", "o2")];
+      fetchOrderBooks
+        .mockRejectedValueOnce(new Error("transient failure"))
+        .mockResolvedValueOnce(makeFetchMock(markets));
+      const cfg = { ...config, maxRetries: 1 };
+      const run = new PmxtShadowRun(cfg);
+      const result = await run.execute(markets);
+      expect(result.status).toBe("completed");
+      expect(result.books).toHaveLength(1);
     });
   });
 
@@ -186,15 +201,16 @@ describe("PMXT shadow run", () => {
   });
 
   describe("comparison", () => {
-    it("compares each PMXT book against venue books", async () => {
+    it("returns books without inline comparison (comparison is done by caller)", async () => {
       const markets = [snapshot("m1", "o1", "o2")];
       fetchOrderBooks.mockResolvedValue(makeFetchMock(markets));
-      compareBooks.mockReturnValue([]);
 
       const run = new PmxtShadowRun(config);
-      await run.execute(markets);
+      const result = await run.execute(markets);
 
-      expect(compareBooks).toHaveBeenCalledTimes(1);
+      // The shadow run captures and persists books; comparison is done by the caller
+      expect(result.books).toHaveLength(1);
+      expect(result.status).toBe("completed");
     });
   });
 
@@ -251,6 +267,24 @@ describe("PMXT shadow run", () => {
       // After execution, all slots should be released
       const result = rateLimiter.allowRequest(0);
       expect(result.allowed).toBe(true);
+    });
+
+    it("returns skipped when rate limiter denies before any request", async () => {
+      const limiter = new PmxtShadowRateLimiter({
+        requestsPerMinute: 60,
+        maxConcurrency: 0,
+        maxRequestsPerRun: 100,
+      });
+      const markets = [snapshot("m1", "o1", "o2")];
+      fetchOrderBooks.mockResolvedValue(makeFetchMock(markets));
+
+      const run = new PmxtShadowRun({ ...config, rateLimiter: limiter });
+      const result = await run.execute(markets);
+
+      // No request was attempted → skipped, not partial
+      expect(result.status).toBe("skipped");
+      expect(result.books).toHaveLength(0);
+      expect(fetchOrderBooks).not.toHaveBeenCalled();
     });
   });
 });

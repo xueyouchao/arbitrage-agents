@@ -37,6 +37,7 @@ import {
 import { WorkerScanRunner } from "./worker-scan-runner";
 import { PostgresPmxtShadowLeaseRepository } from "./pmxt/postgres-pmxt-shadow-lease-repository";
 import { PmxtShadowRunner } from "./pmxt/pmxt-shadow-runner";
+import { PmxtShadowRun } from "./pmxt/pmxt-shadow-run";
 import { PmxtShadowRateLimiter } from "./pmxt/pmxt-shadow-rate-limiter";
 
 // Phase 4 Finding #6: per-worker lease. Generated once at module load
@@ -282,7 +283,25 @@ async function pingAndLog(provider: OllamaChatLlmProvider, config: AppConfig): P
                 maxConcurrency: config.pmxtShadowMaxConcurrency,
                 maxRequestsPerRun: config.pmxtShadowMaxRequestsPerRun ?? 0,
                 defaultRetryAfterMs: config.pmxtShadowMaxQueueWaitMs
-              })
+              }),
+              shadowRun: new PmxtShadowRun({
+                rateLimiter: new PmxtShadowRateLimiter({
+                  requestsPerMinute: config.pmxtShadowRequestsPerMinute,
+                  maxConcurrency: config.pmxtShadowMaxConcurrency,
+                  maxRequestsPerRun: config.pmxtShadowMaxRequestsPerRun ?? 0,
+                  defaultRetryAfterMs: config.pmxtShadowMaxQueueWaitMs
+                }),
+                fetchOrderBooks: async () => ({}),
+                persistRawBook: async () => {},
+                persistMappedBook: async () => {},
+                compareBooks: () => [],
+                requestTimeoutMs: config.pmxtShadowTimeoutMs,
+                maxMarketsPerVenue: config.pmxtShadowMaxMarketsPerVenue ?? 50,
+                maxBooksPerVenue: config.pmxtShadowMaxBooksPerVenue ?? 50,
+                maxRetries: 2,
+                clock: () => Date.now(),
+              }),
+              fetchAuthoritativeMarkets: async () => []
             })
           : undefined,
       inject: [APP_CONFIG, PMXT_SHADOW_LEASE_REPOSITORY]
