@@ -99,6 +99,13 @@
       "when": 1784160000000,
       "tag": "0013_pmxt_shadow_run_attempts",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1784240000000,
+      "tag": "0014_pmxt_read_parity",
+      "breakpoints": true
     }
   ]
 }

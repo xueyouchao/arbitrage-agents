@@ -318,3 +318,99 @@ export const pmxtShadowRunAttempts = pgTable(
     uniqueIndex("pmxt_shadow_attempts_scan_attempt_unique").on(table.authoritativeScanRunId, table.attemptNumber)
   ]
 );
+
+// Issue #96: Shadow-only parity tables. Each row links an authoritative scan
+// run and a shadow run attempt, preserving complete provenance without
+// touching production candidate_pairs, opportunities, alerts, positions, or
+// execution tables. The shadow_run_id is NOT a foreign key to
+// pmxt_shadow_run_attempts.shadow_run_id (which is non-unique); instead
+// shadow_run_attempt_id FKs to pmxt_shadow_run_attempts.id for safe linkage.
+export const pmxtShadowCandidates = pgTable(
+  "pmxt_shadow_candidates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    authoritativeScanRunId: uuid("authoritative_scan_run_id")
+      .references(() => scanRuns.id, { onDelete: "cascade" })
+      .notNull(),
+    shadowRunId: uuid("shadow_run_id").notNull(),
+    shadowRunAttemptId: uuid("shadow_run_attempt_id")
+      .references(() => pmxtShadowRunAttempts.id, { onDelete: "cascade" })
+      .notNull(),
+    candidatePairId: text("candidate_pair_id").notNull(),
+    kalshiMarketId: text("kalshi_market_id").notNull(),
+    polymarketMarketId: text("polymarket_market_id").notNull(),
+    equivalenceClass: text("equivalence_class"),
+    decision: text("decision"),
+    reasons: jsonb("reasons").notNull().default([]),
+    payload: jsonb("payload").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    index("pmxt_shadow_candidates_scan_idx").on(table.authoritativeScanRunId),
+    index("pmxt_shadow_candidates_shadow_run_idx").on(table.shadowRunId),
+    index("pmxt_shadow_candidates_attempt_idx").on(table.shadowRunAttemptId),
+    uniqueIndex("pmxt_shadow_candidates_scan_run_pair_unique").on(
+      table.authoritativeScanRunId,
+      table.shadowRunId,
+      table.shadowRunAttemptId,
+      table.candidatePairId
+    )
+  ]
+);
+
+export const pmxtShadowOpportunities = pgTable(
+  "pmxt_shadow_opportunities",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    authoritativeScanRunId: uuid("authoritative_scan_run_id")
+      .references(() => scanRuns.id, { onDelete: "cascade" })
+      .notNull(),
+    shadowRunId: uuid("shadow_run_id").notNull(),
+    shadowRunAttemptId: uuid("shadow_run_attempt_id")
+      .references(() => pmxtShadowRunAttempts.id, { onDelete: "cascade" })
+      .notNull(),
+    opportunityId: text("opportunity_id").notNull(),
+    candidatePairId: text("candidate_pair_id").notNull(),
+    payload: jsonb("payload").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    index("pmxt_shadow_opportunities_scan_idx").on(table.authoritativeScanRunId),
+    index("pmxt_shadow_opportunities_shadow_run_idx").on(table.shadowRunId),
+    index("pmxt_shadow_opportunities_attempt_idx").on(table.shadowRunAttemptId),
+    uniqueIndex("pmxt_shadow_opportunities_scan_run_opp_unique").on(
+      table.authoritativeScanRunId,
+      table.shadowRunId,
+      table.shadowRunAttemptId,
+      table.opportunityId
+    )
+  ]
+);
+
+export const pmxtShadowComparisons = pgTable(
+  "pmxt_shadow_comparisons",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    authoritativeScanRunId: uuid("authoritative_scan_run_id")
+      .references(() => scanRuns.id, { onDelete: "cascade" })
+      .notNull(),
+    shadowRunId: uuid("shadow_run_id").notNull(),
+    shadowRunAttemptId: uuid("shadow_run_attempt_id")
+      .references(() => pmxtShadowRunAttempts.id, { onDelete: "cascade" })
+      .notNull(),
+    stage: text("stage").notNull(),
+    outcome: text("outcome").notNull(),
+    cause: text("cause").notNull(),
+    authoritative: jsonb("authoritative").notNull(),
+    shadow: jsonb("shadow").notNull(),
+    provenance: jsonb("provenance").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    index("pmxt_shadow_comparisons_scan_idx").on(table.authoritativeScanRunId),
+    index("pmxt_shadow_comparisons_shadow_run_idx").on(table.shadowRunId),
+    index("pmxt_shadow_comparisons_attempt_idx").on(table.shadowRunAttemptId),
+    index("pmxt_shadow_comparisons_stage_idx").on(table.stage),
+    index("pmxt_shadow_comparisons_outcome_idx").on(table.outcome)
+  ]
+);
