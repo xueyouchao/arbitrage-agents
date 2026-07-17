@@ -102,6 +102,10 @@ export interface ObservationWindowEvidence {
   safetyIncidents: string[];
   configFingerprintUnchanged: boolean;
   protocolUnchanged: boolean;
+  /** True when hosted reads are unacceptable for operational reasons
+   * (cost, latency, availability, privacy) even if data quality is fine.
+   * When true and Router has value, outcome E is selected instead of A. */
+  hostedReadsOperationallyUnacceptable: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -636,6 +640,14 @@ function selectOutcome(
   const readsPass = readsPassGates(evidence);
   const routerPass = routerPassGates(evidence);
   const routerAddsValue = evidence.incrementalValidCandidates > 0;
+
+  // Outcome E: PMXT data/matching is valuable but hosted reads are
+  // operationally unacceptable (cost, latency, availability, privacy).
+  // This becomes a new plan — not an automatic continuation.
+  // Checked before C/A because the operational concern overrides adoption.
+  if (evidence.hostedReadsOperationallyUnacceptable && routerPass && routerAddsValue) {
+    return "E";
+  }
 
   // Outcome C: both tracks independently pass their gates
   if (readsPass && routerPass && routerAddsValue) return "C";
