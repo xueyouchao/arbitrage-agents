@@ -504,6 +504,78 @@ describe("PMXT coverage comparator", () => {
   });
 
   // -----------------------------------------------------------------------
+  // Malformed rawPayload guards
+  // -----------------------------------------------------------------------
+  it("handles null rawPayload without crashing", () => {
+    const input: PmxtCoverageComparisonInput = {
+      pmxtMarkets: [
+        {
+          venue: "pmxt",
+          venueMarketId: "pmxt-null-payload",
+          title: "Null payload",
+          rawResolutionText: "",
+          capturedAt,
+          rawPayload: null as unknown as Record<string, unknown>,
+        },
+      ],
+      authoritativeKalshiMarkets: [],
+      authoritativePolymarketMarkets: [],
+    };
+    const result = comparePmxtCoverage(input);
+    expect(result.mappingFailures).toHaveLength(1);
+    expect(result.mappingFailures[0]).toMatchObject({
+      pmxtMarketId: "pmxt-null-payload",
+      reasonCode: "missing_raw_payload",
+    });
+  });
+
+  it("handles undefined rawPayload without crashing", () => {
+    const input: PmxtCoverageComparisonInput = {
+      pmxtMarkets: [
+        {
+          venue: "pmxt",
+          venueMarketId: "pmxt-undef-payload",
+          title: "Undefined payload",
+          rawResolutionText: "",
+          capturedAt,
+          rawPayload: undefined as unknown as Record<string, unknown>,
+        },
+      ],
+      authoritativeKalshiMarkets: [],
+      authoritativePolymarketMarkets: [],
+    };
+    const result = comparePmxtCoverage(input);
+    expect(result.mappingFailures).toHaveLength(1);
+    expect(result.mappingFailures[0]).toMatchObject({
+      pmxtMarketId: "pmxt-undef-payload",
+      reasonCode: "missing_raw_payload",
+    });
+  });
+
+  it("handles non-object rawPayload (string) without crashing", () => {
+    const input: PmxtCoverageComparisonInput = {
+      pmxtMarkets: [
+        {
+          venue: "pmxt",
+          venueMarketId: "pmxt-string-payload",
+          title: "String payload",
+          rawResolutionText: "",
+          capturedAt,
+          rawPayload: "malformed" as unknown as Record<string, unknown>,
+        },
+      ],
+      authoritativeKalshiMarkets: [],
+      authoritativePolymarketMarkets: [],
+    };
+    const result = comparePmxtCoverage(input);
+    expect(result.mappingFailures).toHaveLength(1);
+    expect(result.mappingFailures[0]).toMatchObject({
+      pmxtMarketId: "pmxt-string-payload",
+      reasonCode: "missing_raw_payload",
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // Case-insensitive source exchange matching
   // -----------------------------------------------------------------------
   it("matches sourceExchange case-insensitively", () => {

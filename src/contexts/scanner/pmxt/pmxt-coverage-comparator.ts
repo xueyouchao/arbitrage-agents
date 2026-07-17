@@ -157,7 +157,13 @@ export function comparePmxtCoverage(
 function tryMapPmxtToVenue(
   pmxtMarket: PmxtMarketSnapshot
 ): MappedPmxtRecord | null {
+  // Guard against null/undefined/non-object rawPayload (e.g. malformed
+  // upstream data). Without this guard, accessing payload.sourceExchange
+  // below would throw a TypeError instead of recording a MappingFailure.
   const payload = pmxtMarket.rawPayload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return null;
+  }
 
   // Extract source exchange from rawPayload.
   const sourceExchange =
@@ -206,6 +212,13 @@ function classifyMappingFailure(
   pmxtMarket: PmxtMarketSnapshot
 ): MappingFailure {
   const payload = pmxtMarket.rawPayload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return {
+      pmxtMarketId: pmxtMarket.venueMarketId,
+      reasonCode: "missing_raw_payload",
+      reason: `PMXT market ${pmxtMarket.venueMarketId} has no rawPayload`,
+    };
+  }
   const sourceExchange =
     typeof payload.sourceExchange === "string"
       ? payload.sourceExchange.trim().toLowerCase()
@@ -297,6 +310,13 @@ function computeVenueCoverage(
 
   // Status disagreements and missing resolution text: single pass over
   // overlapping records.
+  //
+  // NOTE: The authoritative scan only fetches open markets, so any
+  // overlapping PMXT record whose status is not "open" represents a
+  // genuine disagreement — PMXT thinks the market is closed/settled
+  // while the authoritative scan found it open. We do not compare
+  // against the authoritative market's status because the authoritative
+  // side is always open by construction (the scan scope is open-only).
   const statusDisagreements: StatusDisagreement[] = [];
   const missingResolutionText: string[] = [];
   for (const overlapId of overlapIds) {
