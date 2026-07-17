@@ -35,7 +35,6 @@ export interface PmxtCoverageComparisonResult {
   kalshi: VenueCoverageResult;
   polymarket: VenueCoverageResult;
   mappingFailures: MappingFailure[];
-  excludedRecords: ExcludedRecord[];
   comparisonTimestamp: string;
   pmxtComparisonTimestamp: string;
 }
@@ -52,12 +51,6 @@ export interface VenueCoverageResult {
 }
 
 export interface MappingFailure {
-  pmxtMarketId: string;
-  reasonCode: string;
-  reason: string;
-}
-
-export interface ExcludedRecord {
   pmxtMarketId: string;
   reasonCode: string;
   reason: string;
@@ -94,7 +87,6 @@ export function comparePmxtCoverage(
   input: PmxtCoverageComparisonInput
 ): PmxtCoverageComparisonResult {
   const mappingFailures: MappingFailure[] = [];
-  const excludedRecords: ExcludedRecord[] = [];
   const mappedRecords: MappedPmxtRecord[] = [];
 
   // Determine comparison timestamps from the authoritative side (earliest
@@ -120,11 +112,6 @@ export function comparePmxtCoverage(
     if (mapped === null) {
       const failure = classifyMappingFailure(pmxtMarket);
       mappingFailures.push(failure);
-      excludedRecords.push({
-        pmxtMarketId: pmxtMarket.venueMarketId,
-        reasonCode: failure.reasonCode,
-        reason: failure.reason,
-      });
       continue;
     }
     mappedRecords.push(mapped);
@@ -144,7 +131,6 @@ export function comparePmxtCoverage(
     kalshi: kalshiResult,
     polymarket: polymarketResult,
     mappingFailures,
-    excludedRecords,
     comparisonTimestamp,
     pmxtComparisonTimestamp,
   };
@@ -182,10 +168,11 @@ function tryMapPmxtToVenue(
     return null;
   }
 
-  // Extract venue-native ID from rawPayload.
+  // Extract venue-native ID from rawPayload. Normalize to lowercase for
+  // case-insensitive comparison against authoritative market IDs.
   const venueNativeId =
     typeof payload.venueMarketId === "string"
-      ? payload.venueMarketId.trim()
+      ? payload.venueMarketId.trim().toLowerCase()
       : undefined;
   if (!venueNativeId) return null;
 
@@ -268,7 +255,7 @@ function computeVenueCoverage(
   authoritativeMarkets: VenueMarketSnapshot[]
 ): VenueCoverageResult {
   const authoritativeIds = new Set(
-    authoritativeMarkets.map((m) => m.venueMarketId)
+    authoritativeMarkets.map((m) => m.venueMarketId.toLowerCase())
   );
 
   // Build a map of venue-native ID → PMXT records for duplicate detection.
@@ -317,17 +304,28 @@ function computeVenueCoverage(
   // while the authoritative scan found it open. We do not compare
   // against the authoritative market's status because the authoritative
   // side is always open by construction (the scan scope is open-only).
+  //
+  // Deduplicate by (venueNativeId, pmxtStatus) for status disagreements
+  // and by venueNativeId for missing resolution text, since multiple
+  // PMXT records can map to the same native ID (duplicates).
   const statusDisagreements: StatusDisagreement[] = [];
+  const seenDisagreements = new Set<string>();
   const missingResolutionText: string[] = [];
+  const seenMissingText = new Set<string>();
   for (const overlapId of overlapIds) {
     for (const record of pmxtByNativeId.get(overlapId)!) {
       if (record.status && record.status !== "open") {
-        statusDisagreements.push({
-          venueNativeId: overlapId,
-          pmxtStatus: record.status,
-        });
+        const key = `${overlapId}:${record.status}`;
+        if (!seenDisagreements.has(key)) {
+          seenDisagreements.add(key);
+          statusDisagreements.push({
+            venueNativeId: overlapId,
+            pmxtStatus: record.status,
+          });
+        }
       }
-      if (!record.hasResolutionText) {
+      if (!record.hasResolutionText && !seenMissingText.has(overlapId)) {
+        seenMissingText.add(overlapId);
         missingResolutionText.push(overlapId);
       }
     }

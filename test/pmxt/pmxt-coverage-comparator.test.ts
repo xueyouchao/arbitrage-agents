@@ -103,7 +103,7 @@ describe("PMXT coverage comparator", () => {
     };
     const result = comparePmxtCoverage(input);
     expect(result.kalshi.overlapCount).toBe(1);
-    expect(result.kalshi.authoritativeOnlyIds).toEqual(["KXBTCD-01AUG26"]);
+    expect(result.kalshi.authoritativeOnlyIds).toEqual(["kxbtcd-01aug26"]);
     expect(result.kalshi.pmxtOnlyIds).toEqual([]);
   });
 
@@ -119,7 +119,7 @@ describe("PMXT coverage comparator", () => {
     const result = comparePmxtCoverage(input);
     expect(result.kalshi.overlapCount).toBe(1);
     expect(result.kalshi.authoritativeOnlyIds).toEqual([]);
-    expect(result.kalshi.pmxtOnlyIds).toEqual(["KXBTCD-01AUG26"]);
+    expect(result.kalshi.pmxtOnlyIds).toEqual(["kxbtcd-01aug26"]);
   });
 
   // -----------------------------------------------------------------------
@@ -146,7 +146,6 @@ describe("PMXT coverage comparator", () => {
       pmxtMarketId: "pmxt-no-source",
       reasonCode: "ambiguous_source_exchange",
     });
-    expect(result.excludedRecords).toHaveLength(1);
   });
 
   it("excludes PMXT markets with unrecognized sourceExchange", () => {
@@ -220,7 +219,7 @@ describe("PMXT coverage comparator", () => {
     const result = comparePmxtCoverage(input);
     expect(result.kalshi.duplicateNativeIds).toHaveLength(1);
     expect(result.kalshi.duplicateNativeIds[0]).toMatchObject({
-      venueNativeId: "KXBTCD-25JUL26",
+      venueNativeId: "kxbtcd-25jul26",
       pmxtMarketIds: ["pmxt-uuid-1", "pmxt-uuid-2"],
     });
     // Overlap still counts once
@@ -270,7 +269,7 @@ describe("PMXT coverage comparator", () => {
     // overlapping with an authoritative open market is a status disagreement.
     expect(result.kalshi.statusDisagreements).toHaveLength(1);
     expect(result.kalshi.statusDisagreements[0]).toMatchObject({
-      venueNativeId: "KXBTCD-25JUL26",
+      venueNativeId: "kxbtcd-25jul26",
       pmxtStatus: "closed",
     });
   });
@@ -306,6 +305,63 @@ describe("PMXT coverage comparator", () => {
     expect(result.kalshi.statusDisagreements).toHaveLength(0);
   });
 
+  it("deduplicates status disagreements from duplicate PMXT records", () => {
+    // Two PMXT records map to the same native ID, both with status "closed".
+    // Only one status disagreement should be reported.
+    const input: PmxtCoverageComparisonInput = {
+      pmxtMarkets: [
+        pmxtSnapshot("pmxt-dupe-1", "kalshi", "KXBTCD-25JUL26", {
+          rawPayload: {
+            id: "pmxt-dupe-1",
+            sourceExchange: "kalshi",
+            venueMarketId: "KXBTCD-25JUL26",
+            status: "closed",
+            yesOutcomeId: "y",
+            noOutcomeId: "n",
+          },
+        }),
+        pmxtSnapshot("pmxt-dupe-2", "kalshi", "KXBTCD-25JUL26", {
+          rawPayload: {
+            id: "pmxt-dupe-2",
+            sourceExchange: "kalshi",
+            venueMarketId: "KXBTCD-25JUL26",
+            status: "closed",
+            yesOutcomeId: "y",
+            noOutcomeId: "n",
+          },
+        }),
+      ],
+      authoritativeKalshiMarkets: [kalshiSnapshot("KXBTCD-25JUL26")],
+      authoritativePolymarketMarkets: [],
+    };
+    const result = comparePmxtCoverage(input);
+    expect(result.kalshi.statusDisagreements).toHaveLength(1);
+    expect(result.kalshi.statusDisagreements[0]).toMatchObject({
+      venueNativeId: "kxbtcd-25jul26",
+      pmxtStatus: "closed",
+    });
+  });
+
+  it("deduplicates missing resolution text from duplicate PMXT records", () => {
+    // Two PMXT records map to the same native ID, both missing resolution text.
+    // Only one entry should appear in missingResolutionText.
+    const input: PmxtCoverageComparisonInput = {
+      pmxtMarkets: [
+        pmxtSnapshot("pmxt-nores-1", "kalshi", "KXBTCD-25JUL26", {
+          rawResolutionText: "",
+        }),
+        pmxtSnapshot("pmxt-nores-2", "kalshi", "KXBTCD-25JUL26", {
+          rawResolutionText: "",
+        }),
+      ],
+      authoritativeKalshiMarkets: [kalshiSnapshot("KXBTCD-25JUL26")],
+      authoritativePolymarketMarkets: [],
+    };
+    const result = comparePmxtCoverage(input);
+    expect(result.kalshi.missingResolutionText).toHaveLength(1);
+    expect(result.kalshi.missingResolutionText).toContain("kxbtcd-25jul26");
+  });
+
   // -----------------------------------------------------------------------
   // Missing resolution text
   // -----------------------------------------------------------------------
@@ -320,7 +376,7 @@ describe("PMXT coverage comparator", () => {
       authoritativePolymarketMarkets: [],
     };
     const result = comparePmxtCoverage(input);
-    expect(result.kalshi.missingResolutionText).toContain("KXBTCD-25JUL26");
+    expect(result.kalshi.missingResolutionText).toContain("kxbtcd-25jul26");
   });
 
   it("does not flag resolution text when present", () => {
@@ -407,7 +463,7 @@ describe("PMXT coverage comparator", () => {
     expect(result.kalshi.overlapCount).toBe(1);
   });
 
-  it("reports excluded records with reason codes", () => {
+  it("reports mapping failures with reason codes", () => {
     const input: PmxtCoverageComparisonInput = {
       pmxtMarkets: [
         pmxtSnapshot("pmxt-excluded", "betfair", "bf-123"),
@@ -416,8 +472,8 @@ describe("PMXT coverage comparator", () => {
       authoritativePolymarketMarkets: [],
     };
     const result = comparePmxtCoverage(input);
-    expect(result.excludedRecords).toHaveLength(1);
-    expect(result.excludedRecords[0]).toMatchObject({
+    expect(result.mappingFailures).toHaveLength(1);
+    expect(result.mappingFailures[0]).toMatchObject({
       pmxtMarketId: "pmxt-excluded",
       reasonCode: "unrecognized_source_exchange",
     });
@@ -460,7 +516,7 @@ describe("PMXT coverage comparator", () => {
     expect(result.kalshi.authoritativeCount).toBe(1);
     expect(result.kalshi.pmxtMappedCount).toBe(0);
     expect(result.kalshi.overlapCount).toBe(0);
-    expect(result.kalshi.authoritativeOnlyIds).toEqual(["KXBTCD-25JUL26"]);
+    expect(result.kalshi.authoritativeOnlyIds).toEqual(["kxbtcd-25jul26"]);
     expect(result.polymarket.authoritativeCount).toBe(1);
     expect(result.polymarket.pmxtMappedCount).toBe(0);
     expect(result.polymarket.overlapCount).toBe(0);
@@ -477,7 +533,7 @@ describe("PMXT coverage comparator", () => {
     expect(result.kalshi.authoritativeCount).toBe(0);
     expect(result.kalshi.pmxtMappedCount).toBe(1);
     expect(result.kalshi.overlapCount).toBe(0);
-    expect(result.kalshi.pmxtOnlyIds).toEqual(["KXBTCD-25JUL26"]);
+    expect(result.kalshi.pmxtOnlyIds).toEqual(["kxbtcd-25jul26"]);
   });
 
   // -----------------------------------------------------------------------
@@ -497,7 +553,7 @@ describe("PMXT coverage comparator", () => {
     expect(result.kalshi.authoritativeCount).toBe(1);
     expect(result.kalshi.pmxtMappedCount).toBe(2);
     expect(result.kalshi.overlapCount).toBe(1);
-    expect(result.kalshi.pmxtOnlyIds).toEqual(["KXBTCD-01AUG26"]);
+    expect(result.kalshi.pmxtOnlyIds).toEqual(["kxbtcd-01aug26"]);
     expect(result.polymarket.authoritativeCount).toBe(1);
     expect(result.polymarket.pmxtMappedCount).toBe(1);
     expect(result.polymarket.overlapCount).toBe(1);
