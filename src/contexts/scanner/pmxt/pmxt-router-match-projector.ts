@@ -225,8 +225,8 @@ function routerCandidateId(
   kalshiMemberId: string,
   polymarketMemberId: string
 ): string {
-  return [clusterId, kalshiMemberId, polymarketMemberId]
-    .map((part) => encodeURIComponent(part))
-    .join(":")
-    .replace(/^/, "pmxt-router:v1:");
+  const encodedParts = [clusterId, kalshiMemberId, polymarketMemberId].map((part) =>
+    encodeURIComponent(part)
+  );
+  return `pmxt-router:v1:${encodedParts.join(":")}`;
 }
