@@ -167,17 +167,39 @@ describe("reportPmxtRouterMatchingQuality", () => {
     ).toThrow("repeats stratum source=shared");
   });
 
-  it("rejects observations that are not assigned to frozen strata", () => {
+  it("rejects observations that do not match frozen cohort membership", () => {
+    const protocol = {
+      protocolVersion: "router-quality-v1",
+      confidenceLevel: 0.95,
+      minimumSampleSize: 1,
+      eligibleCounts: { "source=shared": 1 },
+      frozenMembership: { known: ["source=shared"] },
+    };
+
+    expect(() =>
+      reportPmxtRouterMatchingQuality(protocol, [
+        observation("unknown", ["source=shared"], true, "identity"),
+      ])
+    ).toThrow("is not in the frozen cohort");
+    expect(() =>
+      reportPmxtRouterMatchingQuality(protocol, [
+        observation("known", ["source=router_only"], true, "identity"),
+      ])
+    ).toThrow("does not match frozen strata");
+  });
+
+  it("rejects non-finite confidence levels", () => {
     expect(() =>
       reportPmxtRouterMatchingQuality(
         {
           protocolVersion: "router-quality-v1",
-          confidenceLevel: 0.95,
+          confidenceLevel: Number.NaN,
           minimumSampleSize: 1,
-          eligibleCounts: { "source=shared": 1 },
+          eligibleCounts: {},
+          frozenMembership: {},
         },
-        [observation("unknown", ["source=router_only"], true, "identity")]
+        []
       )
-    ).toThrow("not in the frozen cohort");
+    ).toThrow("Invalid PMXT Router quality protocol");
   });
 });
