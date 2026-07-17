@@ -83,6 +83,7 @@ function validEvidence(overrides: Partial<ObservationWindowEvidence> = {}): Obse
     safetyIncidents: [],
     configFingerprintUnchanged: true,
     protocolUnchanged: true,
+    hostedReadsOperationallyUnacceptable: false,
     ...overrides,
   };
 }
@@ -543,6 +544,27 @@ describe("decision memo outcome selection", () => {
     const memo = evaluateObservationWindow(protocol, evidence).decisionMemo;
 
     expect(memo.outcome).toBe("F");
+  });
+
+  it("selects outcome E when reads fail operationally but router adds value", () => {
+    const protocol = freezeObservationProtocol(validProtocolInput());
+    const evidence = validEvidence({
+      coverageOverlapPct: 97.0, // data quality is fine
+      topOfBookWithinTickPct: 96.0,
+      shadowCompletionRate: 99.5,
+      routerPrecision: 99.0,
+      routerRecall: 92.0,
+      routerLabeledPairs: 210,
+      routerFalsePositives: 2,
+      incrementalValidCandidates: 15,
+      incrementalExecutableOpportunities: 10,
+      incrementalExecutableValueUsd: 500.0,
+      hostedReadsOperationallyUnacceptable: true, // but cost/latency unacceptable
+    });
+    const memo = evaluateObservationWindow(protocol, evidence).decisionMemo;
+
+    expect(memo.outcome).toBe("E");
+    expect(memo.cutoverRequired).toBe(true);
   });
 });
 
