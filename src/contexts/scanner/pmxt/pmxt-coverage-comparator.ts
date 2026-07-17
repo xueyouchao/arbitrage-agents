@@ -108,13 +108,12 @@ export function comparePmxtCoverage(
 
   // Map each PMXT market to a venue-native record or record a failure.
   for (const pmxtMarket of input.pmxtMarkets) {
-    const mapped = tryMapPmxtToVenue(pmxtMarket);
-    if (mapped === null) {
-      const failure = classifyMappingFailure(pmxtMarket);
-      mappingFailures.push(failure);
+    const result = tryMapPmxtToVenue(pmxtMarket);
+    if (result.kind === "failure") {
+      mappingFailures.push(result.failure);
       continue;
     }
-    mappedRecords.push(mapped);
+    mappedRecords.push(result.record);
   }
 
   // Compute per-venue coverage.
@@ -142,107 +141,82 @@ export function comparePmxtCoverage(
 
 function tryMapPmxtToVenue(
   pmxtMarket: PmxtMarketSnapshot
-): MappedPmxtRecord | null {
-  // Guard against null/undefined/non-object rawPayload (e.g. malformed
-  // upstream data). Without this guard, accessing payload.sourceExchange
-  // below would throw a TypeError instead of recording a MappingFailure.
+): { kind: "success"; record: MappedPmxtRecord } | { kind: "failure"; failure: MappingFailure } {
   const payload = pmxtMarket.rawPayload;
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    return null;
+    return {
+      kind: "failure",
+      failure: {
+        pmxtMarketId: pmxtMarket.venueMarketId,
+        reasonCode: "missing_raw_payload",
+        reason: `PMXT market ${pmxtMarket.venueMarketId} has no rawPayload`,
+      },
+    };
   }
 
-  // Extract source exchange from rawPayload.
   const sourceExchange =
     typeof payload.sourceExchange === "string"
       ? payload.sourceExchange.trim().toLowerCase()
       : undefined;
-  if (!sourceExchange) return null;
+  if (!sourceExchange) {
+    return {
+      kind: "failure",
+      failure: {
+        pmxtMarketId: pmxtMarket.venueMarketId,
+        reasonCode: "ambiguous_source_exchange",
+        reason: `PMXT market ${pmxtMarket.venueMarketId} has no sourceExchange in rawPayload`,
+      },
+    };
+  }
 
-  // Map source exchange to venue literal.
   let venue: "kalshi" | "polymarket";
   if (sourceExchange === "kalshi") {
     venue = "kalshi";
   } else if (sourceExchange === "polymarket") {
     venue = "polymarket";
   } else {
-    return null;
+    return {
+      kind: "failure",
+      failure: {
+        pmxtMarketId: pmxtMarket.venueMarketId,
+        reasonCode: "unrecognized_source_exchange",
+        reason: `PMXT market ${pmxtMarket.venueMarketId} has unrecognized sourceExchange "${sourceExchange}"`,
+      },
+    };
   }
 
-  // Extract venue-native ID from rawPayload. Normalize to lowercase for
-  // case-insensitive comparison against authoritative market IDs.
   const venueNativeId =
     typeof payload.venueMarketId === "string"
       ? payload.venueMarketId.trim().toLowerCase()
       : undefined;
-  if (!venueNativeId) return null;
+  if (!venueNativeId) {
+    return {
+      kind: "failure",
+      failure: {
+        pmxtMarketId: pmxtMarket.venueMarketId,
+        reasonCode: "missing_venue_native_id",
+        reason: `PMXT market ${pmxtMarket.venueMarketId} has no venueMarketId in rawPayload`,
+      },
+    };
+  }
 
-  // Extract optional status.
   const status =
     typeof payload.status === "string" ? payload.status.trim().toLowerCase() : undefined;
 
-  // Check resolution text.
   const hasResolutionText =
     typeof pmxtMarket.rawResolutionText === "string" &&
     pmxtMarket.rawResolutionText.trim().length > 0;
 
   return {
-    pmxtMarketId: pmxtMarket.venueMarketId,
-    venue,
-    venueNativeId,
-    status,
-    hasResolutionText,
-    capturedAt: pmxtMarket.capturedAt,
-  };
-}
-
-function classifyMappingFailure(
-  pmxtMarket: PmxtMarketSnapshot
-): MappingFailure {
-  const payload = pmxtMarket.rawPayload;
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    return {
+    kind: "success",
+    record: {
       pmxtMarketId: pmxtMarket.venueMarketId,
-      reasonCode: "missing_raw_payload",
-      reason: `PMXT market ${pmxtMarket.venueMarketId} has no rawPayload`,
-    };
-  }
-  const sourceExchange =
-    typeof payload.sourceExchange === "string"
-      ? payload.sourceExchange.trim().toLowerCase()
-      : undefined;
-
-  if (!sourceExchange) {
-    return {
-      pmxtMarketId: pmxtMarket.venueMarketId,
-      reasonCode: "ambiguous_source_exchange",
-      reason: `PMXT market ${pmxtMarket.venueMarketId} has no sourceExchange in rawPayload`,
-    };
-  }
-
-  if (sourceExchange !== "kalshi" && sourceExchange !== "polymarket") {
-    return {
-      pmxtMarketId: pmxtMarket.venueMarketId,
-      reasonCode: "unrecognized_source_exchange",
-      reason: `PMXT market ${pmxtMarket.venueMarketId} has unrecognized sourceExchange "${sourceExchange}"`,
-    };
-  }
-
-  const venueNativeId =
-    typeof payload.venueMarketId === "string"
-      ? payload.venueMarketId.trim()
-      : undefined;
-  if (!venueNativeId) {
-    return {
-      pmxtMarketId: pmxtMarket.venueMarketId,
-      reasonCode: "missing_venue_native_id",
-      reason: `PMXT market ${pmxtMarket.venueMarketId} has no venueMarketId in rawPayload`,
-    };
-  }
-
-  return {
-    pmxtMarketId: pmxtMarket.venueMarketId,
-    reasonCode: "unknown",
-    reason: `PMXT market ${pmxtMarket.venueMarketId} could not be mapped`,
+      venue,
+      venueNativeId,
+      status,
+      hasResolutionText,
+      capturedAt: pmxtMarket.capturedAt,
+    },
   };
 }
 

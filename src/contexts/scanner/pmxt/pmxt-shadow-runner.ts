@@ -36,17 +36,20 @@ export interface PmxtShadowRunnerDeps {
 // only to `pmxt_shadow_run_attempts`. When shadowing is disabled, the
 // runner exits cleanly with no external calls.
 export class PmxtShadowRunner {
-  constructor(private readonly deps: PmxtShadowRunnerDeps) {}
+  private readonly clock: () => string;
+
+  constructor(private readonly deps: PmxtShadowRunnerDeps) {
+    this.clock = deps.clock ?? (() => new Date().toISOString());
+  }
 
   async runOnce(): Promise<PmxtShadowAdmissionResult> {
-    const clock = this.deps.clock ?? (() => new Date().toISOString());
-    const startedAt = clock();
+    const startedAt = this.clock();
 
     if (!this.deps.config.pmxtShadowEnabled) {
       return {
         status: "disabled",
         startedAt,
-        completedAt: clock(),
+        completedAt: startedAt,
         reason: "PMXT_SHADOW_ENABLED is false"
       };
     }
@@ -56,7 +59,7 @@ export class PmxtShadowRunner {
       return {
         status: "skipped",
         startedAt,
-        completedAt: clock(),
+        completedAt: startedAt,
         reason: admission.reason
       };
     }
@@ -75,7 +78,7 @@ export class PmxtShadowRunner {
       return {
         status: "skipped",
         startedAt,
-        completedAt: clock(),
+        completedAt: startedAt,
         reason: "no eligible unclaimed authoritative scan"
       };
     }
@@ -87,7 +90,7 @@ export class PmxtShadowRunner {
         authoritativeScanRunId: claim.authoritativeScanRunId,
         attemptNumber: claim.attemptNumber,
         startedAt,
-        completedAt: clock(),
+        completedAt: startedAt,
         reason: "sample_rate_excluded"
       };
     }
@@ -102,7 +105,7 @@ export class PmxtShadowRunner {
       authoritativeScanRunId: claim.authoritativeScanRunId,
       attemptNumber: claim.attemptNumber,
       startedAt,
-      completedAt: clock(),
+      completedAt: this.clock(),
       reason: runResult.status === "partial" ? runResult.reason : undefined
     };
   }

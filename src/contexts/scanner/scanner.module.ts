@@ -272,38 +272,38 @@ async function pingAndLog(provider: OllamaChatLlmProvider, config: AppConfig): P
     { provide: PMXT_SHADOW_LEASE_REPOSITORY, useExisting: PostgresPmxtShadowLeaseRepository },
     {
       provide: PMXT_SHADOW_RUNNER,
-      useFactory: (config: AppConfig, leaseRepository: PostgresPmxtShadowLeaseRepository) =>
-        config.pmxtShadowEnabled
-          ? new PmxtShadowRunner({
-              config,
-              leaseRepository,
-              workerId: PMXT_SHADOW_WORKER_ID,
-              rateLimiter: new PmxtShadowRateLimiter({
-                requestsPerMinute: config.pmxtShadowRequestsPerMinute,
-                maxConcurrency: config.pmxtShadowMaxConcurrency,
-                maxRequestsPerRun: config.pmxtShadowMaxRequestsPerRun ?? 0,
-                defaultRetryAfterMs: config.pmxtShadowMaxQueueWaitMs
-              }),
-              shadowRun: new PmxtShadowRun({
-                rateLimiter: new PmxtShadowRateLimiter({
-                  requestsPerMinute: config.pmxtShadowRequestsPerMinute,
-                  maxConcurrency: config.pmxtShadowMaxConcurrency,
-                  maxRequestsPerRun: config.pmxtShadowMaxRequestsPerRun ?? 0,
-                  defaultRetryAfterMs: config.pmxtShadowMaxQueueWaitMs
-                }),
-                fetchOrderBooks: async () => ({}),
-                persistRawBook: async () => {},
-                persistMappedBook: async () => {},
-                compareBooks: () => [],
-                requestTimeoutMs: config.pmxtShadowTimeoutMs,
-                maxMarketsPerVenue: config.pmxtShadowMaxMarketsPerVenue ?? 50,
-                maxBooksPerVenue: config.pmxtShadowMaxBooksPerVenue ?? 50,
-                maxRetries: 2,
-                clock: () => Date.now(),
-              }),
-              fetchAuthoritativeMarkets: async () => []
-            })
-          : undefined,
+      useFactory: (config: AppConfig, leaseRepository: PostgresPmxtShadowLeaseRepository) => {
+        if (!config.pmxtShadowEnabled) return undefined;
+
+        // Shared rate limiter instance — both the runner and the shadow run
+        // must gate against the same token bucket and circuit breaker.
+        const rateLimiter = new PmxtShadowRateLimiter({
+          requestsPerMinute: config.pmxtShadowRequestsPerMinute,
+          maxConcurrency: config.pmxtShadowMaxConcurrency,
+          maxRequestsPerRun: config.pmxtShadowMaxRequestsPerRun ?? 0,
+          defaultRetryAfterMs: config.pmxtShadowMaxQueueWaitMs
+        });
+
+        return new PmxtShadowRunner({
+          config,
+          leaseRepository,
+          workerId: PMXT_SHADOW_WORKER_ID,
+          rateLimiter,
+          shadowRun: new PmxtShadowRun({
+            rateLimiter,
+            fetchOrderBooks: async () => ({}),
+            persistRawBook: async () => {},
+            persistMappedBook: async () => {},
+            compareBooks: () => [],
+            requestTimeoutMs: config.pmxtShadowTimeoutMs,
+            maxMarketsPerVenue: config.pmxtShadowMaxMarketsPerVenue ?? 50,
+            maxBooksPerVenue: config.pmxtShadowMaxBooksPerVenue ?? 50,
+            maxRetries: 2,
+            clock: () => Date.now(),
+          }),
+          fetchAuthoritativeMarkets: async () => []
+        });
+      },
       inject: [APP_CONFIG, PMXT_SHADOW_LEASE_REPOSITORY]
     }
   ],

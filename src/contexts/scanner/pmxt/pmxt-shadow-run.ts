@@ -61,9 +61,6 @@ export interface PmxtShadowRunConfig {
 }
 
 export class PmxtShadowRun {
-  private runPartial = false;
-  private runPartialReason?: PmxtShadowRunReason;
-
   constructor(private readonly config: PmxtShadowRunConfig) {}
 
   async execute(markets: PmxtMarketSnapshot[]): Promise<PmxtShadowRunResult> {
@@ -71,6 +68,8 @@ export class PmxtShadowRun {
     const books: PmxtMarketBook[] = [];
     const comparisons: PmxtOrderbookComparisonResult[] = [];
     let requestCount = 0;
+    let runPartial = false;
+    let runPartialReason: PmxtShadowRunReason | undefined;
 
     if (markets.length === 0) {
       return {
@@ -85,17 +84,18 @@ export class PmxtShadowRun {
     // Enforce maxMarketsPerVenue
     const bounded = markets.slice(0, this.config.maxMarketsPerVenue);
 
-    // Extract outcome IDs
+    // Extract outcome IDs and cache for reuse
+    const outcomeIdMap = new Map<string, { yes: string; no: string }>();
     const outcomeIds: string[] = [];
     for (const market of bounded) {
       const ids = outcomeIdsFor(market);
+      outcomeIdMap.set(market.venueMarketId, ids);
       outcomeIds.push(ids.yes, ids.no);
     }
 
     // Acquire rate limiter slot (synchronous)
     const slot = this.config.rateLimiter.allowRequest(requestCount);
     if (!slot.allowed) {
-      this.markRunPartial(slot.reason as PmxtShadowRunReason);
       return {
         status: "skipped",
         reason: slot.reason as PmxtShadowRunReason,
@@ -108,7 +108,6 @@ export class PmxtShadowRun {
 
     // Fetch with retry for transient failures
     const maxRetries = this.config.maxRetries;
-    let lastError: unknown;
     let rawBooks: Record<string, unknown> | undefined;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -117,12 +116,9 @@ export class PmxtShadowRun {
         requestCount = 1;
         this.config.rateLimiter.reportSuccess();
         break;
-      } catch (err) {
-        lastError = err;
+      } catch {
         if (attempt < maxRetries) {
-          // Report failure to rate limiter for cooldown tracking
           this.config.rateLimiter.reportFailure(0);
-          // Wait before retry (exponential backoff: 200ms, 400ms, 800ms...)
           const backoffMs = Math.min(200 * Math.pow(2, attempt), 5000);
           await new Promise((resolve) => setTimeout(resolve, backoffMs));
         }
@@ -130,9 +126,7 @@ export class PmxtShadowRun {
     }
 
     if (!rawBooks) {
-      // All retries exhausted
       this.config.rateLimiter.reportFailure(0);
-      this.markRunPartial("retries_exhausted");
       return {
         status: "partial",
         reason: "retries_exhausted",
@@ -147,11 +141,12 @@ export class PmxtShadowRun {
     let bookCount = 0;
     for (const market of bounded) {
       if (bookCount >= this.config.maxBooksPerVenue) {
-        this.markRunPartial("book_cap");
+        runPartial = true;
+        runPartialReason = "book_cap";
         break;
       }
 
-      const ids = outcomeIdsFor(market);
+      const ids = outcomeIdMap.get(market.venueMarketId)!;
       const yesRaw = rawBooks[ids.yes];
       const noRaw = rawBooks[ids.no];
 
@@ -182,11 +177,10 @@ export class PmxtShadowRun {
       bookCount++;
     }
 
-    // Check if run was marked partial
-    if (this.runPartial) {
+    if (runPartial) {
       return {
         status: "partial",
-        reason: this.runPartialReason,
+        reason: runPartialReason,
         books,
         comparisons,
         receiptTimestamp,
@@ -201,11 +195,6 @@ export class PmxtShadowRun {
       receiptTimestamp,
       requestCount,
     };
-  }
-
-  private markRunPartial(reason: PmxtShadowRunReason): void {
-    this.runPartial = true;
-    this.runPartialReason = reason;
   }
 
   private async fetchWithTimeout(outcomeIds: string[]): Promise<Record<string, unknown>> {
