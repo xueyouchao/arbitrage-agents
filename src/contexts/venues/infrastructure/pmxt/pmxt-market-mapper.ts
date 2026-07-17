@@ -66,3 +66,13 @@ export function mapPmxtMarketToSnapshot(
     },
   };
 }
+
+export function outcomeIdsFor(market: PmxtMarketSnapshot): { yes: string; no: string } {
+  const payload = market.rawPayload;
+  const yes = typeof payload.yesOutcomeId === "string" ? payload.yesOutcomeId : undefined;
+  const no = typeof payload.noOutcomeId === "string" ? payload.noOutcomeId : undefined;
+  if (!yes || !no) {
+    throw new Error(`PMXT market ${market.venueMarketId} lacks explicit YES/NO outcome ids`);
+  }
+  return { yes, no };
+}
