@@ -3,6 +3,7 @@ import {
   reportPmxtRouterMatchingQuality,
   inverseStandardNormal,
   PmxtRouterQualityObservation,
+  inverseStandardNormal,
 } from "../../src/contexts/scanner/pmxt/pmxt-router-quality-report";
 
 function observation(
@@ -304,5 +305,36 @@ describe("reportPmxtRouterMatchingQuality", () => {
         []
       )
     ).toThrow("Invalid PMXT Router quality protocol");
+  });
+});
+
+describe("inverseStandardNormal", () => {
+  it("returns negative for low tail probabilities (p < 0.02425)", () => {
+    const z = inverseStandardNormal(0.001);
+    expect(z).toBeLessThan(0);
+    expect(z).toBeCloseTo(-3.090, 2);
+  });
+
+  it("returns positive for high tail probabilities (p > 0.97575)", () => {
+    const z = inverseStandardNormal(0.999);
+    expect(z).toBeGreaterThan(0);
+    expect(z).toBeCloseTo(3.090, 2);
+  });
+
+  it("returns zero for p=0.5", () => {
+    const z = inverseStandardNormal(0.5);
+    expect(z).toBeCloseTo(0, 5);
+  });
+
+  it("returns symmetric values for complementary probabilities", () => {
+    const zLow = inverseStandardNormal(0.01);
+    const zHigh = inverseStandardNormal(0.99);
+    expect(zLow).toBeCloseTo(-zHigh, 5);
+  });
+
+  it("is antisymmetric around p=0.5", () => {
+    const zLeft = inverseStandardNormal(0.2);
+    const zRight = inverseStandardNormal(0.8);
+    expect(zLeft).toBeCloseTo(-zRight, 5);
   });
 });
