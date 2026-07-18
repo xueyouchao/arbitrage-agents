@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   reportPmxtRouterMatchingQuality,
+  inverseStandardNormal,
   PmxtRouterQualityObservation,
 } from "../../src/contexts/scanner/pmxt/pmxt-router-quality-report";
 
@@ -220,6 +221,23 @@ describe("reportPmxtRouterMatchingQuality", () => {
         []
       )
     ).toThrow("eligible counts do not match frozen membership");
+  });
+
+  it("inverseStandardNormal returns correct sign for extreme probabilities", () => {
+    // Low tail: p < 0.02425 returns negative (left side of bell curve)
+    expect(inverseStandardNormal(0.001)).toBeLessThan(0);
+    expect(inverseStandardNormal(0.01)).toBeLessThan(0);
+    expect(inverseStandardNormal(0.024)).toBeLessThan(0);
+    // High tail: p > 0.97575 returns positive (right side of bell curve)
+    expect(inverseStandardNormal(0.976)).toBeGreaterThan(0);
+    expect(inverseStandardNormal(0.99)).toBeGreaterThan(0);
+    expect(inverseStandardNormal(0.999)).toBeGreaterThan(0);
+    // Mid-range: p < 0.5 negative, p > 0.5 positive, at 0.5 it's 0
+    expect(inverseStandardNormal(0.5)).toBeCloseTo(0, 5);
+    // p=0.025 is left of center → negative
+    expect(inverseStandardNormal(0.025)).toBeLessThan(0);
+    // p=0.975 is right of center → positive
+    expect(inverseStandardNormal(0.975)).toBeGreaterThan(0);
   });
 
   it("rejects non-finite confidence levels", () => {
