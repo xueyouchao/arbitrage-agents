@@ -1,7 +1,7 @@
 name: AI Code Review (PR-Agent, multi-model)
 
-# Runs qodo-ai/pr-agent on every PR with five independent reviewers:
-#   - two OpenRouter free-tier models
+# Runs qodo-ai/pr-agent on every PR with four independent reviewers:
+#   - one OpenRouter free-tier model
 #   - three Ollama Cloud models
 #
 # PR-Agent reads its per-invocation settings from environment variables.
@@ -40,60 +40,7 @@ permissions:
   statuses: read
 
 jobs:
-  # ---- OpenRouter reviewer 1 ----
-  review-nex:
-    name: Review — nex-agi/nex-n2-pro
-    runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Pre-check diff size
-        run: |
-          SIZE=$(git diff origin/main...HEAD 2>/dev/null || git diff HEAD~1...HEAD | wc -c)
-          MAX=$((8000 * 4))
-          if [ "$SIZE" -gt "$MAX" ]; then
-            echo "::error::PR diff too large ($SIZE bytes > $MAX bytes, ~$((SIZE/4)) tokens)"
-            echo "::error::Split your PR into smaller units (target < 8000 tokens)"
-            exit 1
-          fi
-
-      - name: Guard against Claude models on OpenRouter
-        run: |
-          if [ "${{ contains(env.config__model, 'claude') }}" = "true" ] || \
-             [ "${{ contains(env.config__fallback_models, 'claude') }}" = "true" ]; then
-            echo "::error::Repo policy forbids Claude models on OpenRouter."
-            exit 1
-          fi
-
-      - name: PR-Agent /review (OpenRouter)
-        uses: the-pr-agent/pr-agent@v0.36.0
-        continue-on-error: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-          github_action_config__auto_review: "true"
-          github_action_config__auto_describe: "false"
-          github_action_config__auto_improve: "false"
-
-          # Re-run review on every commit pushed to the PR (synchronize),
-          # not just on open/reopen/ready_for_review. Without this, PR-Agent's
-          # runner skips the auto tools on follow-up pushes because its
-          # default pr_actions list omits "synchronize".
-          github_action_config__pr_actions: '["opened", "synchronize", "reopened", "ready_for_review", "review_requested"]'
-
-          config__model: "openrouter/nex-agi/nex-n2-pro:free"
-          config__fallback_models: '["openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"]'
-          config__custom_model_max_tokens: "8000"
-
-          pr_reviewer__require_focused_review: "true"
-          pr_reviewer__num_required_app_review_comments: "1"
-          pr_reviewer__exclude_globs: '["**/*.md","**/docs/**","**/coverage/**","**/dist/**"]'
-
-          OPENROUTER__KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-
-  # ---- OpenRouter reviewer 2 ----
+  # ---- OpenRouter reviewer ----
   review-nvidia:
     name: Review — nvidia/nemotron-3-ultra
     runs-on: ubuntu-latest
@@ -136,7 +83,7 @@ jobs:
           github_action_config__pr_actions: '["opened", "synchronize", "reopened", "ready_for_review", "review_requested"]'
 
           config__model: "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
-          config__fallback_models: '["openrouter/nex-agi/nex-n2-pro:free"]'
+          config__fallback_models: '[]'
           config__custom_model_max_tokens: "8000"
 
           pr_reviewer__require_focused_review: "true"
