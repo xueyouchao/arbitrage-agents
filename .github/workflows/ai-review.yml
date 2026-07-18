@@ -48,6 +48,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Pre-check diff size
+        run: |
+          SIZE=$(git diff origin/main...HEAD 2>/dev/null || git diff HEAD~1...HEAD | wc -c)
+          MAX=$((8000 * 4))
+          if [ "$SIZE" -gt "$MAX" ]; then
+            echo "::error::PR diff too large ($SIZE bytes > $MAX bytes, ~$((SIZE/4)) tokens)"
+            echo "::error::Split your PR into smaller units (target < 8000 tokens)"
+            exit 1
+          fi
+
       - name: Guard against Claude models on OpenRouter
         run: |
           if [ "${{ contains(env.config__model, 'claude') }}" = "true" ] || \
@@ -90,6 +100,16 @@ jobs:
     if: github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v4
+
+      - name: Pre-check diff size
+        run: |
+          SIZE=$(git diff origin/main...HEAD 2>/dev/null || git diff HEAD~1...HEAD | wc -c)
+          MAX=$((8000 * 4))
+          if [ "$SIZE" -gt "$MAX" ]; then
+            echo "::error::PR diff too large ($SIZE bytes > $MAX bytes, ~$((SIZE/4)) tokens)"
+            echo "::error::Split your PR into smaller units (target < 8000 tokens)"
+            exit 1
+          fi
 
       - name: Guard against Claude models on OpenRouter
         run: |
@@ -134,6 +154,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Pre-check diff size
+        run: |
+          SIZE=$(git diff origin/main...HEAD 2>/dev/null || git diff HEAD~1...HEAD | wc -c)
+          MAX=$((8000 * 4))
+          if [ "$SIZE" -gt "$MAX" ]; then
+            echo "::error::PR diff too large ($SIZE bytes > $MAX bytes, ~$((SIZE/4)) tokens)"
+            echo "::error::Split your PR into smaller units (target < 8000 tokens)"
+            exit 1
+          fi
+
       - name: PR-Agent /review (Ollama Cloud)
         uses: the-pr-agent/pr-agent@v0.36.0
         continue-on-error: true
@@ -174,6 +204,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Pre-check diff size
+        run: |
+          SIZE=$(git diff origin/main...HEAD 2>/dev/null || git diff HEAD~1...HEAD | wc -c)
+          MAX=$((8000 * 4))
+          if [ "$SIZE" -gt "$MAX" ]; then
+            echo "::error::PR diff too large ($SIZE bytes > $MAX bytes, ~$((SIZE/4)) tokens)"
+            echo "::error::Split your PR into smaller units (target < 8000 tokens)"
+            exit 1
+          fi
+
       - name: PR-Agent /review (Ollama Cloud)
         uses: the-pr-agent/pr-agent@v0.36.0
         continue-on-error: true
@@ -210,6 +250,16 @@ jobs:
     if: github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v4
+
+      - name: Pre-check diff size
+        run: |
+          SIZE=$(git diff origin/main...HEAD 2>/dev/null || git diff HEAD~1...HEAD | wc -c)
+          MAX=$((8000 * 4))
+          if [ "$SIZE" -gt "$MAX" ]; then
+            echo "::error::PR diff too large ($SIZE bytes > $MAX bytes, ~$((SIZE/4)) tokens)"
+            echo "::error::Split your PR into smaller units (target < 8000 tokens)"
+            exit 1
+          fi
 
       - name: PR-Agent /review (Ollama Cloud)
         uses: the-pr-agent/pr-agent@v0.36.0
