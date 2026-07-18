@@ -3,7 +3,6 @@ import {
   reportPmxtRouterMatchingQuality,
   inverseStandardNormal,
   PmxtRouterQualityObservation,
-  inverseStandardNormal,
 } from "../../src/contexts/scanner/pmxt/pmxt-router-quality-report";
 
 function observation(
