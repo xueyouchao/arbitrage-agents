@@ -81,11 +81,17 @@ export class PostgresPmxtReadParityRepository implements PmxtReadParityRepositor
       }
 
       await client.query("commit");
-    } catch (error) {
-      await client.query("rollback");
-      throw error;
-    } finally {
       client.release();
+    } catch (error) {
+      try {
+        await client.query("rollback");
+      } catch (rollbackError) {
+        // Rollback failed — release with error so pool evicts the broken connection
+        client.release(rollbackError instanceof Error ? rollbackError : undefined);
+        throw error;
+      }
+      client.release();
+      throw error;
     }
   }
 }

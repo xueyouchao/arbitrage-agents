@@ -615,6 +615,7 @@ describe("Issue #96 PMXT read parity acceptance contract", () => {
       expect(client.query).toHaveBeenCalledWith("commit");
       expect(client.query).not.toHaveBeenCalledWith("rollback");
       expect(client.release).toHaveBeenCalledOnce();
+      expect(client.release).toHaveBeenCalledWith();
       expect(callsContaining(client, "insert into pmxt_shadow_candidates")).toHaveLength(1);
       expect(callsContaining(client, "insert into pmxt_shadow_opportunities")).toHaveLength(1);
       expect(callsContaining(client, "insert into pmxt_shadow_comparisons")).toHaveLength(1);
@@ -669,6 +670,50 @@ describe("Issue #96 PMXT read parity acceptance contract", () => {
       expect(client.query).toHaveBeenCalledWith("rollback");
       expect(client.query).not.toHaveBeenCalledWith("commit");
       expect(client.release).toHaveBeenCalledOnce();
+      // Release is called without error when rollback succeeds
+      expect(client.release).toHaveBeenCalledWith();
+    });
+
+    it("preserves the original error and releases with error when rollback itself fails", async () => {
+      const { pool, client } = fakePool();
+      const insertError = new Error("comparison insert failed");
+      const rollbackError = new Error("rollback failed — connection broken");
+      client.query.mockImplementation(async (sql: string) => {
+        if (sql.toLowerCase().includes("insert into pmxt_shadow_comparisons")) {
+          throw insertError;
+        }
+        if (sql.toLowerCase() === "rollback") {
+          throw rollbackError;
+        }
+        return { rows: [] };
+      });
+      const repository = new PostgresPmxtReadParityRepository(pool);
+      const batch: PmxtReadParityBatch = {
+        authoritativeScanRunId: "00000000-0000-4000-8000-000000000096",
+        shadowRunId: "00000000-0000-4000-8000-000000009600",
+        shadowRunAttemptId: "00000000-0000-4000-8000-000000009601",
+        candidates: [],
+        candidateDecisions: [],
+        opportunities: [],
+        comparisons: [{
+          stage: "fees",
+          outcome: "match",
+          cause: "identical",
+          authoritative: {},
+          shadow: {},
+          provenance: {} as PmxtReadParityProvenance,
+        }],
+      };
+
+      // The original error is preserved, not the rollback error
+      await expect(repository.saveBatch(batch)).rejects.toThrow("comparison insert failed");
+
+      expect(client.query).toHaveBeenCalledWith("begin");
+      expect(client.query).toHaveBeenCalledWith("rollback");
+      expect(client.query).not.toHaveBeenCalledWith("commit");
+      // Release is called with the rollback error so pool evicts the broken connection
+      expect(client.release).toHaveBeenCalledOnce();
+      expect(client.release).toHaveBeenCalledWith(rollbackError);
     });
 
     it("exports three dedicated Drizzle tables with safe scan and attempt linkage", () => {
