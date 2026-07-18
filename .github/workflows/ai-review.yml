@@ -128,7 +128,7 @@ jobs:
           github_action_config__pr_actions: '["opened", "synchronize", "reopened", "ready_for_review", "review_requested"]'
 
           config__model: "openai/minimax-m3:cloud"
-          config__fallback_models: '["openai/kimi-k2.7-code:cloud"]'
+          config__fallback_models: '["openai/kimi-k2.7-code:cloud","openai/deepseek-v4-flash:cloud","openrouter/deepseek-v4-flash:free"]'
           config__custom_model_max_tokens: "8000"
 
           pr_reviewer__require_focused_review: "true"
@@ -142,6 +142,11 @@ jobs:
           OPENAI__BASE: "https://ollama.com/v1"
           OPENAI_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
           OPENAI_BASE_URL: "https://ollama.com/v1"
+
+          # OpenRouter API key for fallback models when Ollama Cloud is
+          # rate-limited or unavailable.
+          OPENROUTER__KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
   # ---- Ollama Cloud reviewer 2 ----
   review-kimi:
@@ -178,7 +183,7 @@ jobs:
           github_action_config__pr_actions: '["opened", "synchronize", "reopened", "ready_for_review", "review_requested"]'
 
           config__model: "openai/kimi-k2.7-code:cloud"
-          config__fallback_models: '["openai/deepseek-v4-flash:cloud"]'
+          config__fallback_models: '["openai/deepseek-v4-flash:cloud","openai/minimax-m3:cloud","openrouter/deepseek-v4-flash:free"]'
           config__custom_model_max_tokens: "8000"
 
           pr_reviewer__require_focused_review: "true"
@@ -189,6 +194,11 @@ jobs:
           OPENAI__BASE: "https://ollama.com/v1"
           OPENAI_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
           OPENAI_BASE_URL: "https://ollama.com/v1"
+
+          # OpenRouter API key for fallback models when Ollama Cloud is
+          # rate-limited or unavailable.
+          OPENROUTER__KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
   # ---- Ollama Cloud reviewer 3 ----
   review-deepseek:
@@ -225,7 +235,7 @@ jobs:
           github_action_config__pr_actions: '["opened", "synchronize", "reopened", "ready_for_review", "review_requested"]'
 
           config__model: "openai/deepseek-v4-flash:cloud"
-          config__fallback_models: '["openai/minimax-m3:cloud"]'
+          config__fallback_models: '["openai/minimax-m3:cloud","openai/kimi-k2.7-code:cloud","openrouter/deepseek-v4-flash:free"]'
           config__custom_model_max_tokens: "8000"
 
           pr_reviewer__require_focused_review: "true"
@@ -236,3 +246,8 @@ jobs:
           OPENAI__BASE: "https://ollama.com/v1"
           OPENAI_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
           OPENAI_BASE_URL: "https://ollama.com/v1"
+
+          # OpenRouter API key for fallback models when Ollama Cloud is
+          # rate-limited or unavailable.
+          OPENROUTER__KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
