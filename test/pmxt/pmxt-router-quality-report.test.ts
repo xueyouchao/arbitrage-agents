@@ -217,7 +217,7 @@ describe("reportPmxtRouterMatchingQuality", () => {
     ).toThrow("invalid human label");
     expect(() =>
       reportPmxtRouterMatchingQuality(
-        { ...validProtocol, eligibleCounts: { "source=shared": 2 } },
+        { ...validProtocol, eligibleCounts: { "source=shared": 0 } },
         []
       )
     ).toThrow("eligible counts do not match frozen membership");

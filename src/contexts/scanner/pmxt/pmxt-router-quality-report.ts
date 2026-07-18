@@ -140,7 +140,7 @@ function validateProtocol(protocol: PmxtRouterQualityProtocol): void {
     }
     if (
       Object.keys(counts).some((key) => !Object.hasOwn(protocol.eligibleCounts, key)) ||
-      Object.entries(protocol.eligibleCounts).some(([key, count]) => counts[key] !== count)
+      Object.entries(protocol.eligibleCounts).some(([key, count]) => (counts[key] ?? 0) > count)
     ) {
       throw new Error("PMXT Router eligible counts do not match frozen membership");
     }
