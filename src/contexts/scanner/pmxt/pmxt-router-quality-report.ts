@@ -319,6 +319,11 @@ function wilsonInterval(
 
 // Acklam's rational approximation, accurate enough for statistical reporting.
 export function inverseStandardNormal(probability: number): number {
+  if (!Number.isFinite(probability) || probability <= 0 || probability >= 1) {
+    throw new Error(
+      `inverseStandardNormal requires probability in (0, 1), got ${probability}`
+    );
+  }
   const a = [-39.6968302866538, 220.946098424521, -275.928510446969, 138.357751867269, -30.6647980661472, 2.50662827745924];
   const b = [-54.4760987982241, 161.585836858041, -155.698979859887, 66.8013118877197, -13.2806815528857];
   const c = [-0.00778489400243, -0.322396458041, -2.40075827716, -2.549732539343, 4.374664141465, 2.938163982699];

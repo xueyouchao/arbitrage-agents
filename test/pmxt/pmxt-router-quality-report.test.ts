@@ -271,6 +271,15 @@ describe("reportPmxtRouterMatchingQuality", () => {
     expect(inverseStandardNormal(0.975)).toBeGreaterThan(0);
   });
 
+  it("rejects invalid probability inputs", () => {
+    expect(() => inverseStandardNormal(0)).toThrow("requires probability in (0, 1)");
+    expect(() => inverseStandardNormal(1)).toThrow("requires probability in (0, 1)");
+    expect(() => inverseStandardNormal(-0.5)).toThrow("requires probability in (0, 1)");
+    expect(() => inverseStandardNormal(1.5)).toThrow("requires probability in (0, 1)");
+    expect(() => inverseStandardNormal(Number.NaN)).toThrow("requires probability in (0, 1)");
+    expect(() => inverseStandardNormal(Infinity)).toThrow("requires probability in (0, 1)");
+  });
+
   it("rejects non-finite confidence levels", () => {
     expect(() =>
       reportPmxtRouterMatchingQuality(
