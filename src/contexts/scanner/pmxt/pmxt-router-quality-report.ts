@@ -113,7 +113,6 @@ function validateProtocol(protocol: PmxtRouterQualityProtocol): void {
     !Number.isFinite(protocol.confidenceLevel) ||
     protocol.confidenceLevel <= 0 ||
     protocol.confidenceLevel >= 1 ||
-    0.5 + protocol.confidenceLevel / 2 >= 1 ||
     !Number.isInteger(protocol.minimumSampleSize) ||
     protocol.minimumSampleSize < 1 ||
     Object.values(protocol.eligibleCounts).some(
@@ -156,7 +155,10 @@ function validateObservation(observation: PmxtRouterQualityObservation): void {
   if (!["identity", "not_identity", "inconclusive"].includes(observation.label)) {
     throw new Error(`Observation ${observation.id} has invalid human label`);
   }
-  if (observation.stratumKeys.some((key) => typeof key !== "string" || !key.trim())) {
+  if (
+    observation.stratumKeys.length === 0 ||
+    observation.stratumKeys.some((key) => typeof key !== "string" || !key.trim())
+  ) {
     throw new Error(`Observation ${observation.id} has invalid stratum key`);
   }
 }
@@ -187,6 +189,11 @@ function reportStratum(
   selected: PmxtRouterQualityObservation[],
   protocol: PmxtRouterQualityProtocol
 ): PmxtRouterStratumQuality {
+  if (selected.length > eligibleCount) {
+    throw new Error(
+      `Selected count ${selected.length} exceeds eligible count ${eligibleCount}`
+    );
+  }
   const labeled = selected.filter((observation) => observation.label !== "inconclusive");
   const truePositiveCount = labeled.filter(
     (observation) => observation.routerPredictedIdentity && observation.label === "identity"

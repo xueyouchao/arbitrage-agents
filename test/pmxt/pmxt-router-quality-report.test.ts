@@ -223,6 +223,37 @@ describe("reportPmxtRouterMatchingQuality", () => {
     ).toThrow("eligible counts do not match frozen membership");
   });
 
+  it("rejects observations with empty stratumKeys", () => {
+    const protocol = {
+      protocolVersion: "router-quality-v1",
+      confidenceLevel: 0.95,
+      minimumSampleSize: 1,
+      eligibleCounts: { "source=shared": 1 },
+    };
+
+    expect(() =>
+      reportPmxtRouterMatchingQuality(protocol, [
+        observation("empty", [], true, "identity"),
+      ])
+    ).toThrow("invalid stratum key");
+  });
+
+  it("rejects when selected count exceeds eligible count without frozen membership", () => {
+    const protocol = {
+      protocolVersion: "router-quality-v1",
+      confidenceLevel: 0.95,
+      minimumSampleSize: 1,
+      eligibleCounts: { "source=shared": 1 },
+    };
+
+    expect(() =>
+      reportPmxtRouterMatchingQuality(protocol, [
+        observation("a", ["source=shared"], true, "identity"),
+        observation("b", ["source=shared"], true, "identity"),
+      ])
+    ).toThrow("exceeds eligible count");
+  });
+
   it("inverseStandardNormal returns correct sign for extreme probabilities", () => {
     // Low tail: p < 0.02425 returns negative (left side of bell curve)
     expect(inverseStandardNormal(0.001)).toBeLessThan(0);
