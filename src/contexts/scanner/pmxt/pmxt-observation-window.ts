@@ -229,7 +229,7 @@ export function freezeObservationProtocol(
 }
 
 function validateProtocolInput(input: ObservationProtocolInput): void {
-  if (!input.protocolVersion.trim()) {
+  if (typeof input.protocolVersion !== "string" || !input.protocolVersion.trim()) {
     throw new Error("PMXT observation protocol version is required");
   }
   if (
@@ -276,19 +276,19 @@ function validateProtocolInput(input: ObservationProtocolInput): void {
       `PMXT observation protocol confidence interval method "${input.confidenceIntervalMethod}" is not supported`
     );
   }
-  if (!input.configFingerprint.trim()) {
+  if (typeof input.configFingerprint !== "string" || !input.configFingerprint.trim()) {
     throw new Error("PMXT observation protocol config fingerprint is required");
   }
-  if (!input.mapperVersion.trim()) {
+  if (typeof input.mapperVersion !== "string" || !input.mapperVersion.trim()) {
     throw new Error("PMXT observation protocol mapper version is required");
   }
-  if (!input.domainVersion.trim()) {
+  if (typeof input.domainVersion !== "string" || !input.domainVersion.trim()) {
     throw new Error("PMXT observation protocol domain version is required");
   }
-  if (!input.promptVersion.trim()) {
+  if (typeof input.promptVersion !== "string" || !input.promptVersion.trim()) {
     throw new Error("PMXT observation protocol prompt version is required");
   }
-  if (!input.modelVersion.trim()) {
+  if (typeof input.modelVersion !== "string" || !input.modelVersion.trim()) {
     throw new Error("PMXT observation protocol model version is required");
   }
 }

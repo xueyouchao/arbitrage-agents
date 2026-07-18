@@ -126,6 +126,18 @@ describe("freezeObservationProtocol", () => {
       .toThrow("protocol version");
   });
 
+  it("rejects non-string protocol version with the validation error, not a TypeError", () => {
+    expect(() =>
+      freezeObservationProtocol(validProtocolInput({ protocolVersion: undefined as never }))
+    ).toThrow("protocol version");
+    expect(() =>
+      freezeObservationProtocol(validProtocolInput({ protocolVersion: null as never }))
+    ).toThrow("protocol version");
+    expect(() =>
+      freezeObservationProtocol(validProtocolInput({ protocolVersion: 42 as never }))
+    ).toThrow("protocol version");
+  });
+
   it("rejects invalid confidence level", () => {
     expect(() => freezeObservationProtocol(validProtocolInput({ confidenceLevel: 0 })))
       .toThrow("confidence level");
