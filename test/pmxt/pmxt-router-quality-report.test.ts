@@ -337,4 +337,13 @@ describe("inverseStandardNormal", () => {
     const zRight = inverseStandardNormal(0.8);
     expect(zLeft).toBeCloseTo(-zRight, 5);
   });
+
+  it("rejects invalid probability inputs", () => {
+    expect(() => inverseStandardNormal(0)).toThrow("requires probability in (0, 1)");
+    expect(() => inverseStandardNormal(1)).toThrow("requires probability in (0, 1)");
+    expect(() => inverseStandardNormal(-0.5)).toThrow("requires probability in (0, 1)");
+    expect(() => inverseStandardNormal(1.5)).toThrow("requires probability in (0, 1)");
+    expect(() => inverseStandardNormal(Number.NaN)).toThrow("requires probability in (0, 1)");
+    expect(() => inverseStandardNormal(Infinity)).toThrow("requires probability in (0, 1)");
+  });
 });
