@@ -58,6 +58,59 @@ describe("CandidatePairGenerator", () => {
 
     expect(pairs).toEqual([]);
   });
+
+  // Regression: the candidate generator previously bucketed threshold-bearing
+  // markets by topic|asset|eventType|payoffType only, collapsing every strike
+  // on a given crypto day into one bucket and producing an O(strikes^2)
+  // cross-product. The band-expansion bucket keeps a near-cross-product from
+  // forming while still admitting every within-$1 strike pair — including a
+  // pair that straddles a $1 band boundary.
+  it("admits a within-$1 crypto strike pair that straddles a $1 band boundary", () => {
+    // 52000.49 (band 52000) and 52001.49 (band 52001) are exactly $1.00 apart
+    // and thus within the <=$1 tolerance, but land in different $1 bands.
+    // Band expansion (floor and floor+1) must still surface this pair.
+    const pairs = new CandidatePairGenerator().generate([
+      market({ id: "k-1", venue: "kalshi", venueMarketId: "K1", threshold: 52000.49 }),
+      market({ id: "p-1", venue: "polymarket", venueMarketId: "P1", threshold: 52001.49 })
+    ]);
+
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0].id).toBe("k-1:p-1");
+  });
+
+  it("does not cross-product every strike on the same crypto day", () => {
+    // 20 kalshi strikes and 20 polymarket strikes, all on the same day, each
+    // $500 apart. Only strikes within $1 should pair — with the old single
+    // bucket every kalshi struck every polymarket candidate (400 candidates
+    // funneled through thresholdsMatch); with band expansion each kalshi
+    // market collides with at most a handful of polymarket markets in the
+    // same $1 band, and only the within-$1 pair survives isCandidate.
+    const kalshi = Array.from({ length: 20 }, (_, i) =>
+      market({ id: `k-${i}`, venue: "kalshi", venueMarketId: `K${i}`, threshold: 60000 + i * 500 })
+    );
+    const polymarket = Array.from({ length: 20 }, (_, i) =>
+      market({ id: `p-${i}`, venue: "polymarket", venueMarketId: `P${i}`, threshold: 60000.5 + i * 500 })
+    );
+
+    const pairs = new CandidatePairGenerator().generate([...kalshi, ...polymarket]);
+
+    // Each kalshi strike pairs with exactly one polymarket strike (the one
+    // $0.50 away). No cross-product: 20 pairs, not 400.
+    expect(pairs).toHaveLength(20);
+    expect(new Set(pairs.map((p) => p.id)).size).toBe(20);
+    for (const pair of pairs) {
+      expect(Math.abs(pair.kalshiMarket.threshold! - pair.polymarketMarket.threshold!)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("does not pair crypto strikes more than $1 apart even on the same day", () => {
+    const pairs = new CandidatePairGenerator().generate([
+      market({ id: "k-1", venue: "kalshi", venueMarketId: "K1", threshold: 60000 }),
+      market({ id: "p-1", venue: "polymarket", venueMarketId: "P1", threshold: 65000 })
+    ]);
+
+    expect(pairs).toEqual([]);
+  });
 });
 
 describe("DeterministicEquivalencePolicy", () => {
