@@ -30,15 +30,9 @@ import {
   SCAN_STEP_REPOSITORY,
   SCANNER_LLM_GATEWAY,
   SCANNER_REPOSITORY,
-  SENTRY_CHECK_IN_CLIENT,
-  PMXT_SHADOW_LEASE_REPOSITORY,
-  PMXT_SHADOW_RUNNER
+  SENTRY_CHECK_IN_CLIENT
 } from "./scanner-tokens";
 import { WorkerScanRunner } from "./worker-scan-runner";
-import { PostgresPmxtShadowLeaseRepository } from "./pmxt/postgres-pmxt-shadow-lease-repository";
-import { PmxtShadowRunner } from "./pmxt/pmxt-shadow-runner";
-import { PmxtShadowRun } from "./pmxt/pmxt-shadow-run";
-import { PmxtShadowRateLimiter } from "./pmxt/pmxt-shadow-rate-limiter";
 
 // Phase 4 Finding #6: per-worker lease. Generated once at module load
 // time and shared by ResumableScanner (stamps it on scan results) and
@@ -47,11 +41,6 @@ import { PmxtShadowRateLimiter } from "./pmxt/pmxt-shadow-rate-limiter";
 // the previous process's lease — stale scans from the dead process
 // are correctly flagged as abandoned.
 const WORKER_ID = randomUUID();
-
-// Issue #93: dedicated PMXT shadow worker id. Kept separate from the
-// authoritative worker id so the shadow runner never appears to own an
-// authoritative scan lease.
-const PMXT_SHADOW_WORKER_ID = randomUUID();
 
 /**
  * Construct the {@link PersistedLlmGateway} synchronously and perform the
@@ -263,50 +252,8 @@ async function pingAndLog(provider: OllamaChatLlmProvider, config: AppConfig): P
       useFactory: (resumableScanner: ResumableScanner, abandonedDetector: AbandonedScanDetector) =>
         new WorkerScanRunner(resumableScanner, abandonedDetector),
       inject: [ResumableScanner, AbandonedScanDetector]
-    },
-    // Issue #93: PMXT shadow runner wiring. The lease repository is
-    // available whenever the module is imported; the runner itself is only
-    // instantiated when shadowing is enabled, but the provider token is
-    // always present so tests and a future entry point can inject it.
-    PostgresPmxtShadowLeaseRepository,
-    { provide: PMXT_SHADOW_LEASE_REPOSITORY, useExisting: PostgresPmxtShadowLeaseRepository },
-    {
-      provide: PMXT_SHADOW_RUNNER,
-      useFactory: (config: AppConfig, leaseRepository: PostgresPmxtShadowLeaseRepository) => {
-        if (!config.pmxtShadowEnabled) return undefined;
-
-        // Shared rate limiter instance — both the runner and the shadow run
-        // must gate against the same token bucket and circuit breaker.
-        const rateLimiter = new PmxtShadowRateLimiter({
-          requestsPerMinute: config.pmxtShadowRequestsPerMinute,
-          maxConcurrency: config.pmxtShadowMaxConcurrency,
-          maxRequestsPerRun: config.pmxtShadowMaxRequestsPerRun ?? 0,
-          defaultRetryAfterMs: config.pmxtShadowMaxQueueWaitMs
-        });
-
-        return new PmxtShadowRunner({
-          config,
-          leaseRepository,
-          workerId: PMXT_SHADOW_WORKER_ID,
-          rateLimiter,
-          shadowRun: new PmxtShadowRun({
-            rateLimiter,
-            fetchOrderBooks: async () => ({}),
-            persistRawBook: async () => {},
-            persistMappedBook: async () => {},
-            compareBooks: () => [],
-            requestTimeoutMs: config.pmxtShadowTimeoutMs,
-            maxMarketsPerVenue: config.pmxtShadowMaxMarketsPerVenue ?? 50,
-            maxBooksPerVenue: config.pmxtShadowMaxBooksPerVenue ?? 50,
-            maxRetries: 2,
-            clock: () => Date.now(),
-          }),
-          fetchAuthoritativeMarkets: async () => []
-        });
-      },
-      inject: [APP_CONFIG, PMXT_SHADOW_LEASE_REPOSITORY]
     }
   ],
-  exports: [WorkerScanRunner, PMXT_SHADOW_RUNNER, PMXT_SHADOW_LEASE_REPOSITORY]
+  exports: [WorkerScanRunner]
 })
 export class ScannerModule {}

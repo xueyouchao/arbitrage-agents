@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
-import { WorkerAppModule } from "./worker-app.module";
+import { PmxtShadowAppModule } from "./pmxt-shadow-app.module";
 import { PmxtShadowRunner } from "./contexts/scanner/pmxt/pmxt-shadow-runner";
 import { PMXT_SHADOW_RUNNER } from "./contexts/scanner/scanner-tokens";
 
@@ -14,21 +14,26 @@ import { PMXT_SHADOW_RUNNER } from "./contexts/scanner/scanner-tokens";
 // The process exits without network calls when PMXT shadowing is disabled,
 // matching the plan's fail-closed default.
 async function bootstrap() {
-  const app = await NestFactory.createApplicationContext(WorkerAppModule);
-  const runner = app.get<PmxtShadowRunner | undefined>(PMXT_SHADOW_RUNNER);
+  const app = await NestFactory.createApplicationContext(PmxtShadowAppModule);
+  try {
+    const runner = app.get<PmxtShadowRunner | undefined>(PMXT_SHADOW_RUNNER);
 
-  if (!runner) {
-    console.log("[pmxt-shadow] PMXT shadowing is disabled; exiting.");
+    if (!runner) {
+      console.log("[pmxt-shadow] PMXT shadowing is disabled; exiting.");
+      return;
+    }
+
+    console.log("[pmxt-shadow] Starting one shadow run.");
+    const result = await runner.runOnce();
+    console.log(`[pmxt-shadow] Run completed: ${JSON.stringify(result)}`);
+
+    if (result.status === "failed") {
+      console.error(`[pmxt-shadow] Run failed: ${result.reason ?? "unknown error"}`);
+      process.exitCode = 1;
+    }
+  } finally {
     await app.close();
-    process.exit(0);
   }
-
-  console.log("[pmxt-shadow] Starting one shadow run.");
-  const result = await runner.runOnce();
-  console.log(`[pmxt-shadow] Run completed: ${JSON.stringify(result)}`);
-
-  await app.close();
-  process.exit(0);
 }
 
 if (require.main === module) {

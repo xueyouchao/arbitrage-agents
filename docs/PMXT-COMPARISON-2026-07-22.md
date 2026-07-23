@@ -139,12 +139,41 @@ from https://www.pmxt.dev/docs/authentication and the `pmxtjs` SDK source
   Production mappers reject this shape — a real gap if the hosted path is
   ever wired into production.
 
+## Current production shadow implementation
+
+The dedicated production path now closes the wiring gap described above:
+
+- `PmxtShadowAppModule` boots only config, database, observability, and
+  `PmxtShadowModule`; the normal `ScannerModule` and `WorkerScanRunner` contain
+  no PMXT providers.
+- After claiming a succeeded authoritative scan ID, the shadow flow reads its
+  native `VenueMarketSnapshot` rows through the read-only
+  `PostgresPmxtAuthoritativeMarketSnapshotRepository`. Native snapshots remain
+  native and are not passed to APIs that require `PmxtMarketSnapshot`.
+- Both hosted exchange clients call `fetchEvents({series})` using exactly the
+  configured `KALSHI_SERIES_TICKER` and `POLYMARKET_SERIES_SLUG`. Catalog
+  records become PMXT snapshots only after explicit Kalshi ticker or
+  Polymarket condition-ID stamps are proven from the venue payload.
+- Reads coverage is persisted only over equivalent, proven series scope.
+  Empty catalogs or unproven venue-native identities are persisted as
+  `scope_unproven` exclusions and finalize the attempt as partial, never as
+  completed parity.
+- Router-only mode still fetches both exact catalogs to build anchored Router
+  calls, then persists clusters and direct edges. It does not save or claim a
+  reads-coverage result.
+- Reads and Router execute concurrently and settle independently: one failure
+  yields partial while the other continues; both failures yield failed.
+- All writes remain under `pmxt_*`; this path does not connect to execution,
+  alerts, opportunities, positions, or paper trading.
+
+This production shadow is an exact market-catalog/coverage and anchored-Router
+comparison. It does **not** supersede the dry-run harness findings above, does
+not claim order-book parity, and does not turn PMXT into an authoritative
+scanner input.
+
 ## Follow-ups
-- Query PMXT by series scope (not free text) to measure true coverage parity
-  on KXBTCD; the hosted Router (`fetch_matched_market_clusters`) is the
-  intended path for cross-venue discovery.
-- The production PMXT shadow runner (`scanner.module.ts`) is still stubbed
-  (no-op fetch callbacks); wiring the hosted client + adapter into it is a
-  separate change with its own blast-radius review.
-- Raise the hosted fetch limit / fetch books once a higher API tier is
-  available (current tier 429s on limit>20 or per-market book fetches).
+- Run the dedicated shadow over a frozen observation window and report measured
+  equivalent-scope coverage and Router projection quality; do not combine it
+  with the earlier global/free-text cohorts.
+- Raise hosted limits or add order-book comparison only after the current API
+  tier and request budget can support it without 429-biased sampling.

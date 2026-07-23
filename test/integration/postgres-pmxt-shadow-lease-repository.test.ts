@@ -45,6 +45,9 @@ describe("PostgresPmxtShadowLeaseRepository integration", () => {
       nextShadowRunId: () => "00000000-0000-4000-8000-00000000dead"
     });
 
+    expect(claim?.shadowRunAttemptId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+    );
     expect(claim?.authoritativeScanRunId).toBe("00000000-0000-4000-8000-000000000010");
     expect(claim?.attemptNumber).toBe(1);
     expect(claim?.leasedUntil).toBe("2026-07-15T11:01:00.000Z");
@@ -114,5 +117,90 @@ describe("PostgresPmxtShadowLeaseRepository integration", () => {
 
     expect(retry?.authoritativeScanRunId).toBe(scanId);
     expect(retry?.attemptNumber).toBe(2);
+  });
+
+  it("does not reclaim completed or sample-excluded attempts", async () => {
+    const completedScanId = "00000000-0000-4000-8000-000000000060";
+    const excludedScanId = "00000000-0000-4000-8000-000000000061";
+    await seedCompletedScan(completedScanId, "2026-07-15T10:00:00Z");
+    await seedCompletedScan(excludedScanId, "2026-07-15T10:01:00Z");
+
+    const completed = await repository.claimOldestEligibleScan({
+      workerId: "worker-1",
+      leaseDurationMs: 60_000,
+      now: "2026-07-15T11:00:00.000Z"
+    });
+    await repository.finalizeAttempt({
+      shadowRunAttemptId: completed!.shadowRunAttemptId,
+      workerId: "worker-1",
+      status: "completed",
+      now: "2026-07-15T11:00:30.000Z"
+    });
+    const excluded = await repository.claimOldestEligibleScan({
+      workerId: "worker-1",
+      leaseDurationMs: 60_000,
+      now: "2026-07-15T11:00:00.001Z"
+    });
+    await repository.finalizeAttempt({
+      shadowRunAttemptId: excluded!.shadowRunAttemptId,
+      workerId: "worker-1",
+      status: "sample_excluded",
+      retryReason: "sample_rate_excluded",
+      now: "2026-07-15T11:00:30.001Z"
+    });
+
+    const retry = await repository.claimOldestEligibleScan({
+      workerId: "worker-2",
+      leaseDurationMs: 60_000,
+      now: "2026-07-15T11:01:00.001Z"
+    });
+
+    expect(retry).toBeUndefined();
+  });
+
+  it("allows retries for failed and partial attempts and enforces worker ownership", async () => {
+    const scanId = "00000000-0000-4000-8000-000000000070";
+    await seedCompletedScan(scanId, "2026-07-15T10:00:00Z");
+    const first = await repository.claimOldestEligibleScan({
+      workerId: "worker-1",
+      leaseDurationMs: 60_000,
+      now: "2026-07-15T11:00:00.000Z"
+    });
+
+    await expect(
+      repository.finalizeAttempt({
+        shadowRunAttemptId: first!.shadowRunAttemptId,
+        workerId: "worker-2",
+        status: "failed",
+        now: "2026-07-15T11:00:30.000Z"
+      })
+    ).rejects.toThrow("does not own");
+    await repository.finalizeAttempt({
+      shadowRunAttemptId: first!.shadowRunAttemptId,
+      workerId: "worker-1",
+      status: "failed",
+      retryReason: "boom",
+      now: "2026-07-15T11:00:30.000Z"
+    });
+    const second = await repository.claimOldestEligibleScan({
+      workerId: "worker-2",
+      leaseDurationMs: 60_000,
+      now: "2026-07-15T11:02:01.000Z"
+    });
+    await repository.finalizeAttempt({
+      shadowRunAttemptId: second!.shadowRunAttemptId,
+      workerId: "worker-2",
+      status: "partial",
+      retryReason: "retries_exhausted",
+      now: "2026-07-15T11:02:30.000Z"
+    });
+    const third = await repository.claimOldestEligibleScan({
+      workerId: "worker-3",
+      leaseDurationMs: 60_000,
+      now: "2026-07-15T11:07:00.000Z"
+    });
+
+    expect(second?.attemptNumber).toBe(2);
+    expect(third?.attemptNumber).toBe(3);
   });
 });
