@@ -170,6 +170,7 @@ describe("PMXT market mapper", () => {
     const unified = {
       marketId: "catalog-id",
       sourceExchange: null,
+      slug: "KXBTCD-26JUL2217-T67500",
       outcomes: [
         { outcomeId: "a", label: "$67,500 or above" },
         { outcomeId: "b", label: "Not $67,500 or above" },
