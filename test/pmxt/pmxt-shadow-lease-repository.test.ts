@@ -131,11 +131,11 @@ describe("InMemoryPmxtShadowLeaseRepository", () => {
         now: "2026-07-15T11:00:30.000Z"
       });
 
-      // Wait past the backoff (2^1 * 60s = 120s)
+      // Wait past the backoff (2^1 * 60s = 120s from finalize time 11:00:30)
       const retry = await repo.claimOldestEligibleScan({
         workerId: "worker-2",
         leaseDurationMs: 60_000,
-        now: "2026-07-15T11:02:01.000Z"
+        now: "2026-07-15T11:02:31.000Z"
       });
 
       expect(retry?.attemptNumber).toBe(2);
@@ -185,8 +185,8 @@ describe("InMemoryPmxtShadowLeaseRepository", () => {
     const attempts = await repo.listAttempts("scan-a");
     expect(attempts[0].status).toBe("failed");
     expect(attempts[0].nextRetryAt).toBeDefined();
-    // 2^1 * 60s = 120s backoff from claimedAt
-    expect(attempts[0].nextRetryAt).toBe("2026-07-15T11:02:00.000Z");
+    // 2^1 * 60s = 120s backoff from now (finalize time)
+    expect(attempts[0].nextRetryAt).toBe("2026-07-15T11:02:30.000Z");
   });
 
   it("does not claim a scan whose next_retry_at has not elapsed", async () => {
@@ -230,11 +230,11 @@ describe("InMemoryPmxtShadowLeaseRepository", () => {
       now: "2026-07-15T11:00:30.000Z"
     });
 
-    // next_retry_at = 11:02:00, try at 11:02:01 — should succeed
+    // next_retry_at = 11:02:30 (120s from finalize time 11:00:30), try at 11:02:31 — should succeed
     const retry = await repo.claimOldestEligibleScan({
       workerId: "worker-2",
       leaseDurationMs: 60_000,
-      now: "2026-07-15T11:02:01.000Z"
+      now: "2026-07-15T11:02:31.000Z"
     });
     expect(retry?.attemptNumber).toBe(2);
   });

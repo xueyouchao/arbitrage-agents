@@ -145,7 +145,7 @@ export class PostgresPmxtShadowLeaseRepository implements PmxtShadowLeaseReposit
         if (attempt_number >= max_attempts) {
           finalStatus = "exhausted";
         } else {
-          nextRetryAt = computeNextRetryAt(attempt_number, claimed_at.toISOString());
+          nextRetryAt = computeNextRetryAt(attempt_number, nowParam);
         }
       }
 

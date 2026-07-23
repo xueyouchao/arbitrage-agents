@@ -86,7 +86,7 @@ export class InMemoryPmxtShadowLeaseRepository implements PmxtShadowLeaseReposit
         if (attempt.attemptNumber >= attempt.maxAttempts) {
           attempt.status = "exhausted";
         } else {
-          attempt.nextRetryAt = computeNextRetryAt(attempt.attemptNumber, attempt.claimedAt);
+          attempt.nextRetryAt = computeNextRetryAt(attempt.attemptNumber, now);
         }
       }
       return;
@@ -109,10 +109,12 @@ function isRetryable(status: ShadowAttemptStatus): boolean {
 
 /**
  * Deterministic exponential backoff: 2^attempt * 60s, capped at 1 hour.
+ * Anchored to `now` (finalize time) so long-running attempts still get
+ * the full backoff window after completion.
  */
-export function computeNextRetryAt(attemptNumber: number, claimedAt: string): string {
+export function computeNextRetryAt(attemptNumber: number, now: string): string {
   const backoffMs = Math.min(Math.pow(2, attemptNumber) * 60_000, 3_600_000);
-  return new Date(new Date(claimedAt).getTime() + backoffMs).toISOString();
+  return new Date(new Date(now).getTime() + backoffMs).toISOString();
 }
 
 function toClaim(attempt: ShadowAttempt): ShadowLeaseClaim {
