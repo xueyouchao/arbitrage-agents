@@ -42,7 +42,7 @@ export function mapPmxtMarketToSnapshot(
   capturedAt: string,
   stamp?: PmxtMarketMappingStamp
 ): PmxtMarketSnapshot {
-  const catalogMarketId = readIdentity(market.marketId ?? market.id);
+  const catalogMarketId = readIdentity(market.marketId) ?? readIdentity(market.id);
   if (!catalogMarketId) {
     throw new Error("PMXT market id is missing");
   }
@@ -54,7 +54,7 @@ export function mapPmxtMarketToSnapshot(
   }
 
   const outcomeIds = market.outcomes.map((outcome) => {
-    const outcomeId = outcome && readIdentity(outcome.outcomeId ?? outcome.id);
+    const outcomeId = outcome && (readIdentity(outcome.outcomeId) ?? readIdentity(outcome.id));
     if (!outcomeId) {
       throw new Error("PMXT outcome identity is ambiguous");
     }
@@ -120,7 +120,7 @@ function verifyNativeIdentity(market: PmxtMarket, stamp: PmxtMarketMappingStamp)
     return value;
   }
   if (stamp.sourceExchange === "polymarket" && stamp.nativeMarketIdentity.kind === "conditionId") {
-    if (readIdentity(market.contractAddress) !== value) {
+    if (readIdentity(market.contractAddress)?.toLowerCase() !== value.toLowerCase()) {
       throw new Error("PMXT Polymarket conditionId is not proven by the market payload");
     }
     return value;
