@@ -180,7 +180,11 @@ export function comparePmxtCoverageWithinEquivalentScope(
   if (authoritativeScope.length === 0 || pmxtScope.length === 0) {
     return { outcome: "excluded", cause: "scope_unproven", ...excluded };
   }
-  if (JSON.stringify(authoritativeScope) !== JSON.stringify(pmxtScope)) {
+  // Element-wise comparison of normalized scope arrays.
+  const scopeMismatch =
+    authoritativeScope.length !== pmxtScope.length ||
+    authoritativeScope.some((v, i) => v !== pmxtScope[i]);
+  if (scopeMismatch) {
     return { outcome: "excluded", cause: "scope_mismatch", ...excluded };
   }
   if (!input.pmxtScopedNativeIds) {
@@ -279,7 +283,7 @@ function tryMapPmxtToVenue(
   }
 
   const stampedNativeId =
-    pmxtMarket.catalogMarketId && pmxtMarket.sourceExchange
+    pmxtMarket.catalogMarketId && pmxtMarket.sourceExchange && pmxtMarket.venueMarketId
       ? normalizedId(pmxtMarket.venueMarketId)
       : undefined;
   const venueNativeId =
