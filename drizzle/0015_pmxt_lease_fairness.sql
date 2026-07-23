@@ -4,3 +4,4 @@
 -- terminal and never reclaimed.
 ALTER TABLE "pmxt_shadow_run_attempts" ADD COLUMN "next_retry_at" timestamp with time zone;
 ALTER TABLE "pmxt_shadow_run_attempts" ADD COLUMN "max_attempts" integer NOT NULL DEFAULT 5;
+CREATE INDEX "pmxt_shadow_run_attempts_next_retry_at_idx" ON "pmxt_shadow_run_attempts" ("next_retry_at");

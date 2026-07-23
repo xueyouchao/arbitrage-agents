@@ -197,7 +197,7 @@ function isRetryable(status: ShadowAttemptStatus): boolean {
 /**
  * Deterministic exponential backoff: 2^attempt * 60s, capped at 1 hour.
  */
-function computeNextRetryAt(attemptNumber: number, claimedAt: string): string {
+function computeNextRetryAt(attemptNumber: number, now: string): string {
   const backoffMs = Math.min(Math.pow(2, attemptNumber) * 60_000, 3_600_000);
-  return new Date(new Date(claimedAt).getTime() + backoffMs).toISOString();
+  return new Date(new Date(now).getTime() + backoffMs).toISOString();
 }
