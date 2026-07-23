@@ -74,7 +74,10 @@ export class PmxtProductionShadowRun {
     });
     // Share mapped catalogs across tracks — fetch once, map once.
     let mappedPromise: Promise<MappedCatalogs> | undefined;
-    const mapped = () => mappedPromise ??= catalogs().then((c) => this.mapCatalogs(c));
+    const mapped = () => mappedPromise ??= catalogs().then((c) => this.mapCatalogs(c)).catch((e) => {
+      mappedPromise = undefined; // Do not cache a rejection — allow retry.
+      throw e;
+    });
     const mode = trackMode(this.deps.readsEnabled, this.deps.routerEnabled);
 
     // Prove scope from authoritative sourcePayload, not from config alone.
