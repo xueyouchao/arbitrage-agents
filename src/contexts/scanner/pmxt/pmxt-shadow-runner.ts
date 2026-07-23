@@ -6,8 +6,21 @@ import { PmxtShadowRun, PmxtShadowRunResult } from "./pmxt-shadow-run";
 import { PmxtMarketSnapshot } from "../../venues/infrastructure/pmxt/pmxt-market-mapper";
 import { PMXT_SHADOW_RUNNER } from "../scanner-tokens";
 
+/** Structural contract satisfied by PmxtProductionShadowRunResult (PR3). */
+interface ShadowRunResultLike {
+  status: "completed" | "partial" | "failed" | "skipped";
+  reason?: string;
+}
+
+/** Structural contract satisfied by PmxtShadowTrackIdentity (PR3). */
+interface ShadowTrackIdentityLike {
+  authoritativeScanRunId: string;
+  shadowRunId: string;
+  shadowRunAttemptId: string;
+}
+
 export interface PmxtShadowAdmissionResult {
-  status: "disabled" | "skipped" | "claimed";
+  status: "disabled" | "skipped" | "claimed" | "failed";
   shadowRunId?: string;
   authoritativeScanRunId?: string;
   attemptNumber?: number;
@@ -20,10 +33,14 @@ export interface PmxtShadowRunnerDeps {
   config: AppConfig;
   leaseRepository: PmxtShadowLeaseRepository;
   rateLimiter: PmxtShadowRateLimiter;
-  shadowRun: PmxtShadowRun;
-  fetchAuthoritativeMarkets: () => Promise<PmxtMarketSnapshot[]>;
+  productionRun?: {
+    runClaimedShadow(identity: ShadowTrackIdentityLike): Promise<ShadowRunResultLike>;
+  };
+  shadowRun?: PmxtShadowRun;
+  fetchAuthoritativeMarkets?: (authoritativeScanRunId: string) => Promise<PmxtMarketSnapshot[]>;
   workerId: string;
   leaseDurationMs?: number;
+  maxAttempts?: number;
   nextShadowRunId?(): string;
   clock?: () => string;
 }
@@ -65,14 +82,18 @@ export class PmxtShadowRunner {
     }
 
     const leaseDurationMs = this.deps.leaseDurationMs ?? 5 * 60 * 1000;
-    const claim = await this.deps.leaseRepository.claimOldestEligibleScan({
-      workerId: this.deps.workerId,
-      leaseDurationMs,
-      now: startedAt,
-      nextShadowRunId: this.deps.nextShadowRunId
-    });
-
-    this.deps.rateLimiter.release();
+    let claim;
+    try {
+      claim = await this.deps.leaseRepository.claimOldestEligibleScan({
+        workerId: this.deps.workerId,
+        leaseDurationMs,
+        now: startedAt,
+        nextShadowRunId: this.deps.nextShadowRunId,
+        maxAttempts: this.deps.maxAttempts
+      });
+    } finally {
+      this.deps.rateLimiter.release();
+    }
 
     if (!claim) {
       return {
@@ -84,6 +105,13 @@ export class PmxtShadowRunner {
     }
 
     if (!isScanIncludedInSample(claim.authoritativeScanRunId, this.deps.config)) {
+      await this.deps.leaseRepository.finalizeAttempt({
+        shadowRunAttemptId: claim.shadowRunAttemptId,
+        workerId: this.deps.workerId,
+        status: "sample_excluded",
+        retryReason: "sample_rate_excluded",
+        now: this.clock()
+      });
       return {
         status: "skipped",
         shadowRunId: claim.shadowRunId,
@@ -95,9 +123,47 @@ export class PmxtShadowRunner {
       };
     }
 
-    // Fetch authoritative markets and execute the shadow run
-    const markets = await this.deps.fetchAuthoritativeMarkets();
-    const runResult = await this.deps.shadowRun.execute(markets);
+    let runResult: PmxtShadowRunResult | ShadowRunResultLike;
+    try {
+      if (this.deps.productionRun) {
+        runResult = await this.deps.productionRun.runClaimedShadow({
+          authoritativeScanRunId: claim.authoritativeScanRunId,
+          shadowRunId: claim.shadowRunId,
+          shadowRunAttemptId: claim.shadowRunAttemptId,
+        });
+      } else {
+        if (!this.deps.shadowRun || !this.deps.fetchAuthoritativeMarkets) {
+          throw new Error("PMXT shadow runner has no production run");
+        }
+        const markets = await this.deps.fetchAuthoritativeMarkets(claim.authoritativeScanRunId);
+        runResult = await this.deps.shadowRun.execute(markets);
+      }
+    } catch (error) {
+      await this.deps.leaseRepository.finalizeAttempt({
+        shadowRunAttemptId: claim.shadowRunAttemptId,
+        workerId: this.deps.workerId,
+        status: "failed",
+        retryReason: error instanceof Error ? error.message : String(error),
+        now: this.clock()
+      });
+      return {
+        status: "failed",
+        shadowRunId: claim.shadowRunId,
+        authoritativeScanRunId: claim.authoritativeScanRunId,
+        attemptNumber: claim.attemptNumber,
+        startedAt,
+        completedAt: this.clock(),
+        reason: error instanceof Error ? error.message : String(error)
+      };
+    }
+
+    await this.deps.leaseRepository.finalizeAttempt({
+      shadowRunAttemptId: claim.shadowRunAttemptId,
+      workerId: this.deps.workerId,
+      status: runResult.status === "skipped" ? "partial" : runResult.status,
+      retryReason: runResult.reason,
+      now: this.clock()
+    });
 
     return {
       status: "claimed",

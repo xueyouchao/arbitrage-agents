@@ -1,9 +1,35 @@
+export type ShadowAttemptStatus =
+  | "claimed"
+  | "completed"
+  | "sample_excluded"
+  | "partial"
+  | "failed"
+  | "exhausted";
+
 export interface ShadowLeaseClaim {
+  shadowRunAttemptId: string;
   authoritativeScanRunId: string;
   shadowRunId: string;
   attemptNumber: number;
   claimedAt: string;
   leasedUntil: string;
+}
+
+export interface ShadowAttempt extends ShadowLeaseClaim {
+  workerId: string;
+  status: ShadowAttemptStatus;
+  retryReason?: string;
+  nextRetryAt?: string;
+  maxAttempts: number;
+}
+
+export interface FinalizeShadowAttemptOptions {
+  shadowRunAttemptId: string;
+  workerId: string;
+  status: Exclude<ShadowAttemptStatus, "claimed">;
+  retryReason?: string;
+  /** Current time for lease-expiry fencing. Defaults to new Date().toISOString(). */
+  now?: string;
 }
 
 export interface ClaimLeaseOptions {
@@ -15,6 +41,11 @@ export interface ClaimLeaseOptions {
    * repository implementation mints one.
    */
   nextShadowRunId?(): string;
+  /**
+   * Maximum number of attempts before the scan is exhausted.
+   * Defaults to 5 when omitted.
+   */
+  maxAttempts?: number;
 }
 
 export interface PmxtShadowLeaseRepository {
@@ -29,4 +60,9 @@ export interface PmxtShadowLeaseRepository {
    * authoritative scan must never be claimed by two workers.
    */
   claimOldestEligibleScan(options: ClaimLeaseOptions): Promise<ShadowLeaseClaim | undefined>;
+
+  /** Finalize only an attempt still claimed by the supplied worker. */
+  finalizeAttempt(options: FinalizeShadowAttemptOptions): Promise<void>;
+
+  listAttempts(authoritativeScanRunId: string): Promise<readonly ShadowAttempt[]>;
 }
