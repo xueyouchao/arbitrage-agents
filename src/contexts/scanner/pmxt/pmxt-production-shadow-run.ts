@@ -273,8 +273,8 @@ function proveAuthoritativeScope(
 
   for (const market of authoritativeMarkets) {
     if (market.venue === "kalshi" && !kalshiProven) {
-      const ticker = market.venueMarketId.trim().toLowerCase();
-      if (ticker.startsWith(kalshiPrefix)) {
+      const ticker = market.venueMarketId?.trim().toLowerCase() ?? "";
+      if (ticker && ticker.startsWith(kalshiPrefix)) {
         kalshiProven = true;
       }
     }
