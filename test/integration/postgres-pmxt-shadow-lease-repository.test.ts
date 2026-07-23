@@ -182,22 +182,24 @@ describe("PostgresPmxtShadowLeaseRepository integration", () => {
       retryReason: "boom",
       now: "2026-07-15T11:00:30.000Z"
     });
+    // Backoff from finalize time (11:00:30): 2^1 * 60s = 120s → next_retry_at = 11:02:30
     const second = await repository.claimOldestEligibleScan({
       workerId: "worker-2",
       leaseDurationMs: 60_000,
-      now: "2026-07-15T11:02:01.000Z"
+      now: "2026-07-15T11:02:31.000Z"
     });
     await repository.finalizeAttempt({
       shadowRunAttemptId: second!.shadowRunAttemptId,
       workerId: "worker-2",
       status: "partial",
       retryReason: "retries_exhausted",
-      now: "2026-07-15T11:02:30.000Z"
+      now: "2026-07-15T11:02:31.000Z"
     });
+    // Backoff from second finalize (11:02:31): 2^2 * 60s = 240s → next_retry_at = 11:06:31
     const third = await repository.claimOldestEligibleScan({
       workerId: "worker-3",
       leaseDurationMs: 60_000,
-      now: "2026-07-15T11:07:00.000Z"
+      now: "2026-07-15T11:06:32.000Z"
     });
 
     expect(second?.attemptNumber).toBe(2);
