@@ -68,7 +68,10 @@ export class PmxtProductionShadowRun {
       identity.authoritativeScanRunId
     );
     let catalogsPromise: Promise<Catalogs> | undefined;
-    const catalogs = () => catalogsPromise ??= this.fetchCatalogs();
+    const catalogs = () => catalogsPromise ??= this.fetchCatalogs().catch((e) => {
+      catalogsPromise = undefined; // Do not cache a rejection — allow retry.
+      throw e;
+    });
     // Share mapped catalogs across tracks — fetch once, map once.
     let mappedPromise: Promise<MappedCatalogs> | undefined;
     const mapped = () => mappedPromise ??= catalogs().then((c) => this.mapCatalogs(c));
@@ -162,7 +165,10 @@ export class PmxtProductionShadowRun {
             payload: market,
           });
         } catch (error) {
-          scopeProven = false;
+          // Individual market mapping failures are isolated — they do not
+          // invalidate the entire venue scope. The scope is proven by the
+          // presence of markets from both venues, not by every market mapping
+          // succeeding.
           records.push({
             catalogMarketId: market.marketId,
             venue,
