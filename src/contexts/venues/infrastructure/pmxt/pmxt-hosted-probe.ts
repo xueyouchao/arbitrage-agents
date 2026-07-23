@@ -10,6 +10,7 @@ export interface PmxtHostedProbeConfig {
   hostedBaseUrl?: string;
   pmxtShadowEnabled: boolean;
   pmxtShadowReadsEnabled: boolean;
+  venue?: "kalshi" | "polymarket";
 }
 
 export interface PmxtHostedProbeDeps {
@@ -36,9 +37,10 @@ export async function runPmxtHostedProbe(
       hostedBaseUrl: config.hostedBaseUrl ?? "",
       pmxtShadowEnabled: config.pmxtShadowEnabled,
       pmxtShadowReadsEnabled: config.pmxtShadowReadsEnabled,
+      venue: config.venue ?? "kalshi",
       autoStartServer: false,
     },
-    { newExchange: deps.newExchange ?? require("pmxtjs").Mock }
+    deps.newExchange ? { newExchange: deps.newExchange } : undefined
   );
 
   const venueClient = new PmxtHostedVenueClient({

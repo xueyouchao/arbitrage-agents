@@ -208,7 +208,27 @@ const AppConfigSchema = z.object({
   t1ExitSellFeeRate: z.coerce.number().min(0).max(1).default(0.01),
   t1ExitEstimatedSpreadRate: z.coerce.number().min(0).max(1).default(0.01),
   t1ExitEstimatedSlippagePerShare: z.coerce.number().min(0).max(1).default(0.005)
-}).and(PmxtShadowConfigSchema);
+}).and(PmxtShadowConfigSchema).superRefine((config, context) => {
+    // Production HTTPS enforcement: hosted base URL must use https in production.
+    if (
+      config.nodeEnv === "production" &&
+      config.pmxtHostedBaseUrl &&
+      config.pmxtHostedBaseUrl.length > 0
+    ) {
+      let url: URL;
+      try {
+        url = new URL(config.pmxtHostedBaseUrl);
+      } catch {
+        return; // already caught by hostedHttpUrl validator
+      }
+      if (url.protocol !== "https:") {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "PMXT_HOSTED_BASE_URL must use HTTPS in production (NODE_ENV=production)"
+        });
+      }
+    }
+  });
 
 export type AppConfig = z.infer<typeof AppConfigSchema>;
 
