@@ -87,7 +87,10 @@ describe("PmxtShadowRunner", () => {
     expect(result.status).toBe("claimed");
     expect(result.authoritativeScanRunId).toBe("00000000-0000-4000-8000-000000000010");
     expect(result.shadowRunId).toBe("00000000-0000-4000-8000-00000000aaaa");
-    expect(fetchAuthoritativeMarkets).toHaveBeenCalled();
+    expect(fetchAuthoritativeMarkets).toHaveBeenCalledWith(
+      "00000000-0000-4000-8000-000000000010"
+    );
+    expect((await repo.listAttempts(result.authoritativeScanRunId!))[0].status).toBe("completed");
   });
 
   it("skips when no eligible scan is available", async () => {
@@ -128,6 +131,101 @@ describe("PmxtShadowRunner", () => {
 
     expect(result.status).toBe("skipped");
     expect(result.reason).toBe("sample_rate_excluded");
+    const attempts = await repo.listAttempts(result.authoritativeScanRunId!);
+    expect(attempts[0].status).toBe("sample_excluded");
+  });
+
+  it.each([
+    { runStatus: "partial", expectedStatus: "partial" },
+    { runStatus: "failed", expectedStatus: "failed" }
+  ] as const)("durably finalizes a $runStatus shadow result", async ({ runStatus, expectedStatus }) => {
+    const config = baseConfig();
+    const repo = new InMemoryPmxtShadowLeaseRepository([
+      { scanRunId: "00000000-0000-4000-8000-000000000010", completedAt: "2026-07-15T10:00:00Z" }
+    ]);
+    const shadowRun = makeShadowRun(config);
+    vi.spyOn(shadowRun, "execute").mockResolvedValue({
+      status: runStatus,
+      reason: "retries_exhausted",
+      books: [],
+      comparisons: [],
+      receiptTimestamp: "2026-07-15T12:00:00.000Z",
+      requestCount: 1
+    });
+    const runner = new PmxtShadowRunner({
+      config,
+      leaseRepository: repo,
+      rateLimiter: makeLimiter(config),
+      shadowRun,
+      fetchAuthoritativeMarkets: vi.fn().mockResolvedValue([]),
+      workerId: "worker-1",
+      clock: () => "2026-07-15T12:00:00.000Z"
+    });
+
+    const result = await runner.runOnce();
+
+    const attempts = await repo.listAttempts(result.authoritativeScanRunId!);
+    expect(attempts[0]).toMatchObject({ status: expectedStatus, retryReason: "retries_exhausted" });
+  });
+
+  it("durably finalizes a production run result from the claimed identity", async () => {
+    const config = baseConfig();
+    const repo = new InMemoryPmxtShadowLeaseRepository([
+      { scanRunId: "00000000-0000-4000-8000-000000000010", completedAt: "2026-07-15T10:00:00Z" }
+    ]);
+    const runClaimedShadow = vi.fn().mockResolvedValue({
+      status: "partial",
+      reason: "reads: scope_unproven",
+      tracks: {
+        reads: { status: "completed" },
+        router: { status: "not_requested" },
+      },
+    });
+    const runner = new PmxtShadowRunner({
+      config,
+      leaseRepository: repo,
+      rateLimiter: makeLimiter(config),
+      productionRun: { runClaimedShadow },
+      workerId: "worker-1",
+      nextShadowRunId: () => "00000000-0000-4000-8000-00000000aaaa",
+      clock: () => "2026-07-15T12:00:00.000Z"
+    });
+
+    const result = await runner.runOnce();
+
+    expect(runClaimedShadow).toHaveBeenCalledWith({
+      authoritativeScanRunId: "00000000-0000-4000-8000-000000000010",
+      shadowRunId: "00000000-0000-4000-8000-00000000aaaa",
+      shadowRunAttemptId: expect.any(String),
+    });
+    const attempts = await repo.listAttempts(result.authoritativeScanRunId!);
+    expect(attempts[0]).toMatchObject({ status: "partial", retryReason: "reads: scope_unproven" });
+  });
+
+  it("marks the claimed attempt failed when execution throws and returns failed admission", async () => {
+    const config = baseConfig();
+    const repo = new InMemoryPmxtShadowLeaseRepository([
+      { scanRunId: "00000000-0000-4000-8000-000000000010", completedAt: "2026-07-15T10:00:00Z" }
+    ]);
+    const shadowRun = makeShadowRun(config);
+    vi.spyOn(shadowRun, "execute").mockRejectedValue(new Error("boom"));
+    const runner = new PmxtShadowRunner({
+      config,
+      leaseRepository: repo,
+      rateLimiter: makeLimiter(config),
+      shadowRun,
+      fetchAuthoritativeMarkets: vi.fn().mockResolvedValue([]),
+      workerId: "worker-1",
+      clock: () => "2026-07-15T12:00:00.000Z"
+    });
+
+    const result = await runner.runOnce();
+
+    expect(result.status).toBe("failed");
+    expect(result.reason).toBe("boom");
+
+    const attempts = await repo.listAttempts("00000000-0000-4000-8000-000000000010");
+    expect(attempts[0]).toMatchObject({ status: "failed", retryReason: "boom" });
   });
 });
 

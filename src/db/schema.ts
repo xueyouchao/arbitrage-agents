@@ -309,12 +309,15 @@ export const pmxtShadowRunAttempts = pgTable(
     workerId: text("worker_id").notNull(),
     status: text("status").notNull().default("claimed"),
     retryReason: text("retry_reason"),
+    nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
+    maxAttempts: integer("max_attempts").notNull().default(5),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
     index("pmxt_shadow_attempts_scan_idx").on(table.authoritativeScanRunId),
     index("pmxt_shadow_attempts_worker_idx").on(table.workerId),
     index("pmxt_shadow_attempts_leased_until_idx").on(table.leasedUntil),
+    index("pmxt_shadow_attempts_next_retry_idx").on(table.nextRetryAt),
     uniqueIndex("pmxt_shadow_attempts_scan_attempt_unique").on(table.authoritativeScanRunId, table.attemptNumber)
   ]
 );
@@ -417,6 +420,98 @@ export const pmxtShadowComparisons = pgTable(
       table.shadowRunId,
       table.shadowRunAttemptId,
       table.stage
+    )
+  ]
+);
+
+export const pmxtShadowTrackRuns = pgTable(
+  "pmxt_shadow_track_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    authoritativeScanRunId: uuid("authoritative_scan_run_id")
+      .references(() => scanRuns.id, { onDelete: "cascade" })
+      .notNull(),
+    shadowRunId: uuid("shadow_run_id").notNull(),
+    shadowRunAttemptId: uuid("shadow_run_attempt_id")
+      .references(() => pmxtShadowRunAttempts.id, { onDelete: "cascade" })
+      .notNull(),
+    track: text("track").notNull(),
+    status: text("status").notNull(),
+    cause: text("cause").notNull(),
+    scope: jsonb("scope").notNull().default({}),
+    authoritativeReceiptAt: timestamp("authoritative_receipt_at", { withTimezone: true }),
+    pmxtReceiptAt: timestamp("pmxt_receipt_at", { withTimezone: true }),
+    metadata: jsonb("metadata").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    index("pmxt_shadow_track_runs_attempt_idx").on(table.shadowRunAttemptId),
+    uniqueIndex("pmxt_shadow_track_runs_attempt_track_unique").on(table.shadowRunAttemptId, table.track)
+  ]
+);
+
+export const pmxtShadowMarkets = pgTable(
+  "pmxt_shadow_markets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shadowTrackRunId: uuid("shadow_track_run_id")
+      .references(() => pmxtShadowTrackRuns.id, { onDelete: "cascade" })
+      .notNull(),
+    catalogMarketId: text("catalog_market_id").notNull(),
+    venue: text("venue"),
+    venueNativeId: text("venue_native_id"),
+    eligible: boolean("eligible").notNull(),
+    exclusionReason: text("exclusion_reason"),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull(),
+    payload: jsonb("payload").notNull()
+  },
+  (table) => [
+    index("pmxt_shadow_markets_track_run_idx").on(table.shadowTrackRunId),
+    uniqueIndex("pmxt_shadow_markets_track_catalog_unique").on(table.shadowTrackRunId, table.catalogMarketId)
+  ]
+);
+
+export const pmxtShadowRouterClusters = pgTable(
+  "pmxt_shadow_router_clusters",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shadowTrackRunId: uuid("shadow_track_run_id")
+      .references(() => pmxtShadowTrackRuns.id, { onDelete: "cascade" })
+      .notNull(),
+    clusterId: text("cluster_id").notNull(),
+    payload: jsonb("payload").notNull()
+  },
+  (table) => [
+    index("pmxt_shadow_router_clusters_track_run_idx").on(table.shadowTrackRunId),
+    uniqueIndex("pmxt_shadow_router_clusters_track_cluster_unique").on(table.shadowTrackRunId, table.clusterId)
+  ]
+);
+
+export const pmxtShadowRouterEdges = pgTable(
+  "pmxt_shadow_router_edges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shadowTrackRunId: uuid("shadow_track_run_id")
+      .references(() => pmxtShadowTrackRuns.id, { onDelete: "cascade" })
+      .notNull(),
+    clusterId: text("cluster_id").notNull(),
+    edgeOrdinal: integer("edge_ordinal").notNull(),
+    marketAId: text("market_a_id").notNull(),
+    marketBId: text("market_b_id").notNull(),
+    relation: text("relation").notNull(),
+    confidence: numeric("confidence").notNull(),
+    eligible: boolean("eligible").notNull(),
+    exclusionReason: text("exclusion_reason"),
+    kalshiNativeId: text("kalshi_native_id"),
+    polymarketNativeId: text("polymarket_native_id"),
+    payload: jsonb("payload").notNull()
+  },
+  (table) => [
+    index("pmxt_shadow_router_edges_track_run_idx").on(table.shadowTrackRunId),
+    uniqueIndex("pmxt_shadow_router_edges_track_ordinal_unique").on(
+      table.shadowTrackRunId,
+      table.clusterId,
+      table.edgeOrdinal
     )
   ]
 );
