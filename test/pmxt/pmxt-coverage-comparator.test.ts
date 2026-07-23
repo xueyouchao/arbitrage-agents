@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   comparePmxtCoverage,
+  comparePmxtCoverageWithinEquivalentScope,
   PmxtCoverageComparisonInput,
 } from "../../src/contexts/scanner/pmxt/pmxt-coverage-comparator";
 import { PmxtMarketSnapshot } from "../../src/contexts/venues/infrastructure/pmxt/pmxt-market-mapper";
@@ -682,5 +683,120 @@ describe("PMXT coverage comparator", () => {
     // KXBTCD-25AUG26 is in authoritative but not in PMXT → authoritative-only
     expect(result.kalshi.authoritativeOnlyIds).toHaveLength(1);
     expect(result.kalshi.overlapCount).toBe(1);
+  });
+});
+
+describe("PMXT equivalent-scope coverage", () => {
+  const equivalentScope = {
+    authoritative: { kind: "series" as const, values: ["KXBTCD"] },
+    pmxt: { kind: "series" as const, values: ["KXBTCD"] },
+  };
+
+  it("excludes a scope mismatch without claiming parity", () => {
+    const result = comparePmxtCoverageWithinEquivalentScope({
+      pmxtMarkets: [pmxtSnapshot("pmxt-1", "kalshi", "KXBTCD-25JUL26")],
+      authoritativeKalshiMarkets: [kalshiSnapshot("KXBTCD-25JUL26")],
+      authoritativePolymarketMarkets: [],
+      scope: {
+        authoritative: { kind: "series", values: ["KXBTCD"] },
+        pmxt: { kind: "series", values: ["KXETHD"] },
+      },
+    });
+
+    expect(result).toMatchObject({ outcome: "excluded", cause: "scope_mismatch" });
+    expect(result.coverage).toBeUndefined();
+  });
+
+  it("fails closed when an empty scope would look like zero-market parity", () => {
+    const result = comparePmxtCoverageWithinEquivalentScope({
+      pmxtMarkets: [],
+      authoritativeKalshiMarkets: [],
+      authoritativePolymarketMarkets: [],
+      scope: {
+        authoritative: { kind: "series", values: [] },
+        pmxt: { kind: "series", values: [] },
+      },
+    });
+
+    expect(result).toMatchObject({ outcome: "excluded", cause: "scope_unproven" });
+    expect(result.coverage).toBeUndefined();
+  });
+
+  it("filters PMXT records to proven native IDs before computing coverage", () => {
+    const result = comparePmxtCoverageWithinEquivalentScope({
+      pmxtMarkets: [
+        pmxtSnapshot("pmxt-in", "kalshi", "KXBTCD-25JUL26"),
+        pmxtSnapshot("pmxt-out", "kalshi", "NBA-FINALS"),
+      ],
+      authoritativeKalshiMarkets: [kalshiSnapshot("KXBTCD-25JUL26")],
+      authoritativePolymarketMarkets: [],
+      scope: equivalentScope,
+      pmxtScopedNativeIds: {
+        kalshi: ["KXBTCD-25JUL26"],
+        polymarket: [],
+      },
+    });
+
+    expect(result.outcome).toBe("compared");
+    expect(result.coverage?.kalshi).toMatchObject({
+      pmxtMappedCount: 1,
+      overlapCount: 1,
+      pmxtOnlyIds: [],
+    });
+    expect(result.excludedPmxtMarketIds).toEqual(["pmxt-out"]);
+  });
+
+  it("accepts native identity proven by the stamped mapper fields", () => {
+    const result = comparePmxtCoverageWithinEquivalentScope({
+      pmxtMarkets: [
+        {
+          ...pmxtSnapshot("pmxt-catalog", "kalshi", "unused"),
+          catalogMarketId: "pmxt-catalog",
+          sourceExchange: "kalshi",
+          venueMarketId: "KXBTCD-25JUL26",
+          rawPayload: { marketId: "pmxt-catalog" },
+        },
+      ],
+      authoritativeKalshiMarkets: [kalshiSnapshot("KXBTCD-25JUL26")],
+      authoritativePolymarketMarkets: [],
+      scope: equivalentScope,
+      pmxtScopedNativeIds: { kalshi: ["KXBTCD-25JUL26"], polymarket: [] },
+    });
+
+    expect(result.coverage?.kalshi).toMatchObject({
+      pmxtMappedCount: 1,
+      overlapCount: 1,
+    });
+    expect(result.coverage?.mappingFailures).toEqual([]);
+  });
+
+  it("preserves mapping failures and both receipt timestamps", () => {
+    const result = comparePmxtCoverageWithinEquivalentScope({
+      pmxtMarkets: [
+        pmxtSnapshot("pmxt-ok", "kalshi", "KXBTCD-25JUL26", {
+          capturedAt: "2026-07-15T12:00:05.000Z",
+        }),
+        {
+          venue: "pmxt",
+          venueMarketId: "pmxt-bad",
+          title: "Bad",
+          rawResolutionText: "",
+          capturedAt: "2026-07-15T12:00:06.000Z",
+          rawPayload: { id: "pmxt-bad" },
+        },
+      ],
+      authoritativeKalshiMarkets: [
+        kalshiSnapshot("KXBTCD-25JUL26", { capturedAt: "2026-07-15T12:00:00.000Z" }),
+      ],
+      authoritativePolymarketMarkets: [],
+      scope: equivalentScope,
+      pmxtScopedNativeIds: { kalshi: ["KXBTCD-25JUL26"], polymarket: [] },
+    });
+
+    expect(result.coverage?.mappingFailures).toEqual([
+      expect.objectContaining({ pmxtMarketId: "pmxt-bad" }),
+    ]);
+    expect(result.coverage?.comparisonTimestamp).toBe("2026-07-15T12:00:00.000Z");
+    expect(result.coverage?.pmxtComparisonTimestamp).toBe("2026-07-15T12:00:05.000Z");
   });
 });
