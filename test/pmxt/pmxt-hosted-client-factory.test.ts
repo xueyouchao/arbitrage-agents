@@ -11,13 +11,17 @@ function validOptions(): PmxtHostedClientOptions {
     hostedBaseUrl: "https://hosted.pmxt.test/v1",
     pmxtShadowEnabled: true,
     pmxtShadowReadsEnabled: true,
+    venue: "kalshi",
     autoStartServer: false,
   };
 }
 
 class FakeExchange {
   constructor(public readonly options: Record<string, unknown> = {}) {}
-  async fetchMarkets(): Promise<unknown[]> {
+  async fetchMarkets(_params?: Record<string, unknown>): Promise<unknown[]> {
+    return [];
+  }
+  async fetchEvents(_params?: Record<string, unknown>): Promise<unknown[]> {
     return [];
   }
   async fetchOrderBooks(): Promise<Record<string, unknown>> {
@@ -67,10 +71,39 @@ describe("PMXT hosted client factory", () => {
     expect(newExchange).not.toHaveBeenCalled();
   });
 
-  it("creates a client when all guard conditions are satisfied", async () => {
-    const client = await createPmxtHostedClient(validOptions(), { newExchange: FakeExchange });
+  it("constructs the explicitly selected venue instead of Mock", async () => {
+    const newKalshi = vi.fn().mockReturnValue(new FakeExchange());
+    const newPolymarket = vi.fn().mockReturnValue(new FakeExchange());
+
+    const client = await createPmxtHostedClient(
+      { ...validOptions(), venue: "kalshi" },
+      { newKalshi, newPolymarket }
+    );
+
+    expect(newKalshi).toHaveBeenCalledTimes(1);
+    expect(newPolymarket).not.toHaveBeenCalled();
     expect(client.fetchMarkets).toEqual(expect.any(Function));
+    expect(client.fetchEvents).toEqual(expect.any(Function));
     expect(client.fetchOrderBooks).toEqual(expect.any(Function));
+  });
+
+  it("forwards market and event fetch params unchanged", async () => {
+    const exchange = new FakeExchange();
+    const fetchMarkets = vi.spyOn(exchange, "fetchMarkets");
+    const fetchEvents = vi.spyOn(exchange, "fetchEvents");
+    const client = await createPmxtHostedClient(
+      { ...validOptions(), venue: "polymarket" },
+      {
+        newKalshi: vi.fn(),
+        newPolymarket: vi.fn().mockReturnValue(exchange),
+      }
+    );
+
+    await client.fetchMarkets({ query: "bitcoin", limit: 20 });
+    await client.fetchEvents({ series: "btc-up-or-down", status: "active" });
+
+    expect(fetchMarkets).toHaveBeenCalledWith({ query: "bitcoin", limit: 20 });
+    expect(fetchEvents).toHaveBeenCalledWith({ series: "btc-up-or-down", status: "active" });
   });
 
   it("hardcodes autoStartServer to false", async () => {
