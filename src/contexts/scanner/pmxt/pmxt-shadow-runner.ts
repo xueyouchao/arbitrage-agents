@@ -4,9 +4,20 @@ import { PmxtShadowLeaseRepository } from "./pmxt-shadow-lease-repository";
 import { PmxtShadowRateLimiter } from "./pmxt-shadow-rate-limiter";
 import { PmxtShadowRun, PmxtShadowRunResult } from "./pmxt-shadow-run";
 import { PmxtMarketSnapshot } from "../../venues/infrastructure/pmxt/pmxt-market-mapper";
-import { PmxtProductionShadowRunResult } from "./pmxt-production-shadow-run";
-import { PmxtShadowTrackIdentity } from "./pmxt-shadow-track-repository";
 import { PMXT_SHADOW_RUNNER } from "../scanner-tokens";
+
+/** Structural contract satisfied by PmxtProductionShadowRunResult (PR3). */
+interface ShadowRunResultLike {
+  status: "completed" | "partial" | "failed" | "skipped";
+  reason?: string;
+}
+
+/** Structural contract satisfied by PmxtShadowTrackIdentity (PR3). */
+interface ShadowTrackIdentityLike {
+  authoritativeScanRunId: string;
+  shadowRunId: string;
+  shadowRunAttemptId: string;
+}
 
 export interface PmxtShadowAdmissionResult {
   status: "disabled" | "skipped" | "claimed" | "failed";
@@ -23,7 +34,7 @@ export interface PmxtShadowRunnerDeps {
   leaseRepository: PmxtShadowLeaseRepository;
   rateLimiter: PmxtShadowRateLimiter;
   productionRun?: {
-    runClaimedShadow(identity: PmxtShadowTrackIdentity): Promise<PmxtProductionShadowRunResult>;
+    runClaimedShadow(identity: ShadowTrackIdentityLike): Promise<ShadowRunResultLike>;
   };
   shadowRun?: PmxtShadowRun;
   fetchAuthoritativeMarkets?: (authoritativeScanRunId: string) => Promise<PmxtMarketSnapshot[]>;
@@ -112,7 +123,7 @@ export class PmxtShadowRunner {
       };
     }
 
-    let runResult: PmxtShadowRunResult | PmxtProductionShadowRunResult;
+    let runResult: PmxtShadowRunResult | ShadowRunResultLike;
     try {
       if (this.deps.productionRun) {
         runResult = await this.deps.productionRun.runClaimedShadow({
