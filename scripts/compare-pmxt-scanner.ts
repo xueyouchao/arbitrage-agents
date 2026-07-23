@@ -488,12 +488,11 @@ async function fetchPmxtHosted(config: HarnessConfig): Promise<PmxtData> {
     throw new Error("PMXT_API_KEY is required for the PMXT hosted side (set COMPARE_PMXT_SOURCE=mock to run offline without a key)");
   }
 
-  // Instantiate the pmxtjs exchange directly with the hosted key. The SDK
+  // Instantiate each pmxtjs venue directly because this comparison harness
+  // manages a multi-venue loop and its own admission diagnostics. The SDK
   // auto-resolves the hosted base URL `https://api.pmxt.dev` from the key
   // (pmxtjs constants.js resolvePmxtBaseUrl), and autoStartServer:false keeps
-  // it from spawning a local sidecar. We bypass our createPmxtHostedClient
-  // factory because its fetchMarkets() wrapper drops the { query } argument,
-  // and a query is required to surface the KXBTCD series the native scan uses.
+  // it from spawning a local sidecar.
   const pmxtjs = require("pmxtjs");
   const venues: ("kalshi" | "polymarket")[] =
     config.pmxtVenue === "both" ? ["kalshi", "polymarket"] : [config.pmxtVenue];
@@ -511,15 +510,11 @@ async function fetchPmxtHosted(config: HarnessConfig): Promise<PmxtData> {
       baseUrl: config.pmxtHostedBaseUrl,
       autoStartServer: false,
     });
-    // The hosted catalog's global list returns politics/sports, not crypto;
-    // a query is required to surface the same series the native scan uses
-    // (KXBTCD). The hosted catalog also returns venue-native outcome labels
-    // (Kalshi: "$66,000 or above"/"Not $66,000 or above") and sourceExchange
-    // often null, which the production market mapper rejects ("outcome
-    // identity is ambiguous"). Adapt each raw market to the `PmxtMarket`
-    // shape (yes/no orientation, stamped sourceExchange, venueMarketId from
-    // slug) before mapping — same adapter the local path uses. Harness-only;
-    // production mappers are unchanged.
+    // This legacy harness intentionally keeps query-based discovery and its
+    // permissive venue-label heuristics for historical comparisons. Production
+    // series reads use fetchEvents({ series }) and require explicit identity /
+    // outcome-orientation stamps; reusing that mapper here would change harness
+    // admission behavior and is therefore out of scope for this slice.
     const query = venue === "kalshi" ? config.pmxtKalshiQuery : config.pmxtPolyQuery;
     // Keep the hosted fetch limit small: the SDK paginates large limits into
     // many paged calls, which the hosted API rate-limits (429) before the

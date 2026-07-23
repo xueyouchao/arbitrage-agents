@@ -10,7 +10,7 @@ This runbook covers gated enablement, secret injection and rotation, worker heal
 
 ## Critical rule: environment variable changes require restart or redeploy
 
-**Disabling an environment variable does not take effect without a process restart or redeploy.** The PMXT shadow configuration is read at process startup by `loadAppConfig` (see `src/config/app-config.ts`). The `PmxtShadowRunner` provider in `ScannerModule` decides at NestJS bootstrap time whether to instantiate the runner or return `undefined`. Once the process is running, changing `PMXT_SHADOW_ENABLED=false` in the environment has no effect until the worker process is restarted or the container is redeployed.
+**Disabling an environment variable does not take effect without a process restart or redeploy.** The PMXT shadow configuration is read at process startup by `loadAppConfig` (see `src/config/app-config.ts`). The dedicated `PmxtShadowModule` decides at NestJS bootstrap time whether to instantiate the runner or return `undefined`; `ScannerModule` and the authoritative worker contain no PMXT providers. Once the process is running, changing `PMXT_SHADOW_ENABLED=false` in the environment has no effect until the shadow process is restarted or redeployed.
 
 Every procedure in this runbook that says "set `PMXT_SHADOW_ENABLED=false`" must be followed by a restart or redeploy of the shadow worker process for the change to take effect.
 
@@ -42,8 +42,9 @@ Before starting the PMXT shadow worker for the first time, complete every item b
 
 ### 1.3 Migrations
 
-- [ ] Migration `0013_pmxt_shadow_run_attempts.sql` has been applied to the target database.
-- [ ] Verify the `pmxt_shadow_run_attempts` table exists with the expected schema and indexes:
+- [ ] Migrations `0013_pmxt_shadow_run_attempts.sql`, `0014_pmxt_read_parity.sql`, and `0015_pmxt_shadow_tracks.sql` have been applied to the target database.
+- [ ] Verify the `pmxt_shadow_run_attempts`, `pmxt_shadow_track_runs`, `pmxt_shadow_markets`, `pmxt_shadow_router_clusters`, and `pmxt_shadow_router_edges` tables exist with the expected schema and indexes.
+- [ ] Verify the attempts table is queryable:
   ```sql
   SELECT count(*) FROM pmxt_shadow_run_attempts;
   -- Should return 0 on a fresh migration.
@@ -52,8 +53,8 @@ Before starting the PMXT shadow worker for the first time, complete every item b
 
 ### 1.4 Monitoring
 
-- [ ] Shadow Sentry monitoring is configured with a distinct slug and tags (see §6 below).
-- [ ] Alerts for authentication failure, sustained rate limiting, shadow-runner timeout, mapping-failure spike, outcome-orientation conflict, and unexpected cost/request-volume increase are configured.
+- [ ] External scheduler/container monitoring is configured for the one-shot shadow process. The current composition does not emit Sentry cron check-ins or shadow-specific Sentry tags.
+- [ ] Alerts based on process exit, `[pmxt-shadow]` logs, and `pmxt_shadow_*` rows cover authentication failure, sustained rate limiting, shadow-runner timeout, mapping-failure spike, outcome-orientation conflict, and unexpected cost/request-volume increase.
 - [ ] Confirm no PMXT-derived alert can trigger a trading or opportunity alert.
 
 ### 1.5 Low deterministic sample rate
@@ -67,11 +68,13 @@ Before starting the PMXT shadow worker for the first time, complete every item b
 
 After deploying with the configuration above:
 
-1. Start the shadow worker process: `node dist/src/main-pmxt-shadow.js`
-2. Verify the log output shows `[pmxt-shadow] Starting one shadow run.` (not `PMXT shadowing is disabled; exiting.`)
-3. Verify the first run completes with a `claimed`, `skipped`, or `disabled` status.
-4. Check Sentry for the shadow-specific monitor slug — confirm it is reporting separately from the authoritative scan monitor.
-5. Verify zero PMXT-triggered orders, alerts, positions, or production opportunities.
+1. Build with `npm run build`, then start one run with `npm run start:prod:pmxt-shadow`. For Compose, explicitly select the disabled-by-default profile: `docker compose --profile pmxt-shadow run --rm pmxt-shadow`.
+2. Verify the log output shows `[pmxt-shadow] Starting one shadow run.` (not `PMXT shadowing is disabled; exiting.`).
+3. Verify the first run completes with a `claimed`, `skipped`, or `disabled` status and the attempt is durably finalized as `completed`, `partial`, or `failed`.
+4. Confirm both hosted venue clients queried `fetchEvents({series})` with exactly `KALSHI_SERIES_TICKER` and `POLYMARKET_SERIES_SLUG`. Reads coverage is only `completed` when both exact scopes and venue-native identities are proven; empty/unproven catalogs are persisted as excluded and finalize the attempt as partial.
+5. In Router-only mode, confirm the same exact catalogs supplied anchors and `pmxt_shadow_router_*` rows exist, while no reads coverage was claimed.
+6. Verify the external scheduler/container monitor recorded exit status and retained `[pmxt-shadow]` logs; the current process does not send Sentry monitor check-ins.
+7. Verify zero PMXT-triggered orders, alerts, positions, or production opportunities.
 
 ---
 
@@ -114,8 +117,9 @@ To revoke the key entirely (e.g., during rollback or teardown):
 The shadow worker (`src/main-pmxt-shadow.ts`) is a single-run process: it claims one authoritative scan, runs the shadow comparison, and exits. Health is monitored through:
 
 - **Process exit code:** `0` for normal completion (including disabled/skipped), `1` for fatal error.
-- **Sentry shadow monitor:** Distinct slug/tags (see §6).
-- **`pmxt_shadow_run_attempts` table:** Each run records `status` (`claimed`, `completed`, `partial`, `failed`, `skipped`), `worker_id`, `claimed_at`, and `leased_until`.
+- **External scheduler/container monitor:** Records exit status and alerts independently from the authoritative worker. Sentry cron check-ins are not currently wired.
+- **`pmxt_shadow_run_attempts` table:** Each run records `status` (`claimed`, `completed`, `partial`, `failed`, or `sample_excluded`), `worker_id`, `claimed_at`, and `leased_until`.
+- **Track tables:** Reads and Router outcomes are isolated in `pmxt_shadow_track_runs`; market coverage/comparisons and Router clusters/direct edges stay in the dedicated `pmxt_*` tables.
 - **Application logs:** `[pmxt-shadow]` prefixed log lines with run status JSON.
 
 ### 3.2 Health checks
@@ -125,8 +129,8 @@ The shadow worker (`src/main-pmxt-shadow.ts`) is a single-run process: it claims
 | Process completes | Check exit code or container status | Exit 0 within `PMXT_SHADOW_TIMEOUT_MS` |
 | Run claimed | Query `pmxt_shadow_run_attempts` | New rows appear when authoritative scans are available |
 | No stuck leases | Query leases past expiry | `SELECT count(*) FROM pmxt_shadow_run_attempts WHERE leased_until < now() AND status = 'claimed'` returns 0 after lease duration |
-| Rate limiter healthy | Sentry metrics / logs | No sustained `circuit_open` or `global_cooldown` |
-| No auth failures | Sentry tags `provider=pmxt-shadow` | Zero 401/403 errors |
+| Rate limiter healthy | Application logs and durable attempt reasons | No sustained `circuit_open` or `global_cooldown` |
+| No auth failures | Application logs and external log alerts | Zero 401/403 errors |
 
 ### 3.3 Stuck lease recovery
 
@@ -210,21 +214,21 @@ If the frozen analysis protocol or cohort fingerprint must change (e.g., config,
 
 ### 6.1 Distinct slug and tags
 
-Shadow Sentry monitoring must use a distinct monitor slug and tags that are separate from the authoritative scan monitor. The authoritative scan uses `SENTRY_MONITOR_SLUG` (default `arbitrage-agents-scan`). The shadow worker must not send check-ins to the authoritative scan monitor.
+The current shadow composition does not send Sentry check-ins or tags. This is intentional fail-closed isolation: it cannot reuse the authoritative `SENTRY_MONITOR_SLUG` (default `arbitrage-agents-scan`) by accident. Until a dedicated integration is implemented, monitor the one-shot process through its scheduler/container exit status, `[pmxt-shadow]` logs, and durable `pmxt_shadow_*` rows.
 
-- Configure a separate Sentry monitor slug for PMXT shadow (e.g., `arbitrage-agents-pmxt-shadow`).
-- Tag all shadow errors with `provider=pmxt-shadow`, the operation name, and the venue.
-- Do not mix PMXT errors with authoritative-scan failure dashboards.
+If Sentry monitoring is added later, it must use a distinct slug and tags (for example `arbitrage-agents-pmxt-shadow` and `provider=pmxt-shadow`) and must not mix PMXT failures with authoritative-scan dashboards.
 
 ### 6.2 Cannot change authoritative check-ins or scan status
 
 The shadow worker is architecturally isolated from the authoritative scan path:
 
-- The shadow worker (`src/main-pmxt-shadow.ts`) uses a separate entry point and does not start the `WorkerScanRunner`.
-- The `PmxtShadowRunner` only reads from `scan_runs` (to find the oldest succeeded scan) and writes only to `pmxt_shadow_run_attempts`.
-- The shadow worker uses a separate worker ID (`PMXT_SHADOW_WORKER_ID`) that is distinct from the authoritative worker ID (`WORKER_ID`). The shadow worker never appears to own an authoritative scan lease.
+- The shadow worker (`src/main-pmxt-shadow.ts`) boots only `PmxtShadowAppModule`; that module imports `PmxtShadowModule`, not `ScannerModule`, `WorkerAppModule`, or `WorkerScanRunner`.
+- The lease repository reads succeeded `scan_runs` to claim an identity, and `PostgresPmxtAuthoritativeMarketSnapshotRepository` reads native `venue_market_snapshots` for that claimed ID. The flow never casts those native snapshots to `PmxtMarketSnapshot`.
+- The shadow flow writes only `pmxt_*` attempt, track, market, comparison, Router cluster, and Router edge tables. It does not write authoritative repositories.
+- The dedicated runner gets its own random worker ID and never owns an authoritative worker lease.
 - Shadow Sentry monitoring cannot change authoritative check-ins: the shadow worker does not call `SentryCheckInClient` with the authoritative monitor slug.
-- Shadow Sentry monitoring cannot change scan status: the shadow worker never writes to `scan_runs.status`, `scan_steps`, or any production candidate/opportunity/alert table.
+- Shadow failures are settled independently across reads and Router tracks; one failure yields a durable partial result while the other track continues. Both failures yield failed. Empty or scope-unproven reads are excluded and partial, never completed parity.
+- The shadow worker never writes to `scan_runs.status`, `scan_steps`, execution, paper trades, candidates, opportunities, positions, or alerts.
 
 If any PMXT failure appears to propagate into authoritative scan status, this is a critical bug — trigger an immediate rollback (§7) and investigate.
 

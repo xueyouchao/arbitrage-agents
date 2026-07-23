@@ -134,6 +134,46 @@ services:
     networks:
       - arbitrage-network
 
+  pmxt-shadow:
+    profiles: ["pmxt-shadow"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: arbitrage-pmxt-shadow
+    user: "1000:1000"
+    restart: "no"
+    command: npm run start:prod:pmxt-shadow
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://${DB_USER:-arbitrage_user}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-arbitrage}
+      - KALSHI_SERIES_TICKER=${KALSHI_SERIES_TICKER:-KXBTCD}
+      - POLYMARKET_SERIES_SLUG=${POLYMARKET_SERIES_SLUG:-btc-multi-strikes-weekly}
+      - PMXT_API_KEY=${PMXT_API_KEY}
+      - PMXT_HOSTED_BASE_URL=${PMXT_HOSTED_BASE_URL}
+      - PMXT_SHADOW_ENABLED=${PMXT_SHADOW_ENABLED:-false}
+      - PMXT_SHADOW_READS_ENABLED=${PMXT_SHADOW_READS_ENABLED:-false}
+      - PMXT_SHADOW_ROUTER_ENABLED=${PMXT_SHADOW_ROUTER_ENABLED:-false}
+      - PMXT_SHADOW_SAMPLE_RATE=${PMXT_SHADOW_SAMPLE_RATE:-0/1}
+      - PMXT_SHADOW_MAX_QUEUE_DEPTH=${PMXT_SHADOW_MAX_QUEUE_DEPTH}
+      - PMXT_SHADOW_MAX_QUEUE_WAIT_MS=${PMXT_SHADOW_MAX_QUEUE_WAIT_MS}
+      - PMXT_SHADOW_MAX_REQUESTS_PER_RUN=${PMXT_SHADOW_MAX_REQUESTS_PER_RUN}
+      - PMXT_SHADOW_MAX_MONTHLY_CREDITS=${PMXT_SHADOW_MAX_MONTHLY_CREDITS}
+      - PMXT_SHADOW_MAX_MONTHLY_COST_USD=${PMXT_SHADOW_MAX_MONTHLY_COST_USD}
+      - PMXT_SHADOW_TIMEOUT_MS=${PMXT_SHADOW_TIMEOUT_MS:-60000}
+      - PMXT_REQUEST_TIMEOUT_MS=${PMXT_REQUEST_TIMEOUT_MS:-10000}
+      - PMXT_SHADOW_REQUESTS_PER_MINUTE=${PMXT_SHADOW_REQUESTS_PER_MINUTE:-60}
+      - PMXT_SHADOW_MAX_CONCURRENCY=${PMXT_SHADOW_MAX_CONCURRENCY:-1}
+      - PMXT_SHADOW_MAX_MARKETS_PER_VENUE=${PMXT_SHADOW_MAX_MARKETS_PER_VENUE}
+      - PMXT_SHADOW_MAX_BOOKS_PER_VENUE=${PMXT_SHADOW_MAX_BOOKS_PER_VENUE}
+      - PMXT_SHADOW_RAW_RETENTION_DAYS=${PMXT_SHADOW_RAW_RETENTION_DAYS:-0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    networks:
+      - arbitrage-network
+
 volumes:
   postgres_data:
     driver: local
