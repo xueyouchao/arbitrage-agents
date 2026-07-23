@@ -39,6 +39,38 @@ export interface PmxtCoverageComparisonResult {
   pmxtComparisonTimestamp: string;
 }
 
+export interface PmxtCoverageScope {
+  kind: "series";
+  values: string[];
+}
+
+export interface EquivalentScopeCoverageInput extends PmxtCoverageComparisonInput {
+  scope: {
+    authoritative: PmxtCoverageScope;
+    pmxt: PmxtCoverageScope;
+  };
+  pmxtScopedNativeIds?: {
+    kalshi: string[];
+    polymarket: string[];
+  };
+}
+
+export type EquivalentScopeCoverageResult =
+  | {
+      outcome: "excluded";
+      cause: "scope_mismatch" | "scope_unproven";
+      scope: EquivalentScopeCoverageInput["scope"];
+      coverage?: undefined;
+      excludedPmxtMarketIds: string[];
+    }
+  | {
+      outcome: "compared";
+      cause: "scope_equivalent";
+      scope: EquivalentScopeCoverageInput["scope"];
+      coverage: PmxtCoverageComparisonResult;
+      excludedPmxtMarketIds: string[];
+    };
+
 export interface VenueCoverageResult {
   authoritativeCount: number;
   pmxtMappedCount: number;
@@ -135,6 +167,65 @@ export function comparePmxtCoverage(
   };
 }
 
+export function comparePmxtCoverageWithinEquivalentScope(
+  input: EquivalentScopeCoverageInput
+): EquivalentScopeCoverageResult {
+  const authoritativeScope = normalizedScope(input.scope.authoritative);
+  const pmxtScope = normalizedScope(input.scope.pmxt);
+  const excluded = {
+    scope: input.scope,
+    excludedPmxtMarketIds: input.pmxtMarkets.map((market) => market.venueMarketId),
+  };
+
+  if (authoritativeScope.length === 0 || pmxtScope.length === 0) {
+    return { outcome: "excluded", cause: "scope_unproven", ...excluded };
+  }
+  if (JSON.stringify(authoritativeScope) !== JSON.stringify(pmxtScope)) {
+    return { outcome: "excluded", cause: "scope_mismatch", ...excluded };
+  }
+  if (!input.pmxtScopedNativeIds) {
+    return { outcome: "excluded", cause: "scope_unproven", ...excluded };
+  }
+
+  const scopedIds = {
+    kalshi: new Set(input.pmxtScopedNativeIds.kalshi.map(normalizedId)),
+    polymarket: new Set(input.pmxtScopedNativeIds.polymarket.map(normalizedId)),
+  };
+  const inScope: PmxtMarketSnapshot[] = [];
+  const mappingFailures: PmxtMarketSnapshot[] = [];
+  const excludedPmxtMarketIds: string[] = [];
+  for (const market of input.pmxtMarkets) {
+    const mapped = tryMapPmxtToVenue(market);
+    if (mapped.kind === "failure") {
+      mappingFailures.push(market);
+    } else if (scopedIds[mapped.record.venue].has(mapped.record.venueNativeId)) {
+      inScope.push(market);
+    } else {
+      excludedPmxtMarketIds.push(market.venueMarketId);
+    }
+  }
+
+  return {
+    outcome: "compared",
+    cause: "scope_equivalent",
+    scope: input.scope,
+    coverage: comparePmxtCoverage({
+      pmxtMarkets: [...inScope, ...mappingFailures],
+      authoritativeKalshiMarkets: input.authoritativeKalshiMarkets,
+      authoritativePolymarketMarkets: input.authoritativePolymarketMarkets,
+    }),
+    excludedPmxtMarketIds,
+  };
+}
+
+function normalizedScope(scope: PmxtCoverageScope): string[] {
+  return [...new Set(scope.values.map(normalizedId).filter(Boolean))].sort();
+}
+
+function normalizedId(value: string): string {
+  return value.trim().toLowerCase();
+}
+
 // ---------------------------------------------------------------------------
 // Mapping
 // ---------------------------------------------------------------------------
@@ -155,9 +246,11 @@ function tryMapPmxtToVenue(
   }
 
   const sourceExchange =
-    typeof payload.sourceExchange === "string"
-      ? payload.sourceExchange.trim().toLowerCase()
-      : undefined;
+    typeof pmxtMarket.sourceExchange === "string"
+      ? pmxtMarket.sourceExchange.trim().toLowerCase()
+      : typeof payload.sourceExchange === "string"
+        ? payload.sourceExchange.trim().toLowerCase()
+        : undefined;
   if (!sourceExchange) {
     return {
       kind: "failure",
@@ -185,17 +278,22 @@ function tryMapPmxtToVenue(
     };
   }
 
-  const venueNativeId =
-    typeof payload.venueMarketId === "string"
-      ? payload.venueMarketId.trim().toLowerCase()
+  const stampedNativeId =
+    pmxtMarket.catalogMarketId && pmxtMarket.sourceExchange
+      ? normalizedId(pmxtMarket.venueMarketId)
       : undefined;
+  const venueNativeId =
+    stampedNativeId ||
+    (typeof payload.venueMarketId === "string"
+      ? payload.venueMarketId.trim().toLowerCase()
+      : undefined);
   if (!venueNativeId) {
     return {
       kind: "failure",
       failure: {
         pmxtMarketId: pmxtMarket.venueMarketId,
         reasonCode: "missing_venue_native_id",
-        reason: `PMXT market ${pmxtMarket.venueMarketId} has no venueMarketId in rawPayload`,
+        reason: `PMXT market ${pmxtMarket.venueMarketId} has no proven venue-native ID`,
       },
     };
   }

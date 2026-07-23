@@ -10,8 +10,13 @@ export interface PmxtRouterSdkClient {
   fetchMatchedMarketClusters(params: unknown): Promise<unknown[]>;
 }
 
+export type PmxtRouterAnchor =
+  | { marketId: string; slug?: never }
+  | { marketId?: never; slug: string };
+
 export interface PmxtRouterClient {
-  fetchMatchedMarketClusters(): Promise<PmxtRouterCluster[]>;
+  fetchMatchedMarketClusters(anchor: PmxtRouterAnchor): Promise<PmxtRouterCluster[]>;
+  fetchAnchoredMarketClusters(anchors: PmxtRouterAnchor[]): Promise<PmxtRouterCluster[]>;
 }
 
 export interface PmxtRouterConstructor {
@@ -38,15 +43,55 @@ export function createPmxtRouterClient(
     autoStartServer: false,
   });
 
+  async function fetchMatchedMarketClusters(
+    anchor: PmxtRouterAnchor
+  ): Promise<PmxtRouterCluster[]> {
+    const normalizedAnchor = validateAnchor(anchor);
+    const clusters = await router.fetchMatchedMarketClusters({
+      ...normalizedAnchor,
+      includeRawMatches: true,
+      venues: ["kalshi", "polymarket"],
+    });
+    return clusters.map(parseRouterCluster);
+  }
+
   return {
-    async fetchMatchedMarketClusters(): Promise<PmxtRouterCluster[]> {
-      const clusters = await router.fetchMatchedMarketClusters({
-        includeRawMatches: true,
-        venues: ["kalshi", "polymarket"],
-      });
-      return clusters.map(parseRouterCluster);
+    fetchMatchedMarketClusters,
+    async fetchAnchoredMarketClusters(
+      anchors: PmxtRouterAnchor[]
+    ): Promise<PmxtRouterCluster[]> {
+      const uniqueAnchors = new Map<string, PmxtRouterAnchor>();
+      for (const anchor of anchors) {
+        const normalized = validateAnchor(anchor);
+        const key = "marketId" in normalized
+          ? `marketId:${normalized.marketId}`
+          : `slug:${normalized.slug}`;
+        if (!uniqueAnchors.has(key)) uniqueAnchors.set(key, normalized);
+      }
+      if (uniqueAnchors.size === 0) {
+        throw new Error("PMXT Router anchor is required");
+      }
+
+      const clustersById = new Map<string, PmxtRouterCluster>();
+      for (const anchor of uniqueAnchors.values()) {
+        for (const cluster of await fetchMatchedMarketClusters(anchor)) {
+          if (!clustersById.has(cluster.clusterId)) {
+            clustersById.set(cluster.clusterId, cluster);
+          }
+        }
+      }
+      return [...clustersById.values()];
     },
   };
+}
+
+function validateAnchor(anchor: PmxtRouterAnchor): PmxtRouterAnchor {
+  const marketId = "marketId" in anchor ? anchor.marketId?.trim() : undefined;
+  const slug = "slug" in anchor ? anchor.slug?.trim() : undefined;
+  if ((marketId ? 1 : 0) + (slug ? 1 : 0) !== 1) {
+    throw new Error("PMXT Router anchor requires exactly one marketId or slug");
+  }
+  return marketId ? { marketId } : { slug: slug! };
 }
 
 function parseRouterCluster(value: unknown): PmxtRouterCluster {

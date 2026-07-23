@@ -79,14 +79,86 @@ describe("createPmxtRouterClient", () => {
       baseUrl: "https://api.pmxt.dev",
       autoStartServer: false,
     });
-    await expect(client?.fetchMatchedMarketClusters()).resolves.toEqual([validCluster]);
+    await expect(
+      client?.fetchMatchedMarketClusters({ marketId: "pmxt-kalshi-1" })
+    ).resolves.toEqual([validCluster]);
     expect(FakeRouter.fetchParams).toEqual({
+      marketId: "pmxt-kalshi-1",
       includeRawMatches: true,
       venues: ["kalshi", "polymarket"],
     });
   });
 
-  it("rejects malformed Router payloads at the SDK boundary", async () => {
+  it("anchors by marketId and does not let callers weaken direct-edge filters", async () => {
+    const client = createPmxtRouterClient(
+      { enabled: true, apiKey: "test-key", hostedBaseUrl: "https://api.pmxt.dev" },
+      FakeRouter
+    );
+
+    await client?.fetchMatchedMarketClusters({ marketId: "pmxt-kalshi-1" });
+
+    expect(FakeRouter.fetchParams).toEqual({
+      marketId: "pmxt-kalshi-1",
+      includeRawMatches: true,
+      venues: ["kalshi", "polymarket"],
+    });
+  });
+
+  it("anchors by slug", async () => {
+    const client = createPmxtRouterClient(
+      { enabled: true, apiKey: "test-key", hostedBaseUrl: "https://api.pmxt.dev" },
+      FakeRouter
+    );
+
+    await client?.fetchMatchedMarketClusters({ slug: "btc-above-100k" });
+
+    expect(FakeRouter.fetchParams).toEqual({
+      slug: "btc-above-100k",
+      includeRawMatches: true,
+      venues: ["kalshi", "polymarket"],
+    });
+  });
+
+  it("requires exactly one non-empty anchor instead of falling back globally", async () => {
+    const client = createPmxtRouterClient(
+      { enabled: true, apiKey: "test-key", hostedBaseUrl: "https://api.pmxt.dev" },
+      FakeRouter
+    );
+
+    await expect(client?.fetchMatchedMarketClusters({ marketId: " " })).rejects.toThrow(
+      "PMXT Router anchor"
+    );
+    await expect(client?.fetchMatchedMarketClusters({
+      marketId: "market-1",
+      slug: "slug-1",
+    } as unknown as { marketId: string })).rejects.toThrow("PMXT Router anchor");
+  });
+
+  it("fetches multiple anchors and deduplicates clusters in stable first-seen order", async () => {
+    const cluster2 = { ...validCluster, clusterId: "cluster-2" };
+    const responses = [
+      [validCluster, cluster2],
+      [validCluster],
+    ];
+    class MultiAnchorRouter extends FakeRouter {
+      async fetchMatchedMarketClusters(params: unknown) {
+        FakeRouter.fetchParams = params;
+        return responses.shift() ?? [];
+      }
+    }
+    const client = createPmxtRouterClient(
+      { enabled: true, apiKey: "test-key", hostedBaseUrl: "https://api.pmxt.dev" },
+      MultiAnchorRouter
+    );
+
+    await expect(client?.fetchAnchoredMarketClusters([
+      { marketId: "market-1" },
+      { slug: "market-2" },
+      { marketId: "market-1" },
+    ])).resolves.toEqual([validCluster, cluster2]);
+  });
+
+  it("rejects malformed Router payloads and clusters missing rawMatches", async () => {
     FakeRouter.response = [{ clusterId: "cluster-1" }];
     const client = createPmxtRouterClient(
       {
@@ -97,9 +169,13 @@ describe("createPmxtRouterClient", () => {
       FakeRouter
     );
 
-    await expect(client?.fetchMatchedMarketClusters()).rejects.toThrow(
-      "Invalid PMXT Router cluster"
-    );
+    await expect(
+      client?.fetchMatchedMarketClusters({ marketId: "market-1" })
+    ).rejects.toThrow("Invalid PMXT Router cluster");
+    FakeRouter.response = [{ ...validCluster, rawMatches: undefined }];
+    await expect(
+      client?.fetchMatchedMarketClusters({ marketId: "market-1" })
+    ).rejects.toThrow("Invalid PMXT Router cluster");
     FakeRouter.response = [validCluster];
   });
 });
