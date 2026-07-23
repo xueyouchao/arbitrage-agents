@@ -255,7 +255,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function proveAuthoritativeScope(
   authoritativeMarkets: readonly VenueMarketSnapshot[],
   kalshiSeries: string,
-  _polymarketSeries: string
+  polymarketSeries: string
 ): { authoritative: string[] } {
   const kalshiPrefix = kalshiSeries.trim().toLowerCase();
 
@@ -282,7 +282,7 @@ function proveAuthoritativeScope(
     return { authoritative: [] };
   }
 
-  return { authoritative: [kalshiSeries, _polymarketSeries] };
+  return { authoritative: [kalshiSeries, polymarketSeries] };
 }
 
 function trackMode(readsEnabled: boolean, routerEnabled: boolean): PmxtShadowTrackMode {
