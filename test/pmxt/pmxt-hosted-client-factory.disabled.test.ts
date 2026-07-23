@@ -10,6 +10,7 @@ function validOptions(): PmxtHostedClientOptions {
     hostedBaseUrl: "https://hosted.pmxt.test/v1",
     pmxtShadowEnabled: true,
     pmxtShadowReadsEnabled: true,
+    venue: "kalshi",
     autoStartServer: false,
   };
 }
