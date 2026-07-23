@@ -135,7 +135,7 @@ describe("PmxtProductionShadowRun", () => {
     });
   });
 
-  it("excludes scope-unproven catalog records instead of claiming completed parity", async () => {
+  it("records individual catalog mapping failures as ineligible without invalidating the scope", async () => {
     const deps = buildDeps({
       kalshiCatalogClient: {
         fetchEvents: vi.fn().mockResolvedValue([{ markets: [{ ...kalshiCatalog[0], slug: undefined }] }]),
@@ -146,12 +146,12 @@ describe("PmxtProductionShadowRun", () => {
     const result = await new PmxtProductionShadowRun(deps).runClaimedShadow(identity);
 
     expect(deps.repository.saveCoverage).toHaveBeenCalledWith(expect.objectContaining({
-      result: expect.objectContaining({ outcome: "excluded", cause: "scope_unproven" }),
       markets: expect.arrayContaining([
         expect.objectContaining({ eligible: false, exclusionReason: expect.stringContaining("not proven") }),
+        expect.objectContaining({ eligible: true }),
       ]),
     }));
-    expect(result.status).toBe("partial");
+    expect(result.status).toBe("completed");
   });
 
   it("returns partial instead of successful Router coverage when an exact anchor catalog is empty", async () => {
