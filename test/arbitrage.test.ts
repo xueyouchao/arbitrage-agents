@@ -504,7 +504,7 @@ describe("OpportunityCalculator", () => {
     expect(opportunities).toEqual([]);
   });
 
-  it("merges venue-specific rates for currently supported venues without creating implicit defaults for future venues", () => {
+  it("merges venue-specific rates and fee models without creating implicit defaults for future venues", () => {
     // Explicit defaults intentionally cover the current production venues. Adding a venue to
     // the registry should require an explicit default/model decision instead of inheriting fees silently.
     expect(VENUES).toEqual(["kalshi", "polymarket"]);
@@ -522,10 +522,39 @@ describe("OpportunityCalculator", () => {
 
     expect(opportunity.longLeg.feeRate).toBe(0.07);
     expect(opportunity.longLeg.slippageRate).toBe(0.005);
-    // Default fee models now override the flat venueFeeRates; only the explicit
-    // Kalshi YES override and the Polymarket NO slippage override remain visible.
+    // Default fee models are merged per-venue: the explicit Kalshi YES rate stays,
+    // but Polymarket still uses its default model (here feeRateBps=0).
     expect(opportunity.hedgeLeg.feeRate).toBe(0);
     expect(opportunity.hedgeLeg.slippageRate).toBe(0.09);
+  });
+
+  it("merges partial feeModels so a single-venue override keeps the other venue default", () => {
+    const calculator = new OpportunityCalculator();
+    const kalshiBook = { marketId: "K1", venue: "kalshi" as const, yesAsk: 0.4, noAsk: 0.7, yesAvailableUsd: 100, noAvailableUsd: 100, capturedAt: "2026-01-01T00:00:00.000Z" };
+    const polymarketBook = { marketId: "P1", venue: "polymarket" as const, yesAsk: 0.8, noAsk: 0.5, yesAvailableUsd: 100, noAvailableUsd: 100, capturedAt: "2026-01-01T00:00:00.000Z" };
+
+    const [opportunity] = calculator.calculate(pair, classA, kalshiBook, polymarketBook, {
+      now: "2026-01-01T00:00:00.000Z",
+      feeModels: { kalshi: { type: "kalshi", rate: 0.09, version: "custom-kalshi-v1" } }
+    });
+
+    // Custom Kalshi model applies.
+    expect(opportunity.longLeg.feeModel).toMatchObject({ type: "kalshi", rate: 0.09, version: "custom-kalshi-v1" });
+    // Default Polymarket model is preserved despite the partial override.
+    expect(opportunity.hedgeLeg.feeModel).toMatchObject({ type: "polymarket", orderRole: "taker", version: "polymarket-crypto-taker-v1" });
+  });
+
+  it("allows disabling fee models by passing an explicit empty feeModels object", () => {
+    const kalshiBook = { marketId: "K1", venue: "kalshi" as const, yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 20, noAvailableUsd: 30, capturedAt: "2026-01-01T00:00:00.000Z" };
+    const polymarketBook = { marketId: "P1", venue: "polymarket" as const, yesAsk: 0.5, noAsk: 0.51, yesAvailableUsd: 50, noAvailableUsd: 12, capturedAt: "2026-01-01T00:00:00.000Z" };
+
+    const [opportunity] = new OpportunityCalculator().calculate(pair, classA, kalshiBook, polymarketBook, {
+      now: "2026-01-01T00:00:00.000Z",
+      feeModels: {}
+    });
+
+    expect(opportunity.longLeg.feeModel).toBeUndefined();
+    expect(opportunity.hedgeLeg.feeModel).toBeUndefined();
   });
 
   it("assigns isolated low, medium, and high risk levels at Phase 3 thresholds", () => {

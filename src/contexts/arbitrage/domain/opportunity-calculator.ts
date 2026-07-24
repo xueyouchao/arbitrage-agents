@@ -254,11 +254,10 @@ function mergeOptions(options: Partial<OpportunityCalculatorOptions>): Opportuni
     ...options,
     venueFeeRates: mergeVenueRates(defaultVenueRates(options.feeRate ?? DEFAULT_OPTIONS.feeRate), options.venueFeeRates),
     venueSlippageRates: mergeVenueRates(defaultVenueRates(options.slippageRate ?? DEFAULT_OPTIONS.slippageRate), options.venueSlippageRates),
-    // Phase 4: default to realistic per-venue fee models. A caller can still
-    // override with flat rates by passing explicit feeModels (including an
-    // empty object to disable models entirely), but absent an override the
-    // scanner uses Kalshi/Polymarket probability-weighted fees.
-    feeModels: options.feeModels ?? DEFAULT_OPTIONS.feeModels,
+    // Phase 4: default to realistic per-venue fee models, merging per-venue
+    // overrides on top of the defaults (consistent with venueFeeRates). A caller
+    // can still disable models entirely by passing an explicit empty object.
+    feeModels: mergeFeeModels(DEFAULT_OPTIONS.feeModels, options.feeModels),
     targetNotionalsUsd: targetNotionalsUsd.length > 0 ? targetNotionalsUsd : DEFAULT_OPTIONS.targetNotionalsUsd
   };
 }
@@ -275,6 +274,21 @@ function mergeVenueRates(defaults: VenueFeeRates, overrides: VenueFeeRates | und
   return Object.fromEntries(
     VENUES.map((venue) => [venue, { ...defaults[venue], ...overrides?.[venue] }])
   ) as VenueFeeRates;
+}
+
+function mergeFeeModels(
+  defaults: FeeModels,
+  overrides: FeeModels | undefined
+): FeeModels {
+  // An explicit empty object disables fee models entirely; otherwise merge
+  // per-venue overrides so a custom Kalshi model keeps the default Polymarket
+  // model and vice versa.
+  if (overrides && Object.keys(overrides).length === 0) {
+    return {};
+  }
+  return Object.fromEntries(
+    VENUES.map((venue) => [venue, overrides?.[venue] ?? defaults[venue]])
+  ) as FeeModels;
 }
 
 function rateFor(rates: VenueFeeRates, venue: Venue, side: ContractSide, fallback: number): number {
