@@ -187,6 +187,12 @@ const AppConfigSchema = z.object({
   // client falls back to the global top-100, matching the old behavior).
   kalshiSeriesTicker: z.string().default("KXBTCD"),
   polymarketSeriesSlug: z.string().default("btc-multi-strikes-weekly"),
+  // Cross-venue deadline matching tolerance. Default 60 s for exact matches.
+  // Crypto price-level markets additionally use a relaxed window (default 24 h)
+  // because index providers and daily settlement times differ across venues.
+  // Increase to admit more near-expiry pairs; decrease to tighten matching.
+  deadlineToleranceMs: z.coerce.number().int().nonnegative().max(7 * 24 * 60 * 60 * 1000).default(60_000),
+  cryptoDeadlineRelaxedToleranceMs: z.coerce.number().int().nonnegative().max(30 * 24 * 60 * 60 * 1000).default(24 * 60 * 60 * 1000),
   // ADR-0002 §3.3 exit-gate tunables. These were previously hard-coded in the
   // evaluator; surfacing them in AppConfig lets operations adjust the gate
   // without a code change. §3.1/§4.1 selects the top-level policy:
@@ -260,6 +266,8 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     maxOpportunityAgeMs: env.MAX_OPPORTUNITY_AGE_MS,
     kalshiSeriesTicker: env.KALSHI_SERIES_TICKER,
     polymarketSeriesSlug: env.POLYMARKET_SERIES_SLUG,
+    deadlineToleranceMs: env.DEADLINE_TOLERANCE_MS,
+    cryptoDeadlineRelaxedToleranceMs: env.CRYPTO_DEADLINE_RELAXED_TOLERANCE_MS,
     t1ExitMinMargin: env.T1_EXIT_MIN_MARGIN,
     t1ExitDepthHaircut: env.T1_EXIT_DEPTH_HAIRCUT,
     t1ExitPolicy: env.T1_EXIT_POLICY,

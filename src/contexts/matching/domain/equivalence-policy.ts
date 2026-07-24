@@ -1,8 +1,23 @@
 import { CandidatePair, EquivalenceDecision } from "./candidate-pair";
 import { bothCryptoPriceLevels } from "./crypto-market";
-import { deadlinesCompatible, thresholdsCompatible } from "./market-compatibility";
+import {
+  deadlinesCompatible,
+  DeadlineToleranceConfig,
+  DEFAULT_DEADLINE_TOLERANCE_CONFIG,
+  thresholdsCompatible,
+} from "./market-compatibility";
+
+export interface DeterministicEquivalencePolicyOptions {
+  deadlineTolerance?: DeadlineToleranceConfig;
+}
 
 export class DeterministicEquivalencePolicy {
+  private readonly deadlineTolerance: DeadlineToleranceConfig;
+
+  constructor(options?: DeterministicEquivalencePolicyOptions) {
+    this.deadlineTolerance = options?.deadlineTolerance ?? DEFAULT_DEADLINE_TOLERANCE_CONFIG;
+  }
+
   classify(pair: CandidatePair): EquivalenceDecision {
     const left = pair.kalshiMarket;
     const right = pair.polymarketMarket;
@@ -12,7 +27,7 @@ export class DeterministicEquivalencePolicy {
       return { pairId: pair.id, equivalenceClass: "D", decision: "human_review", reasons: ["low_normalization_confidence"] };
     }
 
-    const { hardReasons, advisoryReasons } = materialMismatchReasonsFor(pair);
+    const { hardReasons, advisoryReasons } = materialMismatchReasonsFor(pair, this.deadlineTolerance);
     if (hardReasons.length > 0) {
       return { pairId: pair.id, equivalenceClass: "C", decision: "reject", reasons: hardReasons };
     }
@@ -55,7 +70,10 @@ function normalizeResolutionSource(source?: string): string | undefined {
   return normalized && normalized.length > 0 ? normalized : undefined;
 }
 
-function materialMismatchReasonsFor(pair: CandidatePair): { hardReasons: string[]; advisoryReasons: string[] } {
+function materialMismatchReasonsFor(
+  pair: CandidatePair,
+  deadlineTolerance: DeadlineToleranceConfig,
+): { hardReasons: string[]; advisoryReasons: string[] } {
   const left = pair.kalshiMarket;
   const right = pair.polymarketMarket;
   const hardReasons: string[] = [];
@@ -76,10 +94,10 @@ function materialMismatchReasonsFor(pair: CandidatePair): { hardReasons: string[
     }
   }
 
-  const deadlineMatch = deadlinesCompatible(left.deadline, right.deadline, left, right);
+  const deadlineMatch = deadlinesCompatible(left.deadline, right.deadline, left, right, deadlineTolerance);
   if (!deadlineMatch.exact) {
     if (deadlineMatch.compatible) {
-      advisoryReasons.push("deadline_same_day_time_differs");
+      advisoryReasons.push("deadline_within_relaxed_tolerance");
     } else {
       hardReasons.push("deadline_mismatch");
     }

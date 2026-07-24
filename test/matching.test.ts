@@ -40,20 +40,43 @@ describe("CandidatePairGenerator", () => {
     expect(pairs[0].reasons).toContain("same_asset");
   });
 
-  it("allows crypto price-level deadlines on the same UTC day even when hours apart", () => {
+  it("allows crypto price-level deadlines within the relaxed 24 h tolerance by default", () => {
     const pairs = new CandidatePairGenerator().generate([
-      market({ id: "k-1", venue: "kalshi" }),
-      market({ id: "p-1", venue: "polymarket", deadline: "2026-01-01T02:00:01.000Z" })
+      market({ id: "k-1", venue: "kalshi", deadline: "2026-01-01T16:00:00.000Z" }),
+      market({ id: "p-1", venue: "polymarket", deadline: "2026-01-02T15:59:00.000Z" })
     ]);
 
     expect(pairs).toHaveLength(1);
     expect(pairs[0].id).toBe("k-1:p-1");
   });
 
-  it("still rejects crypto price-level deadlines on different UTC days", () => {
+  it("rejects crypto price-level deadlines outside the relaxed tolerance", () => {
     const pairs = new CandidatePairGenerator().generate([
-      market({ id: "k-1", venue: "kalshi" }),
-      market({ id: "p-1", venue: "polymarket", deadline: "2026-01-02T00:00:00.000Z" })
+      market({ id: "k-1", venue: "kalshi", deadline: "2026-01-01T16:00:00.000Z" }),
+      market({ id: "p-1", venue: "polymarket", deadline: "2026-01-03T16:01:00.000Z" })
+    ]);
+
+    expect(pairs).toEqual([]);
+  });
+
+  it("honours a custom deadline tolerance", () => {
+    const pairs = new CandidatePairGenerator({
+      deadlineTolerance: {
+        defaultDeadlineToleranceMs: 60_000,
+        cryptoDeadlineRelaxedToleranceMs: 7 * 24 * 60 * 60 * 1000
+      }
+    }).generate([
+      market({ id: "k-1", venue: "kalshi", deadline: "2026-01-01T16:00:00.000Z" }),
+      market({ id: "p-1", venue: "polymarket", deadline: "2026-01-07T16:00:00.000Z" })
+    ]);
+
+    expect(pairs).toHaveLength(1);
+  });
+
+  it("keeps exact 60 s tolerance for non-crypto deadlines", () => {
+    const pairs = new CandidatePairGenerator().generate([
+      market({ id: "k-1", venue: "kalshi", topic: "politics", eventType: "winner", threshold: undefined, operator: undefined }),
+      market({ id: "p-1", venue: "polymarket", topic: "politics", eventType: "winner", threshold: undefined, operator: undefined, deadline: "2026-01-01T00:01:01.000Z" })
     ]);
 
     expect(pairs).toEqual([]);
@@ -187,26 +210,26 @@ describe("DeterministicEquivalencePolicy", () => {
     });
   });
 
-  it("classifies same-day crypto price-level deadline differences as tradable class A with advisory reason", () => {
+  it("classifies crypto price-level deadlines within relaxed tolerance as tradable class A with advisory reason", () => {
     const pair = {
       id: "k-1:p-1",
       kalshiMarket: market({ id: "k-1", venue: "kalshi", deadline: "2026-01-01T16:00:00.000Z" }),
-      polymarketMarket: market({ id: "p-1", venue: "polymarket", deadline: "2026-01-01T16:59:00.000Z" }),
+      polymarketMarket: market({ id: "p-1", venue: "polymarket", deadline: "2026-01-02T15:59:00.000Z" }),
       reasons: []
     };
 
     expect(new DeterministicEquivalencePolicy().classify(pair)).toMatchObject({
       equivalenceClass: "A",
       decision: "tradable",
-      reasons: ["deadline_same_day_time_differs"]
+      reasons: ["deadline_within_relaxed_tolerance"]
     });
   });
 
-  it("rejects crypto price-level deadlines on different UTC days", () => {
+  it("rejects crypto price-level deadlines outside relaxed tolerance", () => {
     const pair = {
       id: "k-1:p-1",
       kalshiMarket: market({ id: "k-1", venue: "kalshi", deadline: "2026-01-01T16:00:00.000Z" }),
-      polymarketMarket: market({ id: "p-1", venue: "polymarket", deadline: "2026-01-02T16:00:00.000Z" }),
+      polymarketMarket: market({ id: "p-1", venue: "polymarket", deadline: "2026-01-02T17:00:01.000Z" }),
       reasons: []
     };
 

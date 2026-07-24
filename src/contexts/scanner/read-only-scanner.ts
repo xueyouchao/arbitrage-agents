@@ -22,6 +22,8 @@ import { ScanTelemetryReporter } from "./sentry-scan-telemetry-reporter";
 
 import type { OpportunityCalculatorOptions } from "../arbitrage/domain/opportunity-calculator";
 
+import { DeadlineToleranceConfig, DEFAULT_DEADLINE_TOLERANCE_CONFIG } from "../matching/domain/market-compatibility";
+
 export interface ReadOnlyScannerDependencies {
   kalshiClient: VenueClient;
   polymarketClient: VenueClient;
@@ -41,6 +43,10 @@ export interface ReadOnlyScannerDependencies {
   telemetryReporter?: ScanTelemetryReporter;
   // Optional opportunity-calculator overrides (fee rates, slippage, notionals).
   calculatorOptions?: Partial<OpportunityCalculatorOptions>;
+  // Tolerance for deadline matching between venues. Defaults to 60 s
+  // exact tolerance plus a 24 h relaxed window for crypto price-level
+  // markets, but can be narrowed/widened per environment.
+  deadlineTolerance?: DeadlineToleranceConfig;
   now?: string;
   clock?: () => string;
 }
@@ -74,8 +80,8 @@ interface LlmScanBudget {
 
 export class ReadOnlyScanner {
   private readonly normalizer = new MarketNormalizer();
-  private readonly pairGenerator = new CandidatePairGenerator();
-  private readonly equivalencePolicy = new DeterministicEquivalencePolicy();
+  private readonly pairGenerator: CandidatePairGenerator;
+  private readonly equivalencePolicy: DeterministicEquivalencePolicy;
   private readonly opportunityCalculator = new OpportunityCalculator();
   // Owns artifact/provenance mapping (orderbook snapshot DTOs and
   // source-snapshot-id wiring on opportunities) so the scanner stays a
@@ -83,7 +89,11 @@ export class ReadOnlyScanner {
   // 2026-06-03 handoff.
   private readonly artifactAssembler = new ScanArtifactAssembler();
 
-  constructor(private readonly dependencies: ReadOnlyScannerDependencies) {}
+  constructor(private readonly dependencies: ReadOnlyScannerDependencies) {
+    const deadlineTolerance = dependencies.deadlineTolerance ?? DEFAULT_DEADLINE_TOLERANCE_CONFIG;
+    this.pairGenerator = new CandidatePairGenerator({ deadlineTolerance });
+    this.equivalencePolicy = new DeterministicEquivalencePolicy({ deadlineTolerance });
+  }
 
   async runOnce(scanRunId?: string): Promise<ScanResult> {
     const now = this.dependencies.clock ?? (() => this.dependencies.now ?? new Date().toISOString());
