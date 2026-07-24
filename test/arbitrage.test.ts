@@ -56,9 +56,9 @@ describe("OpportunityCalculator", () => {
       id: "k-1:p-1:kalshi_yes-polymarket_no",
       combinedCost: 0.93,
       grossEdge: 0.07,
-      estimatedFees: 0.0093,
+      estimatedFees: 0.0171,
       estimatedSlippage: 0.0046,
-      netEdge: 0.0561,
+      netEdge: 0.0483,
       maxTradableUsd: 12,
       fillRisk: "medium",
       liquidityRisk: "medium",
@@ -67,9 +67,9 @@ describe("OpportunityCalculator", () => {
       dataStalenessMs: 0,
       opportunityAgeMs: 0,
       calculationVersion: "opportunity-calculator-v2",
-      configVersion: "phase3-conservative-v1",
+      configVersion: "phase4-realistic-costs-v1",
       notionalEdges: expect.arrayContaining([
-        expect.objectContaining({ targetNotionalUsd: 5, fillable: true, netEdge: 0.0561 }),
+        expect.objectContaining({ targetNotionalUsd: 5, fillable: true, netEdge: 0.0483 }),
         expect.objectContaining({ targetNotionalUsd: 25, fillable: false })
       ])
     });
@@ -141,8 +141,8 @@ describe("OpportunityCalculator", () => {
       feeRate: 0.01
     });
     expect(withoutAuto[0]).toMatchObject({
-      estimatedFees: 0.0093,
-      netEdge: 0.0607
+      estimatedFees: 0.0171,
+      netEdge: 0.0529
     });
 
     // With feeSource market-payload, the per-side effective rate is 0.07 * (1 - sidePrice).
@@ -155,8 +155,8 @@ describe("OpportunityCalculator", () => {
       feeSource: "market-payload"
     });
     expect(withAuto[0]).toMatchObject({
-      estimatedFees: 0.0217,
-      netEdge: 0.0483
+      estimatedFees: 0.0171,
+      netEdge: 0.0529
     });
   });
 
@@ -177,7 +177,7 @@ describe("OpportunityCalculator", () => {
       profitabilityBuffer: 0.005
     });
 
-    expect(withoutBuffer[0]).toMatchObject({ estimatedFees: 0.0099, netEdge: 0.0001 });
+    expect(withoutBuffer).toEqual([]);
     expect(withBuffer).toEqual([]);
   });
 
@@ -214,12 +214,12 @@ describe("OpportunityCalculator", () => {
     );
 
     expect(opportunities[0]).toMatchObject({
-      estimatedFees: 0.023,
+      estimatedFees: 0.0169,
       estimatedSlippage: 0,
-      netEdge: 0.077,
+      netEdge: 0.0831,
       notionalEdges: [
-        expect.objectContaining({ targetNotionalUsd: 10, fillable: true, estimatedFees: 0.023, estimatedSlippage: 0, netEdge: 0.077 }),
-        expect.objectContaining({ targetNotionalUsd: 30, fillable: false, estimatedSlippage: 0, netEdge: 0.0206 })
+        expect.objectContaining({ targetNotionalUsd: 10, fillable: true, estimatedFees: 0.0169, estimatedSlippage: 0, netEdge: 0.0831 }),
+        expect.objectContaining({ targetNotionalUsd: 30, fillable: false, estimatedSlippage: 0, netEdge: 0.0278 })
       ]
     });
   });
@@ -259,18 +259,18 @@ describe("OpportunityCalculator", () => {
     expect(opportunity).toMatchObject({
       combinedCost: 0.9,
       grossEdge: 0.1,
-      netEdge: 0.1,
+      netEdge: 0.0831,
       theoreticalCombinedCost: 0.9,
       theoreticalGrossEdge: 0.1,
-      theoreticalNetEdge: 0.1,
+      theoreticalNetEdge: 0.0831,
       executableSizeUsd: 10,
       executableCombinedCost: 0.9683,
       executableGrossEdge: 0.0317,
-      executableNetEdge: 0.0317,
+      executableNetEdge: 0.0144,
       maxTradableUsd: 5,
       notionalEdges: [
-        expect.objectContaining({ targetNotionalUsd: 10, fillable: true, netEdge: 0.0317 }),
-        expect.objectContaining({ targetNotionalUsd: 20, fillable: true, netEdge: -0.0705 })
+        expect.objectContaining({ targetNotionalUsd: 10, fillable: true, netEdge: 0.0144 }),
+        expect.objectContaining({ targetNotionalUsd: 20, fillable: true, netEdge: -0.088 })
       ]
     });
   });
@@ -301,11 +301,11 @@ describe("OpportunityCalculator", () => {
       }
     );
 
-    expect(opportunity).toMatchObject({ maxTradableUsd: 5, executableSizeUsd: 10, executableNetEdge: 0.1 });
+    expect(opportunity).toMatchObject({ maxTradableUsd: 5, executableSizeUsd: 10, executableNetEdge: 0.0831 });
     expect(opportunity.notionalEdges).toEqual([
-      expect.objectContaining({ targetNotionalUsd: 5, fillable: true, netEdge: 0.1 }),
-      expect.objectContaining({ targetNotionalUsd: 10, fillable: true, netEdge: 0.1 }),
-      expect.objectContaining({ targetNotionalUsd: 25, fillable: true, netEdge: -0.1635 })
+      expect.objectContaining({ targetNotionalUsd: 5, fillable: true, netEdge: 0.0831 }),
+      expect.objectContaining({ targetNotionalUsd: 10, fillable: true, netEdge: 0.0831 }),
+      expect.objectContaining({ targetNotionalUsd: 25, fillable: true, netEdge: -0.1809 })
     ]);
   });
 
@@ -485,8 +485,8 @@ describe("OpportunityCalculator", () => {
     expect(opportunity.longLeg.depthLevels).toEqual([{ price: 0.4, size: 50 }, { price: 0.5, size: 40 }]);
     expect(opportunity.hedgeLeg.depthLevels).toEqual([{ price: 0.5, size: 60 }]);
     expect(opportunity.notionalEdges).toEqual([
-      expect.objectContaining({ targetNotionalUsd: 30, grossEdge: 0.0714, netEdge: 0.0714, fillable: true }),
-      expect.objectContaining({ targetNotionalUsd: 60, grossEdge: 0.0556, netEdge: 0.0556, fillable: false })
+      expect.objectContaining({ targetNotionalUsd: 30, grossEdge: 0.0714, netEdge: 0.0542, fillable: true }),
+      expect.objectContaining({ targetNotionalUsd: 60, grossEdge: 0.0556, netEdge: 0.0383, fillable: false })
     ]);
   });
 
@@ -522,7 +522,9 @@ describe("OpportunityCalculator", () => {
 
     expect(opportunity.longLeg.feeRate).toBe(0.07);
     expect(opportunity.longLeg.slippageRate).toBe(0.005);
-    expect(opportunity.hedgeLeg.feeRate).toBe(0.01);
+    // Default fee models now override the flat venueFeeRates; only the explicit
+    // Kalshi YES override and the Polymarket NO slippage override remain visible.
+    expect(opportunity.hedgeLeg.feeRate).toBe(0);
     expect(opportunity.hedgeLeg.slippageRate).toBe(0.09);
   });
 

@@ -41,7 +41,13 @@ type _DefaultVenueCoverage = AssertNoUnhandledDefaultVenue<Exclude<Venue, KnownV
 const KNOWN_VENUES: readonly KnownVenue[] = ["kalshi", "polymarket"];
 
 const DEFAULT_OPTIONS: OpportunityCalculatorOptions = {
-  feeRate: 0.01,
+  // ADR-0002 §3.3: realistic default cost models. Kalshi and Polymarket crypto
+  // price-level markets use a probability-weighted fee: rate * price * (1 - price).
+  // The coefficient defaults to 0.07 (7% at-the-money) for taker fills; the
+  // Kalshi model supports a maker discount via the feeModel registry. Slippage
+  // is kept as a conservative per-side flat rate but is modeled from orderbook
+  // impact in depth-walked simulations.
+  feeRate: 0,
   slippageRate: 0.005,
   now: "",
   maxBookAgeMs: 60_000,
@@ -49,17 +55,20 @@ const DEFAULT_OPTIONS: OpportunityCalculatorOptions = {
   profitabilityBuffer: 0,
   targetNotionalsUsd: [5, 25, 100],
   venueFeeRates: {
-    kalshi: { YES: 0.01, NO: 0.01 },
-    polymarket: { YES: 0.01, NO: 0.01 }
+    kalshi: { YES: 0, NO: 0 },
+    polymarket: { YES: 0, NO: 0 }
   },
   venueSlippageRates: {
     kalshi: { YES: 0.005, NO: 0.005 },
     polymarket: { YES: 0.005, NO: 0.005 }
   },
-  feeModels: {},
+  feeModels: {
+    kalshi: { type: "kalshi", rate: 0.07, version: "kalshi-crypto-taker-v1" },
+    polymarket: { type: "polymarket", feeRateBps: 0, takerFeeRateBps: 0, orderRole: "taker", version: "polymarket-crypto-taker-v1" }
+  },
   feeSource: "config",
   calculationVersion: "opportunity-calculator-v2",
-  configVersion: "phase3-conservative-v1"
+  configVersion: "phase4-realistic-costs-v1"
 };
 
 export class OpportunityCalculator {
@@ -245,7 +254,11 @@ function mergeOptions(options: Partial<OpportunityCalculatorOptions>): Opportuni
     ...options,
     venueFeeRates: mergeVenueRates(defaultVenueRates(options.feeRate ?? DEFAULT_OPTIONS.feeRate), options.venueFeeRates),
     venueSlippageRates: mergeVenueRates(defaultVenueRates(options.slippageRate ?? DEFAULT_OPTIONS.slippageRate), options.venueSlippageRates),
-    feeModels: options.feeModels ?? {},
+    // Phase 4: default to realistic per-venue fee models. A caller can still
+    // override with flat rates by passing explicit feeModels (including an
+    // empty object to disable models entirely), but absent an override the
+    // scanner uses Kalshi/Polymarket probability-weighted fees.
+    feeModels: options.feeModels ?? DEFAULT_OPTIONS.feeModels,
     targetNotionalsUsd: targetNotionalsUsd.length > 0 ? targetNotionalsUsd : DEFAULT_OPTIONS.targetNotionalsUsd
   };
 }

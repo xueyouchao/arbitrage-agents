@@ -720,7 +720,7 @@ describe("ReadOnlyScanner", () => {
         dataStalenessMs: 30000,
         opportunityAgeMs: 0,
         calculationVersion: "opportunity-calculator-v2",
-        configVersion: "phase3-conservative-v1"
+        configVersion: "phase4-realistic-costs-v1"
       })
     });
   });
