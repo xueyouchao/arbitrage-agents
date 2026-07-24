@@ -192,7 +192,7 @@ const AppConfigSchema = z.object({
   // because index providers and daily settlement times differ across venues.
   // Increase to admit more near-expiry pairs; decrease to tighten matching.
   deadlineToleranceMs: z.coerce.number().int().nonnegative().max(7 * 24 * 60 * 60 * 1000).default(60_000),
-  cryptoDeadlineRelaxedToleranceMs: z.coerce.number().int().nonnegative().max(30 * 24 * 60 * 60 * 1000).default(24 * 60 * 60 * 1000),
+  cryptoDeadlineRelaxedToleranceMs: z.coerce.number().int().nonnegative().max(7 * 24 * 60 * 60 * 1000).default(24 * 60 * 60 * 1000),
   // ADR-0002 §3.3 exit-gate tunables. These were previously hard-coded in the
   // evaluator; surfacing them in AppConfig lets operations adjust the gate
   // without a code change. §3.1/§4.1 selects the top-level policy:
@@ -215,6 +215,17 @@ const AppConfigSchema = z.object({
   t1ExitEstimatedSpreadRate: z.coerce.number().min(0).max(1).default(0.01),
   t1ExitEstimatedSlippagePerShare: z.coerce.number().min(0).max(1).default(0.005)
 }).and(PmxtShadowConfigSchema).superRefine((config, context) => {
+    // Relaxed crypto deadline tolerance must never be stricter than the default
+    // tolerance, otherwise crypto markets would be held to a stricter standard
+    // than non-crypto markets and the intended "relaxed" window would invert.
+    if (config.cryptoDeadlineRelaxedToleranceMs < config.deadlineToleranceMs) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "CRYPTO_DEADLINE_RELAXED_TOLERANCE_MS must be >= DEADLINE_TOLERANCE_MS",
+        path: ["cryptoDeadlineRelaxedToleranceMs"]
+      });
+    }
+
     // Production HTTPS enforcement: hosted base URL must use https in production.
     if (
       config.nodeEnv === "production" &&

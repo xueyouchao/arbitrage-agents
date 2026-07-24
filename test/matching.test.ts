@@ -75,8 +75,24 @@ describe("CandidatePairGenerator", () => {
 
   it("keeps exact 60 s tolerance for non-crypto deadlines", () => {
     const pairs = new CandidatePairGenerator().generate([
-      market({ id: "k-1", venue: "kalshi", topic: "politics", eventType: "winner", threshold: undefined, operator: undefined }),
-      market({ id: "p-1", venue: "polymarket", topic: "politics", eventType: "winner", threshold: undefined, operator: undefined, deadline: "2026-01-01T00:01:01.000Z" })
+      market({
+        id: "k-1",
+        venue: "kalshi",
+        topic: "politics",
+        eventType: "winner",
+        threshold: undefined,
+        operator: undefined,
+        deadline: "2026-01-01T00:00:00.000Z"
+      }),
+      market({
+        id: "p-1",
+        venue: "polymarket",
+        topic: "politics",
+        eventType: "winner",
+        threshold: undefined,
+        operator: undefined,
+        deadline: "2026-01-01T00:01:01.000Z"
+      })
     ]);
 
     expect(pairs).toEqual([]);
