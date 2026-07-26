@@ -73,6 +73,20 @@ describe("CandidatePairGenerator", () => {
     expect(pairs).toHaveLength(1);
   });
 
+  it("rejects crypto price-level deadlines just outside a custom tolerance window", () => {
+    const pairs = new CandidatePairGenerator({
+      deadlineTolerance: {
+        defaultDeadlineToleranceMs: 60_000,
+        cryptoDeadlineRelaxedToleranceMs: 7 * 24 * 60 * 60 * 1000
+      }
+    }).generate([
+      market({ id: "k-1", venue: "kalshi", deadline: "2026-01-01T16:00:00.000Z" }),
+      market({ id: "p-1", venue: "polymarket", deadline: "2026-01-08T16:00:01.000Z" })
+    ]);
+
+    expect(pairs).toEqual([]);
+  });
+
   it("keeps exact 60 s tolerance for non-crypto deadlines", () => {
     const pairs = new CandidatePairGenerator().generate([
       market({

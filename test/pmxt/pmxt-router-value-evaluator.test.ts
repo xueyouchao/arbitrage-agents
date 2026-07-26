@@ -740,6 +740,68 @@ describe("Issue #98 PMXT Router opportunity value evaluation", () => {
   // -------------------------------------------------------------------------
 
   describe("end-to-end evaluation", () => {
+    it("promotes a deterministic class-B pair with deadline_within_relaxed_tolerance plus a soft reason to class A on high-confidence LLM equivalence", async () => {
+      const cluster = identityCluster();
+      const projection = projectPmxtRouterMatches([cluster], nativeIdentities);
+      const baseNormalizer = new MarketNormalizer();
+      const normalizer: MarketNormalizer = {
+        normalize: (snapshot: VenueMarketSnapshot) => {
+          const normalized = baseNormalizer.normalize(snapshot);
+          const deadline =
+            snapshot.venue === "kalshi"
+              ? "2026-12-31T23:59:59.000Z"
+              : "2027-01-01T22:59:59.000Z";
+          return {
+            ...normalized,
+            deadline,
+            ambiguityFlags: ["timezone_in_title"],
+            confidence: 0.9,
+          };
+        },
+      } as never;
+
+      const llmRepository = new InMemoryLlmEvaluationRepository();
+      const llmProvider = vi.fn().mockResolvedValue({
+        output: { equivalent: true, confidence: 0.99, explanation: "same canonical market" },
+      });
+      const llmGateway = new PersistedLlmGateway(llmRepository, llmProvider);
+      const calculator = new OpportunityCalculator();
+      const productionLlmRequest: LlmEvaluationRequest = {
+        taskType: "market_equivalence",
+        model: "scanner-model-v1",
+        promptVersion: "scanner-equivalence-v3",
+        input: { pairId: "router-pair", deterministicClass: "A" },
+      };
+      const evaluator = new PmxtRouterValueEvaluator({
+        normalizer,
+        equivalencePolicy: new DeterministicEquivalencePolicy(),
+        opportunityCalculator: calculator,
+        llmGateway,
+        buildProductionLlmRequest: () => productionLlmRequest,
+        repository: new InMemoryRouterValueEvaluationRepository(),
+      });
+
+      const input = defaultInput({ projection });
+      const result = await evaluator.evaluate(input);
+
+      expect(result.assessments).toHaveLength(1);
+      const assessment = result.assessments[0];
+      expect(assessment.status).toBe("valid");
+      expect(assessment.provenance.decision).toMatchObject({
+        equivalenceClass: "A",
+        decision: "tradable",
+        reasons: expect.arrayContaining([
+          "deadline_within_relaxed_tolerance",
+          "ambiguity_flags_present",
+          "llm_supported_equivalence",
+        ]),
+      });
+      expect(assessment.opportunities.length).toBeGreaterThan(0);
+      for (const opp of assessment.opportunities) {
+        expect(opp.equivalenceClass).toBe("A");
+      }
+    });
+
     it("produces a valid opportunity with executable size for a matching Router identity pair", async () => {
       const cluster = identityCluster();
       const projection = projectPmxtRouterMatches([cluster], nativeIdentities);

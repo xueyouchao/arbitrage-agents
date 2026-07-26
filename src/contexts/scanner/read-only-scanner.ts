@@ -21,8 +21,11 @@ import { ScanFailureCategory, ScanMetrics, ScanResult } from "./scanner-result";
 import { ScanTelemetryReporter } from "./sentry-scan-telemetry-reporter";
 
 import type { OpportunityCalculatorOptions } from "../arbitrage/domain/opportunity-calculator";
-
 import { DeadlineToleranceConfig, DEFAULT_DEADLINE_TOLERANCE_CONFIG } from "../matching/domain/market-compatibility";
+import {
+  promoteEquivalenceClass,
+  promoteEquivalenceDecision,
+} from "./domain/llm-equivalence-promotion";
 
 export interface ReadOnlyScannerDependencies {
   kalshiClient: VenueClient;
@@ -776,45 +779,6 @@ function decisionWithLlmReason(decision: EquivalenceDecision, llmEvaluation: Llm
 
   return { ...decision, reasons: [...decision.reasons, "llm_inconclusive"] };
 }
-
-function promoteEquivalenceClass(decision: EquivalenceDecision, confidence: number): EquivalenceDecision["equivalenceClass"] {
-  // Issue #1 / class-A promotion guard: the LLM can only promote a
-  // deterministic class-B pair to class A when BOTH of the following hold:
-  //   1. The deterministic decision is class B (alert-only) — never C/D.
-  //   2. Every reason on the decision is in the explicit soft-reason
-  //      allowlist. A hand-maintained denylist of hard reasons is fragile
-  //      when the policy grows new reasons; an allowlist is the safe
-  //      default. Pair-level reasons that did not come from
-  //      DeterministicEquivalencePolicy are conservatively treated as
-  //      hard until they are explicitly allowed.
-  // D-class pairs (low_normalization_confidence) are downgraded to B when
-  // the LLM clears the human-review need, but cannot reach A.
-  if (confidence < 0.7) return decision.equivalenceClass;
-  if (decision.equivalenceClass === "D") return "B";
-  if (decision.equivalenceClass !== "B") return decision.equivalenceClass;
-  if (confidence < 0.9) return "B";
-  const allReasonsSoft = decision.reasons.every((reason) => SOFT_REVIEW_REASONS.has(reason));
-  return allReasonsSoft ? "A" : "B";
-}
-
-function promoteEquivalenceDecision(decision: EquivalenceDecision, promotedClass: EquivalenceDecision["equivalenceClass"]): EquivalenceDecision["decision"] {
-  if (promotedClass === "A") return "tradable";
-  if (promotedClass === "B") return decision.decision === "tradable" ? "tradable" : "alert_only";
-  if (promotedClass === "C") return "reject";
-  return decision.decision;
-}
-
-const SOFT_REVIEW_REASONS: ReadonlySet<string> = new Set([
-  "ambiguity_flags_present",
-  "resolution_source_missing",
-  "resolution_source_differs",
-  "resolution_source_differs_crypto_index",
-  "deadline_same_day_time_differs",
-  "threshold_close_but_not_identical",
-  "llm_inconclusive",
-  "llm_supported_equivalence",
-  "deterministic_fields_match"
-]);
 
 function toLlmEquivalenceInput(pair: CandidatePair, decision: EquivalenceDecision): Record<string, unknown> {
   return {

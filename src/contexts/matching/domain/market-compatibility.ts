@@ -88,13 +88,3 @@ export function deadlinesCompatible(
 
   return { exact: false, compatible: false };
 }
-
-function sameUtcDay(leftMs: number, rightMs: number): boolean {
-  const left = new Date(leftMs);
-  const right = new Date(rightMs);
-  return (
-    left.getUTCFullYear() === right.getUTCFullYear() &&
-    left.getUTCMonth() === right.getUTCMonth() &&
-    left.getUTCDate() === right.getUTCDate()
-  );
-}

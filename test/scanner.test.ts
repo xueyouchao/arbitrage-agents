@@ -668,6 +668,60 @@ describe("ReadOnlyScanner", () => {
     expect(repository.opportunities).toHaveLength(0);
   });
 
+  it("promotes a class-B pair with deadline_within_relaxed_tolerance plus a soft reason to class A on high-confidence LLM equivalence", async () => {
+    const repository = new InMemoryScannerRepository();
+    const llmRepository = new InMemoryLlmEvaluationRepository();
+    const llmGateway = new PersistedLlmGateway(llmRepository, async (request) => ({
+      output: request.taskType === "market_equivalence"
+        ? { equivalent: true, confidence: 0.99, explanation: "same BTC threshold and source" }
+        : {
+            topic: "crypto",
+            eventType: "price_above",
+            asset: "BTC",
+            threshold: 100000,
+            operator: ">",
+            deadline: request.input?.deadline ?? "2026-01-01T00:00:00.000Z",
+            timezone: "UTC",
+            resolutionSource: "Coinbase BTC/USD",
+            payoffType: "at_time",
+            confidence: 0.9,
+            ambiguityFlags: ["timezone_in_title"]
+          },
+      tokenUsage: { promptTokens: 12, completionTokens: 6 },
+      latencyMs: 20
+    }));
+
+    const kalshiResolution = "Resolves to official BTC USD price at 2026-01-01T16:00:00Z.";
+    const polymarketResolution = "Resolves to official BTC USD price at 2026-01-02T15:00:00Z.";
+
+    const result = await new ReadOnlyScanner({
+      kalshiClient: new StaticVenueClient({
+        markets: [market("kalshi", "K1", "Will Bitcoin be above $100,000 on Jan 1, 2026?", kalshiResolution)],
+        books: [{ marketId: "K1", venue: "kalshi", yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 20, noAvailableUsd: 30, capturedAt }]
+      }),
+      polymarketClient: new StaticVenueClient({
+        markets: [market("polymarket", "P1", "Will BTC be above $100,000 on Jan 2, 2026?", polymarketResolution)],
+        books: [{ marketId: "P1", venue: "polymarket", yesAsk: 0.5, noAsk: 0.51, yesAvailableUsd: 50, noAvailableUsd: 12, capturedAt }]
+      }),
+      repository,
+      llmGateway,
+      llmModel: "test-model",
+      llmPromptVersion: "scanner-test-v1",
+      now: capturedAt
+    }).runOnce();
+
+    expect(result.status).toBe("succeeded");
+    expect(repository.candidatePairs).toHaveLength(1);
+    const reviewedPair = repository.candidatePairs[0];
+    expect(reviewedPair.decision).toMatchObject({
+      equivalenceClass: "A",
+      decision: "tradable",
+      reasons: expect.arrayContaining(["deadline_within_relaxed_tolerance", "ambiguity_flags_present", "llm_supported_equivalence"])
+    });
+    expect(reviewedPair.llmEvaluation).toBeDefined();
+    expect(repository.opportunities).toHaveLength(1);
+  });
+
   it("drops opportunities when a tradable pair is missing either orderbook or persisted snapshot", async () => {
     const repository = new InMemoryScannerRepository();
     const result = await new ReadOnlyScanner({
