@@ -51,14 +51,17 @@ describe("OpportunityCalculator", () => {
       { feeRate: 0.01, slippageRate: 0.005, now: "2026-01-01T00:00:00.000Z" }
     );
 
+    // ADR-0002 §3.3: both venues default to probability-weighted fees
+    // (coefficient 0.07). Kalshi YES @0.42: ceil4(0.07*0.42*0.58)=0.0171.
+    // Polymarket NO @0.51: ceil4(0.07*0.51*0.49)=0.0175. Total = 0.0346.
     expect(opportunities).toHaveLength(1);
     expect(opportunities[0]).toMatchObject({
       id: "k-1:p-1:kalshi_yes-polymarket_no",
       combinedCost: 0.93,
       grossEdge: 0.07,
-      estimatedFees: 0.0171,
+      estimatedFees: 0.0346,
       estimatedSlippage: 0.0046,
-      netEdge: 0.0483,
+      netEdge: 0.0308,
       maxTradableUsd: 12,
       fillRisk: "medium",
       liquidityRisk: "medium",
@@ -69,7 +72,7 @@ describe("OpportunityCalculator", () => {
       calculationVersion: "opportunity-calculator-v2",
       configVersion: "phase4-realistic-costs-v1",
       notionalEdges: expect.arrayContaining([
-        expect.objectContaining({ targetNotionalUsd: 5, fillable: true, netEdge: 0.0483 }),
+        expect.objectContaining({ targetNotionalUsd: 5, fillable: true, netEdge: 0.0308 }),
         expect.objectContaining({ targetNotionalUsd: 25, fillable: false })
       ])
     });
@@ -117,7 +120,7 @@ describe("OpportunityCalculator", () => {
     });
   });
 
-  it("reads Polymarket crypto fee schedule from MarketBook.rawPayload when feeSource is market-payload", () => {
+  it("reads a Polymarket crypto fee coefficient from MarketBook.rawPayload when feeSource is market-payload", () => {
     const kalshiBook = { marketId: "K1", venue: "kalshi" as const, yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 100, noAvailableUsd: 100, capturedAt: "2026-01-01T00:00:00.000Z" };
     const polymarketBook = {
       marketId: "P1",
@@ -129,34 +132,57 @@ describe("OpportunityCalculator", () => {
       capturedAt: "2026-01-01T00:00:00.000Z",
       rawPayload: {
         market: {
-          feeSchedule: { exponent: 1, rate: 0.07, takerOnly: true, rebateRate: 0.2 }
+          // Coefficient deliberately differs from the default 0.07 so we can
+          // prove the payload is being read rather than silently ignored.
+          feeSchedule: { exponent: 1, rate: 0.09, takerOnly: true, rebateRate: 0.2 }
         }
       }
     };
 
-    // Without market-payload fees, the default 1% flat fee applies.
+    // Config source uses the default probability-weighted coefficient (0.07).
+    // Kalshi YES @0.42: ceil4(0.07 * 0.42 * 0.58) = 0.0171.
+    // Polymarket NO @0.51: ceil4(0.07 * 0.51 * 0.49) = 0.0175.
     const withoutAuto = new OpportunityCalculator().calculate(pair, classA, kalshiBook, polymarketBook, {
       now: "2026-01-01T00:00:00.000Z",
-      slippageRate: 0,
-      feeRate: 0.01
+      slippageRate: 0
     });
     expect(withoutAuto[0]).toMatchObject({
-      estimatedFees: 0.0171,
-      netEdge: 0.0529
+      estimatedFees: 0.0346,
+      netEdge: 0.0354
     });
 
-    // With feeSource market-payload, the per-side effective rate is 0.07 * (1 - sidePrice).
-    // Poly NO price = 0.51 -> effectiveRate = 0.07 * 0.49 = 0.0343.
-    // Poly fee = 0.51 * 0.0343 = 0.017493; Kalshi fee = 0.42 * 0.01 = 0.0042.
+    // Market-payload source overrides the Polymarket coefficient with the
+    // payload value 0.09. Effective NO fee rate = 0.09 * (1 - 0.51) = 0.0441.
+    // Polymarket NO fee = 0.51 * 0.0441 = 0.022491 -> ceil4 = 0.0225.
+    // Kalshi YES fee stays 0.0171. Total = 0.0396.
     const withAuto = new OpportunityCalculator().calculate(pair, classA, kalshiBook, polymarketBook, {
       now: "2026-01-01T00:00:00.000Z",
       slippageRate: 0,
-      feeRate: 0.01,
       feeSource: "market-payload"
     });
     expect(withAuto[0]).toMatchObject({
-      estimatedFees: 0.0171,
-      netEdge: 0.0529
+      estimatedFees: 0.0396,
+      netEdge: 0.0304
+    });
+  });
+
+  it("falls back to the conservative Polymarket default when market-payload fee data is missing", () => {
+    const kalshiBook = { marketId: "K1", venue: "kalshi" as const, yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 100, noAvailableUsd: 100, capturedAt: "2026-01-01T00:00:00.000Z" };
+    const polymarketBook = { marketId: "P1", venue: "polymarket" as const, yesAsk: 0.5, noAsk: 0.51, yesAvailableUsd: 100, noAvailableUsd: 100, capturedAt: "2026-01-01T00:00:00.000Z" };
+
+    const [opportunity] = new OpportunityCalculator().calculate(pair, classA, kalshiBook, polymarketBook, {
+      now: "2026-01-01T00:00:00.000Z",
+      slippageRate: 0,
+      feeSource: "market-payload"
+    });
+
+    // Missing payload fee schedule must not silently zero fees; it should keep
+    // the realistic default coefficient (0.07). Same expected values as the
+    // config-source baseline in the payload test above.
+    expect(opportunity).toMatchObject({
+      estimatedFees: 0.0346,
+      netEdge: 0.0354,
+      hedgeLeg: { feeModel: expect.objectContaining({ probabilityWeightedRate: 0.07 }) }
     });
   });
 
@@ -213,13 +239,16 @@ describe("OpportunityCalculator", () => {
       }
     );
 
+    // Default probability-weighted models ignore the flat venueFeeRates.
+    // Kalshi YES @0.4: ceil4(0.07*0.4*0.6)=0.0169. Polymarket NO @0.5:
+    // ceil4(0.07*0.5*0.5)=0.0176. Top-of-book total = 0.0345.
     expect(opportunities[0]).toMatchObject({
-      estimatedFees: 0.0169,
+      estimatedFees: 0.0345,
       estimatedSlippage: 0,
-      netEdge: 0.0831,
+      netEdge: 0.0655,
       notionalEdges: [
-        expect.objectContaining({ targetNotionalUsd: 10, fillable: true, estimatedFees: 0.0169, estimatedSlippage: 0, netEdge: 0.0831 }),
-        expect.objectContaining({ targetNotionalUsd: 30, fillable: false, estimatedSlippage: 0, netEdge: 0.0278 })
+        expect.objectContaining({ targetNotionalUsd: 10, fillable: true, estimatedFees: 0.0345, estimatedSlippage: 0, netEdge: 0.0655 }),
+        expect.objectContaining({ targetNotionalUsd: 30, fillable: false, estimatedSlippage: 0, netEdge: 0.0103 })
       ]
     });
   });
@@ -256,21 +285,25 @@ describe("OpportunityCalculator", () => {
       }
     );
 
+    // Default probability-weighted fees apply to both legs (feeRate=0 in
+    // venueFeeRates only affects non-probability-weighted models). Top-of-book
+    // fees are 0.0345; the 10/20 USD targets walk into worse prices and are not
+    // profitable once fees are included.
     expect(opportunity).toMatchObject({
       combinedCost: 0.9,
       grossEdge: 0.1,
-      netEdge: 0.0831,
+      netEdge: 0.0655,
       theoreticalCombinedCost: 0.9,
       theoreticalGrossEdge: 0.1,
-      theoreticalNetEdge: 0.0831,
-      executableSizeUsd: 10,
-      executableCombinedCost: 0.9683,
-      executableGrossEdge: 0.0317,
-      executableNetEdge: 0.0144,
+      theoreticalNetEdge: 0.0655,
+      executableSizeUsd: 5,
+      executableCombinedCost: 0.9,
+      executableGrossEdge: 0.1,
+      executableNetEdge: 0.0655,
       maxTradableUsd: 5,
       notionalEdges: [
-        expect.objectContaining({ targetNotionalUsd: 10, fillable: true, netEdge: 0.0144 }),
-        expect.objectContaining({ targetNotionalUsd: 20, fillable: true, netEdge: -0.088 })
+        expect.objectContaining({ targetNotionalUsd: 10, fillable: true, netEdge: -0.0031 }),
+        expect.objectContaining({ targetNotionalUsd: 20, fillable: true, netEdge: -0.1052 })
       ]
     });
   });
@@ -301,11 +334,11 @@ describe("OpportunityCalculator", () => {
       }
     );
 
-    expect(opportunity).toMatchObject({ maxTradableUsd: 5, executableSizeUsd: 10, executableNetEdge: 0.0831 });
+    expect(opportunity).toMatchObject({ maxTradableUsd: 5, executableSizeUsd: 10, executableNetEdge: 0.0655 });
     expect(opportunity.notionalEdges).toEqual([
-      expect.objectContaining({ targetNotionalUsd: 5, fillable: true, netEdge: 0.0831 }),
-      expect.objectContaining({ targetNotionalUsd: 10, fillable: true, netEdge: 0.0831 }),
-      expect.objectContaining({ targetNotionalUsd: 25, fillable: true, netEdge: -0.1809 })
+      expect.objectContaining({ targetNotionalUsd: 5, fillable: true, netEdge: 0.0655 }),
+      expect.objectContaining({ targetNotionalUsd: 10, fillable: true, netEdge: 0.0655 }),
+      expect.objectContaining({ targetNotionalUsd: 25, fillable: true, netEdge: -0.1974 })
     ]);
   });
 
@@ -484,9 +517,11 @@ describe("OpportunityCalculator", () => {
 
     expect(opportunity.longLeg.depthLevels).toEqual([{ price: 0.4, size: 50 }, { price: 0.5, size: 40 }]);
     expect(opportunity.hedgeLeg.depthLevels).toEqual([{ price: 0.5, size: 60 }]);
+    // Default probability-weighted fees are applied to depth-walked average
+    // prices, not the flat venueFeeRates zero.
     expect(opportunity.notionalEdges).toEqual([
-      expect.objectContaining({ targetNotionalUsd: 30, grossEdge: 0.0714, netEdge: 0.0542, fillable: true }),
-      expect.objectContaining({ targetNotionalUsd: 60, grossEdge: 0.0556, netEdge: 0.0383, fillable: false })
+      expect.objectContaining({ targetNotionalUsd: 30, grossEdge: 0.0714, netEdge: 0.0366, fillable: true }),
+      expect.objectContaining({ targetNotionalUsd: 60, grossEdge: 0.0556, netEdge: 0.0207, fillable: false })
     ]);
   });
 
@@ -522,9 +557,9 @@ describe("OpportunityCalculator", () => {
 
     expect(opportunity.longLeg.feeRate).toBe(0.07);
     expect(opportunity.longLeg.slippageRate).toBe(0.005);
-    // Default fee models are merged per-venue: the explicit Kalshi YES rate stays,
-    // but Polymarket still uses its default model (here feeRateBps=0).
-    expect(opportunity.hedgeLeg.feeRate).toBe(0);
+    // Default Polymarket model is probability-weighted, so the effective rate at
+    // the NO ask of 0.5 is 0.07 * (1 - 0.5) = 0.035, not the venueFeeRates zero.
+    expect(opportunity.hedgeLeg.feeRate).toBe(0.035);
     expect(opportunity.hedgeLeg.slippageRate).toBe(0.09);
   });
 
@@ -541,7 +576,13 @@ describe("OpportunityCalculator", () => {
     // Custom Kalshi model applies.
     expect(opportunity.longLeg.feeModel).toMatchObject({ type: "kalshi", rate: 0.09, version: "custom-kalshi-v1" });
     // Default Polymarket model is preserved despite the partial override.
-    expect(opportunity.hedgeLeg.feeModel).toMatchObject({ type: "polymarket", orderRole: "taker", version: "polymarket-crypto-taker-v1" });
+    expect(opportunity.hedgeLeg.feeModel).toMatchObject({
+      type: "polymarket",
+      probabilityWeighted: true,
+      probabilityWeightedRate: 0.07,
+      orderRole: "taker",
+      version: "polymarket-crypto-taker-v1"
+    });
   });
 
   it("allows disabling fee models by passing an explicit empty feeModels object", () => {

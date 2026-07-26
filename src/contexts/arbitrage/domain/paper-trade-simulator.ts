@@ -1,4 +1,4 @@
-import { ContractLeg, CrossVenueOpportunity, FeeModel, FeeModels, PriceLevel } from "./opportunity";
+import { ContractLeg, CrossVenueOpportunity, FeeModel, FeeModels, PriceLevel, probabilityWeightedFee } from "./opportunity";
 
 /**
  * Paper-trade simulator: deterministic both-legs simulation of how an
@@ -134,7 +134,8 @@ function walkLeg(leg: ContractLeg, targetNotionalUsd: number, feeModels: FeeMode
   }
 
   const averagePrice = totalCost / totalContracts;
-  const fees = feeForPrice(averagePrice, feeModels[leg.venue], leg.feeRate ?? 0);
+  const feeModel = feeModels[leg.venue] ?? leg.feeModel;
+  const fees = feeForPrice(averagePrice, feeModel, leg.feeRate ?? 0);
   const topOfBookPrice = levels[0].price * effectivePriceMultiplier;
   const slippage = Math.max(0, averagePrice - topOfBookPrice) * totalContracts;
 
@@ -165,9 +166,14 @@ function feeForPrice(price: number, feeModel: FeeModel | undefined, fallbackRate
     return price * rate;
   }
   if (feeModel.type === "kalshi") {
-    return Math.ceil(feeModel.rate * price * (1 - price) * 10_000) / 10_000;
+    const coefficient = typeof feeModel.rate === "number" ? feeModel.rate : fallbackRate;
+    return probabilityWeightedFee(price, coefficient);
   }
   if (feeModel.type === "polymarket") {
+    if (feeModel.probabilityWeighted) {
+      const coefficient = typeof feeModel.probabilityWeightedRate === "number" ? feeModel.probabilityWeightedRate : fallbackRate;
+      return probabilityWeightedFee(price, coefficient);
+    }
     const bps = feeModel.takerFeeRateBps ?? feeModel.feeRateBps ?? fallbackRate * 10_000;
     const opBps = feeModel.operatorFeeRateBps ?? 0;
     return price * ((bps + opBps) / 10_000);

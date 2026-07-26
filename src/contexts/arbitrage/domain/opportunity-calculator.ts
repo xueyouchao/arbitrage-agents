@@ -1,8 +1,8 @@
 import { CandidatePair, EquivalenceDecision } from "../../matching/domain/candidate-pair";
 import { NormalizedMarket, Venue, VENUES } from "../../matching/domain/normalized-market";
-import { resolvePolymarketFeeRate } from "../../venues/domain/polymarket-fee-resolver";
+import { resolvePolymarketFeeCoefficient, resolvePolymarketFeeRate } from "../../venues/domain/polymarket-fee-resolver";
 import { classifyRiskStructure } from "./risk-structure-classifier";
-import { ContractLeg, ContractSide, CrossVenueOpportunity, FeeModel, FeeModels, MarketBook, NotionalEdge, PriceLevel, RiskLevel, RiskStructure } from "./opportunity";
+import { ContractLeg, ContractSide, CrossVenueOpportunity, FeeModel, FeeModels, MarketBook, NotionalEdge, PriceLevel, probabilityWeightedFee, RiskLevel, RiskStructure } from "./opportunity";
 
 export type FeeSource = "config" | "market-payload";
 
@@ -64,7 +64,7 @@ const DEFAULT_OPTIONS: OpportunityCalculatorOptions = {
   },
   feeModels: {
     kalshi: { type: "kalshi", rate: 0.07, version: "kalshi-crypto-taker-v1" },
-    polymarket: { type: "polymarket", feeRateBps: 0, takerFeeRateBps: 0, orderRole: "taker", version: "polymarket-crypto-taker-v1" }
+    polymarket: { type: "polymarket", probabilityWeighted: true, probabilityWeightedRate: 0.07, orderRole: "taker", version: "polymarket-crypto-taker-v1" }
   },
   feeSource: "config",
   calculationVersion: "opportunity-calculator-v2",
@@ -121,16 +121,23 @@ export class OpportunityCalculator {
 
   private toLeg(book: MarketBook, side: ContractSide, options: OpportunityCalculatorOptions): ContractLeg {
     const askPrice = side === "YES" ? book.yesAsk : book.noAsk;
+    const baseFeeModel = feeModelFor(options, book.venue);
+    const { feeModel, feeRate: probabilityWeightedFeeRate } = resolvePolymarketProbabilityWeightedModel(
+      book,
+      side,
+      baseFeeModel,
+      options
+    );
     return {
       venue: book.venue,
       marketId: book.marketId,
       side,
       askPrice,
       availableUsd: side === "YES" ? book.yesAvailableUsd : book.noAvailableUsd,
-      feeRate: feeRateFor(book, side, options),
+      feeRate: probabilityWeightedFeeRate ?? feeRateFor(book, side, options),
       slippageRate: rateFor(options.venueSlippageRates, book.venue, side, options.slippageRate),
-      feeModelVersion: feeModelFor(options, book.venue)?.version,
-      feeModel: feeModelFor(options, book.venue),
+      feeModelVersion: feeModel?.version,
+      feeModel,
       depthLevels: normalizedDepthLevels(book, side)
     };
   }
@@ -312,6 +319,40 @@ function feeModelFor(options: OpportunityCalculatorOptions, venue: Venue): FeeMo
   return model;
 }
 
+/**
+ * For probability-weighted Polymarket models, resolve the coefficient from the
+ * market payload when feeSource is "market-payload". Missing payload data keeps
+ * the conservative default coefficient so fees never collapse to zero. Returns
+ * an effective flat rate for the side so that leg.feeRate remains meaningful.
+ */
+function resolvePolymarketProbabilityWeightedModel(
+  book: MarketBook,
+  side: ContractSide,
+  model: FeeModel | undefined,
+  options: OpportunityCalculatorOptions
+): { feeModel: FeeModel | undefined; feeRate: number | undefined } {
+  if (!model || model.type !== "polymarket" || !model.probabilityWeighted) {
+    return { feeModel: model, feeRate: undefined };
+  }
+
+  const sidePrice = side === "YES" ? book.yesAsk : book.noAsk;
+  if (!Number.isFinite(sidePrice) || sidePrice <= 0 || sidePrice >= 1) {
+    return { feeModel: model, feeRate: undefined };
+  }
+
+  const payloadCoefficient =
+    options.feeSource === "market-payload" ? resolvePolymarketFeeCoefficient(book) : undefined;
+  const coefficient = payloadCoefficient ?? model.probabilityWeightedRate;
+  if (coefficient === undefined) {
+    return { feeModel: model, feeRate: undefined };
+  }
+
+  return {
+    feeModel: { ...model, probabilityWeightedRate: coefficient },
+    feeRate: coefficient * (1 - sidePrice)
+  };
+}
+
 function normalizedDepthLevels(book: MarketBook, side: ContractSide): PriceLevel[] {
   const levels = side === "YES" ? book.yesDepth : book.noDepth;
   const fallbackAsk = side === "YES" ? book.yesAsk : book.noAsk;
@@ -386,11 +427,16 @@ function feeForPrice(price: number, feeModel: FeeModel | undefined, fallbackRate
   }
 
   if (feeModel.type === "kalshi") {
-    const rate = typeof feeModel.rate === "number" ? feeModel.rate : fallbackRate;
-    return ceil4(rate * price * (1 - price));
+    const coefficient = typeof feeModel.rate === "number" ? feeModel.rate : fallbackRate;
+    return probabilityWeightedFee(price, coefficient);
   }
 
   if (feeModel.type === "polymarket") {
+    if (feeModel.probabilityWeighted) {
+      const coefficient = typeof feeModel.probabilityWeightedRate === "number" ? feeModel.probabilityWeightedRate : fallbackRate;
+      return probabilityWeightedFee(price, coefficient);
+    }
+
     const role = feeModel.orderRole === "maker" ? "maker" : "taker";
     const roleBps = role === "maker" ? feeModel.makerFeeRateBps : feeModel.takerFeeRateBps;
     const feeRateBps = typeof roleBps === "number" ? roleBps : typeof feeModel.feeRateBps === "number" ? feeModel.feeRateBps : fallbackRate * 10_000;

@@ -113,6 +113,27 @@ describe("PaperTradeSimulator", () => {
     expect(sims[0].partialFill).toBe(false);
   });
 
+  it("applies probability-weighted Polymarket fees from the opportunity leg's fee model", () => {
+    const opportunity = baseOpportunity({
+      hedgeLeg: leg({
+        venue: "polymarket",
+        marketId: "P1",
+        side: "NO",
+        askPrice: 0.5,
+        availableUsd: 30,
+        depthLevels: [{ price: 0.5, size: 60 }],
+        feeModel: { type: "polymarket", probabilityWeighted: true, probabilityWeightedRate: 0.09, orderRole: "taker", version: "test-poly-crypto" }
+      })
+    });
+
+    const [sim] = new PaperTradeSimulator().simulate(opportunity, { targetNotionalsUsd: [25], adverseSelectionBps: 0 });
+
+    // Representative formula: fee = coefficient * price * (1 - price).
+    // coefficient 0.09, price 0.5 -> 0.09 * 0.5 * 0.5 = 0.0225.
+    expect(sim.hedgeLegFill.averagePrice).toBeCloseTo(0.5, 4);
+    expect(sim.hedgeLegFill.fees).toBeCloseTo(0.0225, 4);
+  });
+
   it("uses flat fee model from the configured fee model registry", () => {
     const opportunity = baseOpportunity();
     const sims = new PaperTradeSimulator().simulate(opportunity, {
