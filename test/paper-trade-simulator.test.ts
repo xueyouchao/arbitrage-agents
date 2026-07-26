@@ -134,6 +134,43 @@ describe("PaperTradeSimulator", () => {
     expect(sim.hedgeLegFill.fees).toBeCloseTo(0.0225, 4);
   });
 
+  it("prefers a payload-resolved leg fee model over the configured registry default", () => {
+    const opportunity = baseOpportunity({
+      hedgeLeg: leg({
+        venue: "polymarket",
+        marketId: "P1",
+        side: "NO",
+        askPrice: 0.5,
+        availableUsd: 30,
+        depthLevels: [{ price: 0.5, size: 60 }],
+        feeModel: {
+          type: "polymarket",
+          probabilityWeighted: true,
+          probabilityWeightedRate: 0.09,
+          orderRole: "taker",
+          provenance: "market-payload",
+          version: "test-poly-crypto-payload"
+        }
+      })
+    });
+
+    const [sim] = new PaperTradeSimulator().simulate(opportunity, {
+      targetNotionalsUsd: [25],
+      adverseSelectionBps: 0,
+      feeModels: {
+        polymarket: {
+          type: "polymarket",
+          probabilityWeighted: true,
+          probabilityWeightedRate: 0.07,
+          orderRole: "taker",
+          version: "test-poly-crypto-default"
+        }
+      }
+    });
+
+    expect(sim.hedgeLegFill.fees).toBeCloseTo(0.0225, 4);
+  });
+
   it("uses flat fee model from the configured fee model registry", () => {
     const opportunity = baseOpportunity();
     const sims = new PaperTradeSimulator().simulate(opportunity, {

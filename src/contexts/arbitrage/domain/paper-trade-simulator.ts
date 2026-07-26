@@ -134,7 +134,10 @@ function walkLeg(leg: ContractLeg, targetNotionalUsd: number, feeModels: FeeMode
   }
 
   const averagePrice = totalCost / totalContracts;
-  const feeModel = feeModels[leg.venue] ?? leg.feeModel;
+  // Prefer the per-leg model because OpportunityCalculator may enrich it with
+  // a market-payload coefficient. The registry remains the fallback for legs
+  // constructed without a resolved model.
+  const feeModel = leg.feeModel ?? feeModels[leg.venue];
   const fees = feeForPrice(averagePrice, feeModel, leg.feeRate ?? 0);
   const topOfBookPrice = levels[0].price * effectivePriceMultiplier;
   const slippage = Math.max(0, averagePrice - topOfBookPrice) * totalContracts;
