@@ -162,7 +162,44 @@ describe("OpportunityCalculator", () => {
     });
     expect(withAuto[0]).toMatchObject({
       estimatedFees: 0.0396,
-      netEdge: 0.0304
+      netEdge: 0.0304,
+      hedgeLeg: {
+        feeModel: expect.objectContaining({
+          probabilityWeightedRate: 0.09,
+          provenance: "market-payload",
+          version: "polymarket-crypto-taker-v1-payload-0.0900"
+        }),
+        feeModelVersion: "polymarket-crypto-taker-v1-payload-0.0900"
+      }
+    });
+  });
+
+  it("stamps market-payload provenance even when the payload coefficient equals the default", () => {
+    const kalshiBook = { marketId: "K1", venue: "kalshi" as const, yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 100, noAvailableUsd: 100, capturedAt: "2026-01-01T00:00:00.000Z" };
+    const polymarketBook = {
+      marketId: "P1",
+      venue: "polymarket" as const,
+      yesAsk: 0.5,
+      noAsk: 0.51,
+      yesAvailableUsd: 100,
+      noAvailableUsd: 100,
+      capturedAt: "2026-01-01T00:00:00.000Z",
+      rawPayload: { market: { feeSchedule: { rate: 0.07 } } }
+    };
+
+    const [opportunity] = new OpportunityCalculator().calculate(pair, classA, kalshiBook, polymarketBook, {
+      now: "2026-01-01T00:00:00.000Z",
+      slippageRate: 0,
+      feeSource: "market-payload"
+    });
+
+    // Origin must be distinguishable as market-payload, but the version string
+    // should stay stable because the coefficient did not override the default.
+    expect(opportunity).toMatchObject({
+      hedgeLeg: {
+        feeModel: expect.objectContaining({ probabilityWeightedRate: 0.07, provenance: "market-payload" }),
+        feeModelVersion: "polymarket-crypto-taker-v1"
+      }
     });
   });
 
@@ -182,7 +219,35 @@ describe("OpportunityCalculator", () => {
     expect(opportunity).toMatchObject({
       estimatedFees: 0.0346,
       netEdge: 0.0354,
-      hedgeLeg: { feeModel: expect.objectContaining({ probabilityWeightedRate: 0.07 }) }
+      hedgeLeg: {
+        feeModel: expect.objectContaining({ probabilityWeightedRate: 0.07, provenance: "config" }),
+        feeModelVersion: "polymarket-crypto-taker-v1"
+      }
+    });
+  });
+
+  it("uses the conservative default coefficient for a custom probability-weighted Polymarket model with no coefficient", () => {
+    const kalshiBook = { marketId: "K1", venue: "kalshi" as const, yesAsk: 0.42, noAsk: 0.62, yesAvailableUsd: 100, noAvailableUsd: 100, capturedAt: "2026-01-01T00:00:00.000Z" };
+    const polymarketBook = { marketId: "P1", venue: "polymarket" as const, yesAsk: 0.5, noAsk: 0.51, yesAvailableUsd: 100, noAvailableUsd: 100, capturedAt: "2026-01-01T00:00:00.000Z" };
+
+    const [opportunity] = new OpportunityCalculator().calculate(pair, classA, kalshiBook, polymarketBook, {
+      now: "2026-01-01T00:00:00.000Z",
+      slippageRate: 0,
+      feeModels: {
+        kalshi: { type: "kalshi", rate: 0.07, version: "kalshi-fee-v1" },
+        // Custom model enables probability-weighted mode but omits the coefficient.
+        // It must default to 0.07 instead of silently collapsing fees to zero.
+        polymarket: { type: "polymarket", probabilityWeighted: true, orderRole: "taker", version: "custom-pmxt-v1" }
+      }
+    });
+
+    expect(opportunity).toMatchObject({
+      estimatedFees: 0.0346,
+      netEdge: 0.0354,
+      hedgeLeg: {
+        feeModel: expect.objectContaining({ probabilityWeightedRate: 0.07, provenance: "config" }),
+        feeModelVersion: "custom-pmxt-v1"
+      }
     });
   });
 

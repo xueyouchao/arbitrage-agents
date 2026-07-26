@@ -1,6 +1,13 @@
 import { ContractSide, MarketBook } from "../../arbitrage/domain/opportunity";
 
 /**
+ * Conservative default Polymarket crypto fee coefficient (7% at-the-money) used
+ * when neither the configured fee model nor the market payload provides a
+ * coefficient. Exported so tests and consumers can reference the same value.
+ */
+export const DEFAULT_POLYMARKET_CRYPTO_FEE_COEFFICIENT = 0.07;
+
+/**
  * Resolve the raw probability-weighted fee coefficient for a Polymarket
  * orderbook using the market's raw fee schedule, if present.
  *
@@ -33,7 +40,11 @@ export function resolvePolymarketFeeCoefficient(book: MarketBook): number | unde
     | undefined;
   const rate =
     typeof feeSchedule?.rate === "number" ? feeSchedule.rate : undefined;
-  if (rate === undefined || rate <= 0 || rate >= 1) return undefined;
+  // Reject missing, NaN, and non-finite rates. The coefficient must be a real
+  // number in the open interval (0, 1).
+  if (rate === undefined || !Number.isFinite(rate) || rate <= 0 || rate >= 1) {
+    return undefined;
+  }
 
   return rate;
 }

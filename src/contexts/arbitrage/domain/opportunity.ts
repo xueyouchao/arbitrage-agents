@@ -48,6 +48,11 @@ export interface PolymarketFeeModel {
    */
   probabilityWeighted?: boolean;
   probabilityWeightedRate?: number;
+  /**
+   * Where the resolved coefficient came from. Distinguishes the default/config
+   * model from a coefficient read directly from the market payload.
+   */
+  provenance?: "config" | "market-payload";
   version?: string;
 }
 

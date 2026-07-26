@@ -1,6 +1,6 @@
 import { CandidatePair, EquivalenceDecision } from "../../matching/domain/candidate-pair";
 import { NormalizedMarket, Venue, VENUES } from "../../matching/domain/normalized-market";
-import { resolvePolymarketFeeCoefficient, resolvePolymarketFeeRate } from "../../venues/domain/polymarket-fee-resolver";
+import { DEFAULT_POLYMARKET_CRYPTO_FEE_COEFFICIENT, resolvePolymarketFeeCoefficient, resolvePolymarketFeeRate } from "../../venues/domain/polymarket-fee-resolver";
 import { classifyRiskStructure } from "./risk-structure-classifier";
 import { ContractLeg, ContractSide, CrossVenueOpportunity, FeeModel, FeeModels, MarketBook, NotionalEdge, PriceLevel, probabilityWeightedFee, RiskLevel, RiskStructure } from "./opportunity";
 
@@ -64,7 +64,7 @@ const DEFAULT_OPTIONS: OpportunityCalculatorOptions = {
   },
   feeModels: {
     kalshi: { type: "kalshi", rate: 0.07, version: "kalshi-crypto-taker-v1" },
-    polymarket: { type: "polymarket", probabilityWeighted: true, probabilityWeightedRate: 0.07, orderRole: "taker", version: "polymarket-crypto-taker-v1" }
+    polymarket: { type: "polymarket", probabilityWeighted: true, probabilityWeightedRate: DEFAULT_POLYMARKET_CRYPTO_FEE_COEFFICIENT, orderRole: "taker", version: "polymarket-crypto-taker-v1" }
   },
   feeSource: "config",
   calculationVersion: "opportunity-calculator-v2",
@@ -342,13 +342,32 @@ function resolvePolymarketProbabilityWeightedModel(
 
   const payloadCoefficient =
     options.feeSource === "market-payload" ? resolvePolymarketFeeCoefficient(book) : undefined;
-  const coefficient = payloadCoefficient ?? model.probabilityWeightedRate;
+  const configuredCoefficient = model.probabilityWeightedRate ?? DEFAULT_POLYMARKET_CRYPTO_FEE_COEFFICIENT;
+  const coefficient = payloadCoefficient ?? configuredCoefficient;
   if (coefficient === undefined) {
     return { feeModel: model, feeRate: undefined };
   }
 
+  // If the market payload supplied a valid coefficient, stamp the fee model
+  // with a market-payload provenance so downstream consumers can tell the leg's
+  // coefficient came from the payload rather than the default/config value. Only
+  // bump the version when the payload value differs from the configured/default
+  // coefficient, keeping the config-source identifier stable when the values match.
+  const payloadAvailable = payloadCoefficient !== undefined;
+  const payloadOverrides = payloadAvailable && payloadCoefficient !== configuredCoefficient;
+  const feeModel: FeeModel = payloadAvailable
+    ? {
+        ...model,
+        probabilityWeightedRate: coefficient,
+        provenance: "market-payload",
+        version: payloadOverrides
+          ? `${model.version ?? "polymarket-crypto"}-payload-${coefficient.toFixed(4)}`
+          : model.version
+      }
+    : { ...model, probabilityWeightedRate: coefficient, provenance: "config" };
+
   return {
-    feeModel: { ...model, probabilityWeightedRate: coefficient },
+    feeModel,
     feeRate: coefficient * (1 - sidePrice)
   };
 }
