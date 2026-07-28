@@ -3,6 +3,8 @@ import { isCryptoPriceLevel } from "./crypto-market";
 import {
   CRYPTO_THRESHOLD_TOLERANCE,
   deadlinesCompatible,
+  DeadlineToleranceConfig,
+  DEFAULT_DEADLINE_TOLERANCE_CONFIG,
   EXACT_THRESHOLD_TOLERANCE,
   thresholdsCompatible,
 } from "./market-compatibility";
@@ -24,7 +26,17 @@ import { NormalizedMarket } from "./normalized-market";
 const CRYPTO_STRIKE_BAND = CRYPTO_THRESHOLD_TOLERANCE;
 const EXACT_STRIKE_BAND = EXACT_THRESHOLD_TOLERANCE;
 
+export interface CandidatePairGeneratorOptions {
+  deadlineTolerance?: DeadlineToleranceConfig;
+}
+
 export class CandidatePairGenerator {
+  private readonly deadlineTolerance: DeadlineToleranceConfig;
+
+  constructor(options?: CandidatePairGeneratorOptions) {
+    this.deadlineTolerance = options?.deadlineTolerance ?? DEFAULT_DEADLINE_TOLERANCE_CONFIG;
+  }
+
   generate(markets: NormalizedMarket[]): CandidatePair[] {
     const polymarketBuckets = this.bucketPolymarketMarkets(markets);
     const seen = new Set<string>();
@@ -81,7 +93,7 @@ export class CandidatePairGenerator {
   private isCandidate(left: NormalizedMarket, right: NormalizedMarket): boolean {
     return (
       thresholdsCompatible(left.threshold, right.threshold, left, right).compatible &&
-      deadlinesCompatible(left.deadline, right.deadline, left, right).compatible
+      deadlinesCompatible(left.deadline, right.deadline, left, right, this.deadlineTolerance).compatible
     );
   }
 }

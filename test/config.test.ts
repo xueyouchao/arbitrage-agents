@@ -313,6 +313,20 @@ describe("loadAppConfig", () => {
       })
     ).toThrow(/T1_EXIT_POLICY|always/);
   });
+
+  it("defaults deadline tolerances and enforces relaxed >= default", () => {
+    const config = loadAppConfig({ DATABASE_URL: "postgres://user:pass@localhost:5432/db" });
+    expect(config.deadlineToleranceMs).toBe(60_000);
+    expect(config.cryptoDeadlineRelaxedToleranceMs).toBe(24 * 60 * 60 * 1000);
+
+    expect(() =>
+      loadAppConfig({
+        DATABASE_URL: "postgres://user:pass@localhost:5432/db",
+        DEADLINE_TOLERANCE_MS: "86400000",
+        CRYPTO_DEADLINE_RELAXED_TOLERANCE_MS: "60000"
+      })
+    ).toThrow(/CRYPTO_DEADLINE_RELAXED_TOLERANCE_MS|relaxed/);
+  });
 });
 
 describe("redactSensitiveData", () => {

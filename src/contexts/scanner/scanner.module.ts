@@ -220,7 +220,11 @@ async function pingAndLog(provider: OllamaChatLlmProvider, config: AppConfig): P
           // Scan telemetry reporter is only active when Sentry is
           // configured. Without a DSN, all reporter calls are no-ops
           // (Sentry SDK drops events when not initialised).
-          telemetryReporter: config.sentryDsn ? new SentryScanTelemetryReporter() : undefined
+          telemetryReporter: config.sentryDsn ? new SentryScanTelemetryReporter() : undefined,
+          deadlineTolerance: {
+            defaultDeadlineToleranceMs: config.deadlineToleranceMs,
+            cryptoDeadlineRelaxedToleranceMs: config.cryptoDeadlineRelaxedToleranceMs
+          }
         }),
       inject: [KALSHI_VENUE_CLIENT, POLYMARKET_VENUE_CLIENT, SCANNER_REPOSITORY, SCANNER_LLM_GATEWAY, PaperTradeSimulator, APP_CONFIG]
     },

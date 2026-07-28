@@ -34,6 +34,10 @@ import {
   PmxtRouterProjectedEdge,
   PmxtRouterProjectionResult,
 } from "./pmxt-router-match-projector";
+import {
+  promoteEquivalenceClass,
+  promoteEquivalenceDecision,
+} from "../domain/llm-equivalence-promotion";
 
 // ---------------------------------------------------------------------------
 // Exclusion and status types
@@ -542,43 +546,6 @@ function mergeLlmDecision(
 
   return { ...decision, reasons: [...decision.reasons, "llm_inconclusive"] };
 }
-
-function promoteEquivalenceClass(
-  decision: EquivalenceDecision,
-  confidence: number,
-): EquivalenceDecision["equivalenceClass"] {
-  if (confidence < 0.7) return decision.equivalenceClass;
-  if (decision.equivalenceClass === "D") return "B";
-  if (decision.equivalenceClass !== "B") return decision.equivalenceClass;
-  if (confidence < 0.9) return "B";
-  const allReasonsSoft = decision.reasons.every((reason) =>
-    SOFT_REVIEW_REASONS.has(reason),
-  );
-  return allReasonsSoft ? "A" : "B";
-}
-
-function promoteEquivalenceDecision(
-  decision: EquivalenceDecision,
-  promotedClass: EquivalenceDecision["equivalenceClass"],
-): EquivalenceDecision["decision"] {
-  if (promotedClass === "A") return "tradable";
-  if (promotedClass === "B")
-    return decision.decision === "tradable" ? "tradable" : "alert_only";
-  if (promotedClass === "C") return "reject";
-  return decision.decision;
-}
-
-const SOFT_REVIEW_REASONS: ReadonlySet<string> = new Set([
-  "ambiguity_flags_present",
-  "resolution_source_missing",
-  "resolution_source_differs",
-  "resolution_source_differs_crypto_index",
-  "deadline_same_day_time_differs",
-  "threshold_close_but_not_identical",
-  "llm_inconclusive",
-  "llm_supported_equivalence",
-  "deterministic_fields_match",
-]);
 
 function buildProvenance(
   edge: PmxtRouterProjectedEdge,
