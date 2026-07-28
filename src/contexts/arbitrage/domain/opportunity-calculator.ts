@@ -1,8 +1,8 @@
 import { CandidatePair, EquivalenceDecision } from "../../matching/domain/candidate-pair";
 import { NormalizedMarket, Venue, VENUES } from "../../matching/domain/normalized-market";
-import { resolvePolymarketFeeRate } from "../../venues/domain/polymarket-fee-resolver";
+import { DEFAULT_POLYMARKET_CRYPTO_FEE_COEFFICIENT, resolvePolymarketFeeCoefficient, resolvePolymarketFeeRate } from "../../venues/domain/polymarket-fee-resolver";
 import { classifyRiskStructure } from "./risk-structure-classifier";
-import { ContractLeg, ContractSide, CrossVenueOpportunity, FeeModel, FeeModels, MarketBook, NotionalEdge, PriceLevel, RiskLevel, RiskStructure } from "./opportunity";
+import { ContractLeg, ContractSide, CrossVenueOpportunity, FeeModel, FeeModels, MarketBook, NotionalEdge, PriceLevel, probabilityWeightedFee, RiskLevel, RiskStructure } from "./opportunity";
 
 export type FeeSource = "config" | "market-payload";
 
@@ -41,7 +41,13 @@ type _DefaultVenueCoverage = AssertNoUnhandledDefaultVenue<Exclude<Venue, KnownV
 const KNOWN_VENUES: readonly KnownVenue[] = ["kalshi", "polymarket"];
 
 const DEFAULT_OPTIONS: OpportunityCalculatorOptions = {
-  feeRate: 0.01,
+  // ADR-0002 §3.3: realistic default cost models. Kalshi and Polymarket crypto
+  // price-level markets use a probability-weighted fee: rate * price * (1 - price).
+  // The coefficient defaults to 0.07 (7% at-the-money) for taker fills; the
+  // Kalshi model supports a maker discount via the feeModel registry. Slippage
+  // is kept as a conservative per-side flat rate but is modeled from orderbook
+  // impact in depth-walked simulations.
+  feeRate: 0,
   slippageRate: 0.005,
   now: "",
   maxBookAgeMs: 60_000,
@@ -49,17 +55,20 @@ const DEFAULT_OPTIONS: OpportunityCalculatorOptions = {
   profitabilityBuffer: 0,
   targetNotionalsUsd: [5, 25, 100],
   venueFeeRates: {
-    kalshi: { YES: 0.01, NO: 0.01 },
-    polymarket: { YES: 0.01, NO: 0.01 }
+    kalshi: { YES: 0, NO: 0 },
+    polymarket: { YES: 0, NO: 0 }
   },
   venueSlippageRates: {
     kalshi: { YES: 0.005, NO: 0.005 },
     polymarket: { YES: 0.005, NO: 0.005 }
   },
-  feeModels: {},
+  feeModels: {
+    kalshi: { type: "kalshi", rate: 0.07, version: "kalshi-crypto-taker-v1" },
+    polymarket: { type: "polymarket", probabilityWeighted: true, probabilityWeightedRate: DEFAULT_POLYMARKET_CRYPTO_FEE_COEFFICIENT, orderRole: "taker", version: "polymarket-crypto-taker-v1" }
+  },
   feeSource: "config",
   calculationVersion: "opportunity-calculator-v2",
-  configVersion: "phase3-conservative-v1"
+  configVersion: "phase4-realistic-costs-v1"
 };
 
 export class OpportunityCalculator {
@@ -112,16 +121,23 @@ export class OpportunityCalculator {
 
   private toLeg(book: MarketBook, side: ContractSide, options: OpportunityCalculatorOptions): ContractLeg {
     const askPrice = side === "YES" ? book.yesAsk : book.noAsk;
+    const baseFeeModel = feeModelFor(options, book.venue);
+    const { feeModel, feeRate: probabilityWeightedFeeRate } = resolvePolymarketProbabilityWeightedModel(
+      book,
+      side,
+      baseFeeModel,
+      options
+    );
     return {
       venue: book.venue,
       marketId: book.marketId,
       side,
       askPrice,
       availableUsd: side === "YES" ? book.yesAvailableUsd : book.noAvailableUsd,
-      feeRate: feeRateFor(book, side, options),
+      feeRate: probabilityWeightedFeeRate ?? feeRateFor(book, side, options),
       slippageRate: rateFor(options.venueSlippageRates, book.venue, side, options.slippageRate),
-      feeModelVersion: feeModelFor(options, book.venue)?.version,
-      feeModel: feeModelFor(options, book.venue),
+      feeModelVersion: feeModel?.version,
+      feeModel,
       depthLevels: normalizedDepthLevels(book, side)
     };
   }
@@ -245,7 +261,10 @@ function mergeOptions(options: Partial<OpportunityCalculatorOptions>): Opportuni
     ...options,
     venueFeeRates: mergeVenueRates(defaultVenueRates(options.feeRate ?? DEFAULT_OPTIONS.feeRate), options.venueFeeRates),
     venueSlippageRates: mergeVenueRates(defaultVenueRates(options.slippageRate ?? DEFAULT_OPTIONS.slippageRate), options.venueSlippageRates),
-    feeModels: options.feeModels ?? {},
+    // Phase 4: default to realistic per-venue fee models, merging per-venue
+    // overrides on top of the defaults (consistent with venueFeeRates). A caller
+    // can still disable models entirely by passing an explicit empty object.
+    feeModels: mergeFeeModels(DEFAULT_OPTIONS.feeModels, options.feeModels),
     targetNotionalsUsd: targetNotionalsUsd.length > 0 ? targetNotionalsUsd : DEFAULT_OPTIONS.targetNotionalsUsd
   };
 }
@@ -262,6 +281,21 @@ function mergeVenueRates(defaults: VenueFeeRates, overrides: VenueFeeRates | und
   return Object.fromEntries(
     VENUES.map((venue) => [venue, { ...defaults[venue], ...overrides?.[venue] }])
   ) as VenueFeeRates;
+}
+
+function mergeFeeModels(
+  defaults: FeeModels,
+  overrides: FeeModels | undefined
+): FeeModels {
+  // An explicit empty object disables fee models entirely; otherwise merge
+  // per-venue overrides so a custom Kalshi model keeps the default Polymarket
+  // model and vice versa.
+  if (overrides && Object.keys(overrides).length === 0) {
+    return {};
+  }
+  return Object.fromEntries(
+    VENUES.map((venue) => [venue, overrides?.[venue] ?? defaults[venue]])
+  ) as FeeModels;
 }
 
 function rateFor(rates: VenueFeeRates, venue: Venue, side: ContractSide, fallback: number): number {
@@ -283,6 +317,59 @@ function feeModelFor(options: OpportunityCalculatorOptions, venue: Venue): FeeMo
   if (model.type === "kalshi" && venue !== "kalshi") throw new Error(`Kalshi fee model applied to ${venue}`);
   if (model.type === "polymarket" && venue !== "polymarket") throw new Error(`Polymarket fee model applied to ${venue}`);
   return model;
+}
+
+/**
+ * For probability-weighted Polymarket models, resolve the coefficient from the
+ * market payload when feeSource is "market-payload". Missing payload data keeps
+ * the conservative default coefficient so fees never collapse to zero. Returns
+ * an effective flat rate for the side so that leg.feeRate remains meaningful.
+ */
+function resolvePolymarketProbabilityWeightedModel(
+  book: MarketBook,
+  side: ContractSide,
+  model: FeeModel | undefined,
+  options: OpportunityCalculatorOptions
+): { feeModel: FeeModel | undefined; feeRate: number | undefined } {
+  if (!model || model.type !== "polymarket" || !model.probabilityWeighted) {
+    return { feeModel: model, feeRate: undefined };
+  }
+
+  const sidePrice = side === "YES" ? book.yesAsk : book.noAsk;
+  if (!Number.isFinite(sidePrice) || sidePrice <= 0 || sidePrice >= 1) {
+    return { feeModel: model, feeRate: undefined };
+  }
+
+  const payloadCoefficient =
+    options.feeSource === "market-payload" ? resolvePolymarketFeeCoefficient(book) : undefined;
+  const configuredCoefficient = model.probabilityWeightedRate ?? DEFAULT_POLYMARKET_CRYPTO_FEE_COEFFICIENT;
+  const coefficient = payloadCoefficient ?? configuredCoefficient;
+  if (coefficient === undefined) {
+    return { feeModel: model, feeRate: undefined };
+  }
+
+  // If the market payload supplied a valid coefficient, stamp the fee model
+  // with a market-payload provenance so downstream consumers can tell the leg's
+  // coefficient came from the payload rather than the default/config value. Only
+  // bump the version when the payload value differs from the configured/default
+  // coefficient, keeping the config-source identifier stable when the values match.
+  const payloadAvailable = payloadCoefficient !== undefined;
+  const payloadOverrides = payloadAvailable && payloadCoefficient !== configuredCoefficient;
+  const feeModel: FeeModel = payloadAvailable
+    ? {
+        ...model,
+        probabilityWeightedRate: coefficient,
+        provenance: "market-payload",
+        version: payloadOverrides
+          ? `${model.version ?? "polymarket-crypto"}-payload-${coefficient.toFixed(4)}`
+          : model.version
+      }
+    : { ...model, probabilityWeightedRate: coefficient, provenance: "config" };
+
+  return {
+    feeModel,
+    feeRate: coefficient * (1 - sidePrice)
+  };
 }
 
 function normalizedDepthLevels(book: MarketBook, side: ContractSide): PriceLevel[] {
@@ -359,11 +446,16 @@ function feeForPrice(price: number, feeModel: FeeModel | undefined, fallbackRate
   }
 
   if (feeModel.type === "kalshi") {
-    const rate = typeof feeModel.rate === "number" ? feeModel.rate : fallbackRate;
-    return ceil4(rate * price * (1 - price));
+    const coefficient = typeof feeModel.rate === "number" ? feeModel.rate : fallbackRate;
+    return probabilityWeightedFee(price, coefficient);
   }
 
   if (feeModel.type === "polymarket") {
+    if (feeModel.probabilityWeighted) {
+      const coefficient = typeof feeModel.probabilityWeightedRate === "number" ? feeModel.probabilityWeightedRate : fallbackRate;
+      return probabilityWeightedFee(price, coefficient);
+    }
+
     const role = feeModel.orderRole === "maker" ? "maker" : "taker";
     const roleBps = role === "maker" ? feeModel.makerFeeRateBps : feeModel.takerFeeRateBps;
     const feeRateBps = typeof roleBps === "number" ? roleBps : typeof feeModel.feeRateBps === "number" ? feeModel.feeRateBps : fallbackRate * 10_000;

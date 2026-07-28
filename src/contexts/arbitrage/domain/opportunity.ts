@@ -40,7 +40,29 @@ export interface PolymarketFeeModel {
   takerFeeRateBps?: number;
   orderRole?: "maker" | "taker";
   operatorFeeRateBps?: number;
+  /**
+   * Probability-weighted crypto fee model: fee = rate * price * (1 - price).
+   * When true, bps fields are ignored and the coefficient comes from
+   * `probabilityWeightedRate` (or from the market payload when feeSource is
+   * "market-payload").
+   */
+  probabilityWeighted?: boolean;
+  probabilityWeightedRate?: number;
+  /**
+   * Where the resolved coefficient came from. Distinguishes the default/config
+   * model from a coefficient read directly from the market payload.
+   */
+  provenance?: "config" | "market-payload";
   version?: string;
+}
+
+/**
+ * Common probability-weighted fee formula used by Kalshi and Polymarket crypto
+ * markets: fee-per-contract = coefficient * price * (1 - price), rounded up
+ * to 4 decimals to match platform tick precision.
+ */
+export function probabilityWeightedFee(price: number, coefficient: number): number {
+  return Math.ceil(coefficient * price * (1 - price) * 10_000) / 10_000;
 }
 
 export interface PriceLevel {
